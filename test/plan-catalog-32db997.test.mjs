@@ -1,7 +1,8 @@
 // Real Catalog plans through Core (samartomar/aih-core#163): plans, content, profiles and render bytes recorded from the
-// @aihq/catalog package built at samartomar/aih-catalog 6d9c544 (test/fixtures/catalog-6d9c544), prepared and applied
+// @aihq/catalog package built at samartomar/aih-catalog 32db997 (test/fixtures/catalog-32db997), prepared and applied
 // through the built public entries in a disposable home and project, then removed. This is real producer output for that
-// unreleased candidate; it shows Core carries out its shapes, not that any client loads the result.
+// unreleased candidate; it shows Core carries out its shapes, not that any client loads the result. The AI clients on PATH
+// are fakes (test/fixtures/fake-client.mjs and two version-printing scripts); no real client runs.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -9,22 +10,31 @@ import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { apply, list, prepare, prepareRemoval } from '../dist/core/index.js';
 import { validateFormat } from '../dist/core/contracts.js';
-import { BYO_SECRET, byoControls, byoRequest, catalog, cbmRequest, recipeRequest, recorded, rulesRequest } from './fixtures/catalog-6d9c544/replay.mjs';
+import { fakeClientEnv, fakeClientState, installFakeClient } from './fixtures/fake-client.mjs';
+import { BYO_SECRET, byoControls, byoRequest, catalog, cbmRequest, recipeRequest, recorded, rulesRequest } from './fixtures/catalog-32db997/replay.mjs';
 
-const scratch = mkdtempSync(join(tmpdir(), 'aih-catalog-6d9c544-'));
-const previous = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE, PATH: process.env.PATH };
+const scratch = mkdtempSync(join(tmpdir(), 'aih-catalog-32db997-'));
+const keys = ['HOME', 'USERPROFILE', 'PATH', 'NODE_OPTIONS', 'FAKE_CLIENT_STATE', 'FAKE_CLIENT_MODE'];
+const previous = Object.fromEntries(keys.map(key => [key, process.env[key]]));
+const bin = join(scratch, 'bin'), clients = join(scratch, 'clients');
 let home;
-// The only AI CLIs on PATH are fakes the review asks for their versions (D110); no real client runs. The fake `opencode`,
-// like many CLIs, creates its own config folder whenever it starts; the fake Cursor CLI (`cursor-agent`) prints a version.
-function fakeCli(bin, name, version, folder) {
+// Two more fake CLIs the review asks for their versions (D110). The fake `opencode`, like many CLIs, creates its own
+// config folder whenever it starts; the fake Cursor CLI (`cursor-agent`) prints a version.
+function fakeCli(name, version, folder) {
   mkdirSync(bin, { recursive: true });
   if (process.platform === 'win32') writeFileSync(join(bin, `${name}.cmd`),
     `@echo off\r\n${folder ? `mkdir "%USERPROFILE%\\${folder.replaceAll('/', '\\')}" 2>nul\r\n` : ''}echo ${version}\r\n`);
   else { writeFileSync(join(bin, name), `#!/bin/sh\n${folder ? `mkdir -p "$HOME/${folder}"\n` : ''}echo ${version}\n`); chmodSync(join(bin, name), 0o755); }
 }
-before(() => { home = join(scratch, 'home'); mkdirSync(home); process.env.HOME = home; process.env.USERPROFILE = home;
-  const bin = join(scratch, 'bin'); fakeCli(bin, 'opencode', '1.19.5', '.config/opencode'); fakeCli(bin, 'cursor-agent', '2026.10.1');
-  process.env.PATH = [bin, dirname(process.execPath), ...(process.platform === 'win32' ? [join(process.env.SystemRoot ?? 'C:\\Windows', 'System32')] : ['/usr/bin', '/bin'])].join(delimiter); });
+before(() => {
+  home = join(scratch, 'home'); mkdirSync(home);
+  fakeCli('opencode', '1.19.5', '.config/opencode'); fakeCli('cursor-agent', '2026.10.1');
+  // The fake `claude` and `codex` record the plugin commands Core runs.
+  installFakeClient(bin, 'claude'); installFakeClient(bin, 'codex');
+  const env = fakeClientEnv(bin, clients);
+  Object.assign(process.env, { HOME: home, USERPROFILE: home, ...env,
+    PATH: [bin, dirname(process.execPath), ...(process.platform === 'win32' ? [join(process.env.SystemRoot ?? 'C:\\Windows', 'System32')] : ['/usr/bin', '/bin'])].join(delimiter) });
+});
 after(() => { for (const [key, value] of Object.entries(previous)) {
   if (value === undefined) delete process.env[key]; else process.env[key] = value;
 } rmSync(scratch, { recursive: true, force: true }); });
@@ -45,6 +55,7 @@ const sourceText = (files, from) => files.find(file => file.sourceId === from.so
 /** What a person sees on disk after Apply, for every step of the real plan. */
 function placed(plan, files, roots) {
   for (const step of plan.plan) {
+    if (step.op === 'plugin') continue;
     const at = join(roots[step.root], step.path ?? step.file);
     if (step.op === 'link') { assert.ok(existsSync(join(at, 'SKILL.md')), `${step.path} links to its version folder`); continue; }
     const text = readFileSync(at, 'utf8');
@@ -60,6 +71,7 @@ function placed(plan, files, roots) {
  * JSON or TOML file the engine created stays, emptied of its entries: retained engine behaviour.)
  */
 const gone = (plan, roots) => { for (const step of plan.plan) {
+  if (step.op === 'plugin') continue;
   const at = join(roots[step.root], step.path ?? step.file);
   if (step.op !== 'merge' || !existsSync(at)) { assert.equal(existsSync(at), false, `${step.path ?? step.file} is removed`); continue; }
   const text = readFileSync(at, 'utf8');
@@ -77,6 +89,7 @@ async function removeAll(target, scope) {
     byoControls());
   assert.equal(removal.status, 'ok', JSON.stringify(removal).slice(0, 2000));
   assert.equal(conforms(await apply(removal.handle, approve(removal.review), byoControls())).completion, 'complete');
+  return removal;
 }
 
 for (const scope of ['user', 'project']) test(`the real bring-your-own ${scope} plan for nine clients installs, every file as Catalog planned, and removes`, async () => {
@@ -100,9 +113,45 @@ for (const scope of ['user', 'project']) test(`the real bring-your-own ${scope} 
   assert.equal(existsSync(join(home, '.config', 'opencode')), true, 'removal keeps the folder the CLI made for itself');
 });
 
-test('an MCP entry naming an executable no acquire step places and Core never acquired is a plan problem (cbm on windows-x64)', async () => {
-  // Catalog 6d9c544 on windows-x64: the AI setup is `not-qualified` (no acquire step), yet its MCP merges are planned.
+test('a user-only single-file skill six clients share in one project folder is still a Catalog clash, which Core refuses unresolved', async () => {
+  // Catalog 32db997 drops only a client with no user-only flag from a shared folder; these six all flag the skill.
+  assert.deepEqual(recorded.byo.shipClashes.map(clash => [clash.path, clash.reason, clash.items, clash.clis]),
+    [['.agents/skills/ship', 'different-content', ['my-skills.skill.ship'], ['antigravity', 'codex', 'copilot', 'cursor', 'dsh', 'kimi']]]);
+  const request = byoRequest('project', project());
+  request.plan.clashes = structuredClone(recorded.byo.shipClashes);
+  assert.equal((await prepare(request, byoControls())).code, 'plan-unresolved');
+});
+
+test('on windows-x64, where the AI setup is not qualified, the real cbm plan places no MCP entry: nothing names an unplaced program', async () => {
   const request = cbmRequest(project());
+  assert.deepEqual(request.plan.plan, []);
+  assert.deepEqual([...new Set(request.plan.unavailable.map(entry => `${entry.item} ${entry.reason}`))].sort(),
+    ['cbm.ai-setup.codebase-memory-mcp not-qualified', 'cbm.mcp.codebase-memory-mcp no-qualification', 'cbm.mcp.codebase-memory-mcp unsupported-kind']);
+  assert.deepEqual(request.plan.unavailable.filter(entry => entry.reason === 'unsupported-kind').map(entry => entry.cli), ['dsh']);
+  const prepared = await prepare(request, { catalog });
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared).slice(0, 2000));
+  assert.deepEqual(prepared.review.steps, []);
+});
+
+test('the qualified linux-x64 cbm plan carries settings commands with a restore Core reads, and rootPaths under its acquire step', () => {
+  const steps = cbmRequest(project(), 'linux-x64').plan.plan;
+  const [acquire] = steps.filter(step => step.op === 'acquire');
+  const commands = steps.filter(step => step.op === 'tool-command');
+  assert.equal(commands.length, 3);
+  for (const step of commands) {
+    assert.deepEqual(Object.keys(step).sort(), ['aiSetup', 'approval', 'argv', 'executable', 'qualification', 'readback', 'restore']
+      .concat('op').sort());
+    assert.deepEqual(step.restore.argv, [...step.argv.slice(0, -1), '<prior>'], 'restore sets the value back in place of the one set');
+    assert.deepEqual(step.readback.argv, ['config', 'get', step.argv[2]]);
+    assert.equal(step.executable.path, acquire.executable);
+  }
+  for (const merge of steps.filter(step => step.rootPaths)) for (const rootPath of merge.rootPaths) assert.ok(rootPath.path.startsWith(acquire.into));
+});
+
+test('an MCP entry naming an executable no acquire step places and Core never acquired is a plan problem (the P2-3 guard)', async () => {
+  // Core-side change of the real linux-x64 plan: its acquire and settings commands dropped, leaving the MCP entries.
+  const request = cbmRequest(project(), 'linux-x64');
+  request.plan.plan = request.plan.plan.filter(step => step.op !== 'acquire' && step.op !== 'tool-command');
   const rooted = request.plan.plan.flatMap((step, index) => step.rootPaths ? [index] : []);
   assert.ok(rooted.length > 0);
   const refused = await prepare(request, { catalog });
@@ -113,11 +162,12 @@ test('an MCP entry naming an executable no acquire step places and Core never ac
 
 test('an MCP entry naming an executable in a folder Core acquired gets its absolute path under the user root (Catalog rootPaths)', async () => {
   const target = project();
-  const request = cbmRequest(target);
-  // A FIXTURE stand-in for an earlier install's acquired folder: Core's marker file in the folder the entry names.
+  const request = cbmRequest(target, 'linux-x64');
+  // Core-side change as above, and a FIXTURE stand-in for an earlier install's acquired folder: Core's marker file in it.
+  request.plan.plan = request.plan.plan.filter(step => step.op !== 'acquire' && step.op !== 'tool-command');
   const folder = join(home, ...request.plan.plan.find(step => step.rootPaths).rootPaths[0].path.split('/').slice(0, -1));
   mkdirSync(folder, { recursive: true });
-  writeFileSync(join(folder, '.aih-acquired'), 'Managed by AIH Core: cbm.ai-setup.codebase-memory-mcp 0.12.1 windows-x64\n');
+  writeFileSync(join(folder, '.aih-acquired'), 'Managed by AIH Core: cbm.ai-setup.codebase-memory-mcp 0.12.1 linux-x64\n');
   const prepared = await prepare(request, { catalog });
   assert.equal(prepared.status, 'ready', JSON.stringify(prepared).slice(0, 3000));
   assert.equal(conforms(await apply(prepared.handle, approve(prepared.review))).completion, 'complete');
@@ -130,24 +180,35 @@ test('an MCP entry naming an executable in a folder Core acquired gets its absol
   rmSync(join(home, '.aihq'), { recursive: true, force: true });
 });
 
-test('a real local-plugin recipe plan over the Superpowers data is reproduced: its origin is proven, installed, listed and removed', async () => {
+test('a real plugin-route recipe plan installs Superpowers on Claude Code and Codex by marketplace name, proven, and removes', async () => {
   const target = project();
   const request = recipeRequest(target);
+  assert.deepEqual(request.plan.plan.filter(step => step.op === 'plugin').map(step => [step.cli, step.marketplace, step.marketplaceName]),
+    [['claude-code', 'https://github.com/obra/superpowers-marketplace', 'superpowers-marketplace'], ['codex', 'https://github.com/obra/superpowers', 'superpowers-dev']]);
   const prepared = await prepare(request, { catalog });
   assert.equal(prepared.status, 'ready', JSON.stringify(prepared).slice(0, 2000));
+  conforms(prepared.review);
   const origin = { recipe: { ...request.plan.recipe }, data: { ...request.plan.data } };
   assert.deepEqual([prepared.review.origin, prepared.review.originNote], [origin, null]);
+  const commit = request.plan.plan.find(step => step.op === 'plugin').commit;
+  assert.deepEqual(prepared.review.steps.filter(step => step.op === 'plugin').map(step => step.commands.map(command => command.argv)), [
+    [['claude', 'plugin', 'marketplace', 'add', 'https://github.com/obra/superpowers-marketplace', '--scope', 'user'],
+      ['claude', 'plugin', 'install', 'superpowers@superpowers-marketplace', '--scope', 'user']],
+    [['codex', 'plugin', 'marketplace', 'add', 'https://github.com/obra/superpowers', '--ref', commit], ['codex', 'plugin', 'add', 'superpowers@superpowers-dev']]]);
   assert.equal(conforms(await apply(prepared.handle, approve(prepared.review))).completion, 'complete');
-  assert.ok(existsSync(join(target, '.aihq', 'plugins', 'superpowers', '.claude-plugin', 'plugin.json')));
-  const listed = conforms(await list({ target: { project: target }, scope: 'project' }));
+  assert.deepEqual([fakeClientState(clients, 'claude').plugins, fakeClientState(clients, 'codex').plugins],
+    [['superpowers@superpowers-marketplace'], ['superpowers@superpowers-dev']]);
+  placed(request.plan, JSON.parse(JSON.stringify(request.files.map(file => ({ ...file, text: file.bytes.toString('utf8') })))), { user: home, project: target });
+  const listed = conforms(await list({ target: { project: target }, scope: 'user' }));
   assert.ok(listed.entries.length > 0 && listed.entries.every(entry => JSON.stringify(entry.origin) === JSON.stringify(origin)), JSON.stringify(listed.entries.map(entry => entry.origin)));
   // A plan that differs from what Catalog reproduces records `chosen`, never blocking.
   const changed = recipeRequest(project());
   changed.recipeProof.choices = { extra: [] };
   const unproven = await prepare(changed, { catalog });
   assert.deepEqual([unproven.status, unproven.review?.origin, unproven.review?.originNote], ['ready', 'chosen', 'origin not proven']);
-  await removeAll(target, 'project');
-  assert.equal(existsSync(join(target, '.aihq', 'plugins', 'superpowers')), false);
+  await removeAll(target, 'user');
+  assert.deepEqual([fakeClientState(clients, 'claude').plugins, fakeClientState(clients, 'codex').plugins], [[], []]);
+  gone(request.plan, { user: home, project: target });
 });
 
 test('a plan-namespaced name reference is a warning; only a path reference is plan-unresolved', async () => {
@@ -163,16 +224,20 @@ test('a plan-namespaced name reference is a warning; only a path reference is pl
   assert.equal((await prepare(pathed, byoControls())).code, 'plan-unresolved');
 });
 
-test('a rule placeholder is filled where the plan binds it; a Markdown block carrying it unbound is refused, never written with the marker', async () => {
+test('a rule placeholder is filled where the plan binds it: in its own file and in the shared AGENTS.md block', async () => {
   const target = project();
   const prepared = await prepare(rulesRequest('claude', target), { catalog });
   assert.equal(prepared.status, 'ready', JSON.stringify(prepared).slice(0, 2000));
   assert.equal(conforms(await apply(prepared.handle, approve(prepared.review), { catalog })).completion, 'complete');
   assert.equal(readFileSync(join(target, '.claude', 'rules', 'team.md'), 'utf8'), '# Team\n\nAsk platform before changing the style.\n');
-  // Catalog 6d9c544 binds the placeholder on the rule file but not on Codex's `AGENTS.md` rule-block merge.
-  const shared = rulesRequest('shared', project());
-  const block = shared.plan.plan.findIndex(step => step.op === 'merge');
-  assert.equal(shared.plan.plan[block].inputs, undefined);
-  assert.deepEqual(await prepare(shared, { catalog }), { status: 'refused', code: 'input-binding-missing', step: block, item: 'my-rules.rule.team',
-    input: 'TEAM', reason: `Step ${block} places \`rules/team.md\` with the \`TEAM\` placeholder of \`my-rules.rule.team\` but marks no binding for it; replan with a Catalog that marks input places.` });
+  // Catalog 32db997 binds the placeholder on Codex's `AGENTS.md` rule-block merge too.
+  const sharedTarget = project();
+  const shared = rulesRequest('shared', sharedTarget);
+  const block = shared.plan.plan.find(step => step.op === 'merge');
+  assert.deepEqual(block.inputs, [{ item: 'my-rules.rule.team', input: 'TEAM', at: { placeholder: '{{TEAM}}' } }]);
+  const sharedPrepared = await prepare(shared, { catalog });
+  assert.equal(sharedPrepared.status, 'ready', JSON.stringify(sharedPrepared).slice(0, 2000));
+  assert.equal(conforms(await apply(sharedPrepared.handle, approve(sharedPrepared.review), { catalog })).completion, 'complete');
+  const agents = readFileSync(join(sharedTarget, 'AGENTS.md'), 'utf8');
+  assert.ok(agents.includes('Ask platform before changing the style.') && !agents.includes('{{TEAM}}'), agents);
 });

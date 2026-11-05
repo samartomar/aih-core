@@ -3,8 +3,8 @@
   "package": "@aihq/catalog",
   "version": "0.1.0",
   "repository": "https://github.com/samartomar/aih-catalog",
-  "commit": "6d9c54450f8ad7e00372728854fa0bf0a2cece7a",
-  "tarballSha256": "6eed779def25a5e8d82d0c63119db74e733bec8ba55171f25e14b251b04816e2",
+  "commit": "32db9971497bcea87e9cf46df3a190dee077c72a",
+  "tarballSha256": "5ebfd1cd71e52b9bcde312bcb8b64879822d6cea66a0e8db4d63cf30006ff90e",
   "note": "Real output of this unreleased Catalog candidate, recorded for Core tests; no client or qualification evidence."
  },
  "profiles": {
@@ -3090,7 +3090,45 @@
      }
     ]
    }
-  }
+  },
+  "shipClashes": [
+   {
+    "root": "project",
+    "path": ".agents/skills/ship",
+    "reason": "different-content",
+    "items": [
+     "my-skills.skill.ship"
+    ],
+    "clis": [
+     "antigravity",
+     "codex",
+     "copilot",
+     "cursor",
+     "dsh",
+     "kimi"
+    ]
+   }
+  ],
+  "shipUnavailable": [
+   {
+    "item": "my-skills.agent.reviewer",
+    "cli": "dsh",
+    "reason": "unsupported-kind",
+    "detail": "dsh agents are presets inside a dsh profile, not files"
+   },
+   {
+    "item": "my-skills.mcp.exa-web-search",
+    "cli": "dsh",
+    "reason": "unsupported-kind",
+    "detail": "dsh MCP servers are entries inside a dsh profile, not a configuration file"
+   },
+   {
+    "item": "my-skills.mcp.filesystem",
+    "cli": "dsh",
+    "reason": "unsupported-kind",
+    "detail": "dsh MCP servers are entries inside a dsh profile, not a configuration file"
+   }
+  ]
  },
  "rules": {
   "content": {
@@ -3255,6 +3293,15 @@
       "item": "my-rules.rule.team",
       "clis": [
        "codex"
+      ],
+      "inputs": [
+       {
+        "item": "my-rules.rule.team",
+        "input": "TEAM",
+        "at": {
+         "placeholder": "{{TEAM}}"
+        }
+       }
       ]
      }
     ],
@@ -3518,6 +3565,14 @@
            "watcher_enabled"
           ],
           "expected": "false"
+         },
+         "restore": {
+          "argv": [
+           "config",
+           "set",
+           "watcher_enabled",
+           "<prior>"
+          ]
          }
         },
         {
@@ -3534,6 +3589,14 @@
            "auto_watch"
           ],
           "expected": "false"
+         },
+         "restore": {
+          "argv": [
+           "config",
+           "set",
+           "auto_watch",
+           "<prior>"
+          ]
          }
         },
         {
@@ -3550,6 +3613,14 @@
            "auto_index"
           ],
           "expected": "false"
+         },
+         "restore": {
+          "argv": [
+           "config",
+           "set",
+           "auto_index",
+           "<prior>"
+          ]
          }
         }
        ],
@@ -3557,7 +3628,7 @@
       },
       "version": "0.12.1"
      },
-     "behaviourSha256": "69897d9075d42b6a06f19709a2cb5066aefbe60938f72a64a00bcd5f37e3fce0",
+     "behaviourSha256": "f7f9000b4bffdd2d2aad5e6a504496f6f34631b3c7a372091c00649a33667d74",
      "contentSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
      "description": "codebase-memory-mcp 0.12.1: a native codebase knowledge graph with architecture and decision records, served over MCP.",
      "files": [],
@@ -3635,373 +3706,663 @@
     }
    ]
   },
-  "qualifications": [],
-  "plan": {
-   "status": "incomplete",
-   "data": {
-    "repository": "https://github.com/samartomar/aih-catalog",
-    "commit": "6d9c54450f8ad7e00372728854fa0bf0a2cece7a"
+  "qualifications": [
+   {
+    "observed": {
+     "artifact": {
+      "bytes": 48920994,
+      "file": "codebase-memory-mcp-linux-amd64-portable.tar.gz",
+      "sha256": "8c3d0341064301e78ecc84cf7348d4e2c6562a0f57448243ea560aaa34de36c1"
+     },
+     "closure": null,
+     "interpreter": null,
+     "members": [
+      {
+       "executable": false,
+       "path": "LICENSE",
+       "sha256": "1f58f9911dc5e3bcb96de28bb28e7b6bb7eb323952d29569c5d7214a152146bb"
+      },
+      {
+       "executable": false,
+       "path": "THIRD_PARTY_NOTICES.md",
+       "sha256": "85ba0e25610a3d1a71df75c46425141644b416f290de5c8d985ae5d2d02092e4"
+      },
+      {
+       "executable": true,
+       "path": "codebase-memory-mcp",
+       "sha256": "77745491f0a9c346d6da23eed4d92b5feaa31a27a883c9faa4fa9f47c8183705"
+      },
+      {
+       "executable": true,
+       "path": "install.sh",
+       "sha256": "13049c7cc51bc508d68b8ecb8a9fd9574ecb7c6f2c9dd5a19bf7d4c187321145"
+      }
+     ]
+    },
+    "result": {
+     "date": "2026-11-05",
+     "run": "0d38c22cf7e89a5768d6bc2527288e116c1f73ef34dad428d34f3484ac0f83b4",
+     "status": "qualified"
+    },
+    "schema": "urn:aihq:catalog:qualification:0.1.0",
+    "subject": {
+     "aiSetup": "cbm.ai-setup.codebase-memory-mcp",
+     "cell": "linux-x64",
+     "version": "0.12.1"
+    }
+   }
+  ],
+  "plans": {
+   "windows-x64": {
+    "status": "incomplete",
+    "data": {
+     "repository": "https://github.com/samartomar/aih-catalog",
+     "commit": "32db9971497bcea87e9cf46df3a190dee077c72a"
+    },
+    "profiles": [
+     {
+      "id": "antigravity",
+      "version": 4
+     },
+     {
+      "id": "claude-code",
+      "version": 4
+     },
+     {
+      "id": "codex",
+      "version": 4
+     },
+     {
+      "id": "copilot",
+      "version": 4
+     },
+     {
+      "id": "cursor",
+      "version": 3
+     },
+     {
+      "id": "dsh",
+      "version": 2
+     },
+     {
+      "id": "kimi",
+      "version": 4
+     },
+     {
+      "id": "kiro",
+      "version": 7
+     },
+     {
+      "id": "opencode",
+      "version": 3
+     }
+    ],
+    "plan": [],
+    "missing": [],
+    "unavailable": [
+     {
+      "item": "cbm.ai-setup.codebase-memory-mcp",
+      "cell": "windows-x64",
+      "reason": "not-qualified",
+      "cause": "unknown",
+      "detail": "artifact and members verified against the release digests; not run natively on this cell"
+     },
+     {
+      "item": "cbm.mcp.codebase-memory-mcp",
+      "cli": "antigravity",
+      "reason": "no-qualification",
+      "detail": "its AI setup is not acquired for the cell: no qualified artifact"
+     },
+     {
+      "item": "cbm.mcp.codebase-memory-mcp",
+      "cli": "claude-code",
+      "reason": "no-qualification",
+      "detail": "its AI setup is not acquired for the cell: no qualified artifact"
+     },
+     {
+      "item": "cbm.mcp.codebase-memory-mcp",
+      "cli": "codex",
+      "reason": "no-qualification",
+      "detail": "its AI setup is not acquired for the cell: no qualified artifact"
+     },
+     {
+      "item": "cbm.mcp.codebase-memory-mcp",
+      "cli": "copilot",
+      "reason": "no-qualification",
+      "detail": "its AI setup is not acquired for the cell: no qualified artifact"
+     },
+     {
+      "item": "cbm.mcp.codebase-memory-mcp",
+      "cli": "cursor",
+      "reason": "no-qualification",
+      "detail": "its AI setup is not acquired for the cell: no qualified artifact"
+     },
+     {
+      "item": "cbm.mcp.codebase-memory-mcp",
+      "cli": "dsh",
+      "reason": "unsupported-kind",
+      "detail": "dsh MCP servers are entries inside a dsh profile, not a configuration file"
+     },
+     {
+      "item": "cbm.mcp.codebase-memory-mcp",
+      "cli": "kimi",
+      "reason": "no-qualification",
+      "detail": "its AI setup is not acquired for the cell: no qualified artifact"
+     },
+     {
+      "item": "cbm.mcp.codebase-memory-mcp",
+      "cli": "kiro",
+      "reason": "no-qualification",
+      "detail": "its AI setup is not acquired for the cell: no qualified artifact"
+     },
+     {
+      "item": "cbm.mcp.codebase-memory-mcp",
+      "cli": "opencode",
+      "reason": "no-qualification",
+      "detail": "its AI setup is not acquired for the cell: no qualified artifact"
+     }
+    ],
+    "clashes": [],
+    "duplicates": [],
+    "references": [],
+    "warnings": []
    },
-   "profiles": [
-    {
-     "id": "antigravity",
-     "version": 4
+   "linux-x64": {
+    "status": "incomplete",
+    "data": {
+     "repository": "https://github.com/samartomar/aih-catalog",
+     "commit": "32db9971497bcea87e9cf46df3a190dee077c72a"
     },
-    {
-     "id": "claude-code",
-     "version": 4
-    },
-    {
-     "id": "codex",
-     "version": 4
-    },
-    {
-     "id": "copilot",
-     "version": 4
-    },
-    {
-     "id": "cursor",
-     "version": 3
-    },
-    {
-     "id": "dsh",
-     "version": 2
-    },
-    {
-     "id": "kimi",
-     "version": 4
-    },
-    {
-     "id": "kiro",
-     "version": 7
-    },
-    {
-     "id": "opencode",
-     "version": 3
-    }
-   ],
-   "plan": [
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/notices/cbm/LICENSE",
-     "from": {
-      "sourceId": "cbm",
-      "sourcePath": "LICENSE",
-      "sha256": "1f58f9911dc5e3bcb96de28bb28e7b6bb7eb323952d29569c5d7214a152146bb"
+    "profiles": [
+     {
+      "id": "antigravity",
+      "version": 4
      },
-     "executable": false,
-     "items": [
-      "cbm.mcp.codebase-memory-mcp"
-     ],
-     "clis": [
-      "antigravity",
-      "claude-code",
-      "codex",
-      "copilot",
-      "cursor",
-      "kimi",
-      "kiro",
-      "opencode"
-     ]
-    },
-    {
-     "op": "merge",
-     "root": "project",
-     "file": ".agents/mcp_config.json",
-     "format": "json",
-     "key": "/mcpServers/codebase-memory-mcp",
-     "entry": {
-      "command": ".aihq/ai-setup/codebase-memory-mcp/0.12.1/windows-x64/codebase-memory-mcp.exe",
-      "args": [
-       "--ui=false"
+     {
+      "id": "claude-code",
+      "version": 4
+     },
+     {
+      "id": "codex",
+      "version": 4
+     },
+     {
+      "id": "copilot",
+      "version": 4
+     },
+     {
+      "id": "cursor",
+      "version": 3
+     },
+     {
+      "id": "dsh",
+      "version": 2
+     },
+     {
+      "id": "kimi",
+      "version": 4
+     },
+     {
+      "id": "kiro",
+      "version": 7
+     },
+     {
+      "id": "opencode",
+      "version": 3
+     }
+    ],
+    "plan": [
+     {
+      "op": "acquire",
+      "aiSetup": "cbm.ai-setup.codebase-memory-mcp",
+      "version": "0.12.1",
+      "cell": "linux-x64",
+      "root": "user",
+      "into": ".aihq/ai-setup/codebase-memory-mcp/0.12.1/linux-x64/",
+      "distribution": {
+       "bytes": 48920994,
+       "file": "codebase-memory-mcp-linux-amd64-portable.tar.gz",
+       "kind": "native-archive",
+       "members": [
+        {
+         "executable": false,
+         "path": "LICENSE",
+         "sha256": "1f58f9911dc5e3bcb96de28bb28e7b6bb7eb323952d29569c5d7214a152146bb"
+        },
+        {
+         "executable": false,
+         "path": "THIRD_PARTY_NOTICES.md",
+         "sha256": "85ba0e25610a3d1a71df75c46425141644b416f290de5c8d985ae5d2d02092e4"
+        },
+        {
+         "executable": true,
+         "path": "codebase-memory-mcp",
+         "sha256": "77745491f0a9c346d6da23eed4d92b5feaa31a27a883c9faa4fa9f47c8183705"
+        },
+        {
+         "executable": true,
+         "path": "install.sh",
+         "sha256": "13049c7cc51bc508d68b8ecb8a9fd9574ecb7c6f2c9dd5a19bf7d4c187321145"
+        }
+       ],
+       "sha256": "8c3d0341064301e78ecc84cf7348d4e2c6562a0f57448243ea560aaa34de36c1",
+       "url": "https://github.com/DeusData/codebase-memory-mcp/releases/download/v0.12.1/codebase-memory-mcp-linux-amd64-portable.tar.gz"
+      },
+      "executable": ".aihq/ai-setup/codebase-memory-mcp/0.12.1/linux-x64/codebase-memory-mcp",
+      "qualification": "ff0ba8789308aa2aa2602c0d4d6e61c568724a40e345d590ae58b31598a91701",
+      "scanned": false
+     },
+     {
+      "op": "write",
+      "root": "project",
+      "path": ".aihq/notices/cbm/LICENSE",
+      "from": {
+       "sourceId": "cbm",
+       "sourcePath": "LICENSE",
+       "sha256": "1f58f9911dc5e3bcb96de28bb28e7b6bb7eb323952d29569c5d7214a152146bb"
+      },
+      "executable": false,
+      "items": [
+       "cbm.mcp.codebase-memory-mcp"
       ],
-      "env": {
-       "CBM_DIAGNOSTICS": "false"
-      }
+      "clis": [
+       "antigravity",
+       "claude-code",
+       "codex",
+       "copilot",
+       "cursor",
+       "kimi",
+       "kiro",
+       "opencode"
+      ]
      },
-     "item": "cbm.mcp.codebase-memory-mcp",
-     "clis": [
-      "antigravity"
-     ],
-     "rootPaths": [
-      {
-       "pointer": "/command",
-       "root": "user",
-       "path": ".aihq/ai-setup/codebase-memory-mcp/0.12.1/windows-x64/codebase-memory-mcp.exe"
-      }
-     ]
-    },
-    {
-     "op": "merge",
-     "root": "project",
-     "file": ".codex/config.toml",
-     "format": "toml",
-     "key": "mcp_servers.codebase-memory-mcp",
-     "entry": {
-      "command": ".aihq/ai-setup/codebase-memory-mcp/0.12.1/windows-x64/codebase-memory-mcp.exe",
-      "args": [
-       "--ui=false"
+     {
+      "op": "merge",
+      "root": "project",
+      "file": ".agents/mcp_config.json",
+      "format": "json",
+      "key": "/mcpServers/codebase-memory-mcp",
+      "entry": {
+       "command": ".aihq/ai-setup/codebase-memory-mcp/0.12.1/linux-x64/codebase-memory-mcp",
+       "args": [
+        "--ui=false"
+       ],
+       "env": {
+        "CBM_DIAGNOSTICS": "false"
+       }
+      },
+      "item": "cbm.mcp.codebase-memory-mcp",
+      "clis": [
+       "antigravity"
       ],
-      "env": {
-       "CBM_DIAGNOSTICS": "false"
-      }
+      "rootPaths": [
+       {
+        "pointer": "/command",
+        "root": "user",
+        "path": ".aihq/ai-setup/codebase-memory-mcp/0.12.1/linux-x64/codebase-memory-mcp"
+       }
+      ]
      },
-     "item": "cbm.mcp.codebase-memory-mcp",
-     "clis": [
-      "codex"
-     ],
-     "rootPaths": [
-      {
-       "pointer": "/command",
-       "root": "user",
-       "path": ".aihq/ai-setup/codebase-memory-mcp/0.12.1/windows-x64/codebase-memory-mcp.exe"
-      }
-     ]
-    },
-    {
-     "op": "merge",
-     "root": "project",
-     "file": ".cursor/mcp.json",
-     "format": "json",
-     "key": "/mcpServers/codebase-memory-mcp",
-     "entry": {
-      "command": ".aihq/ai-setup/codebase-memory-mcp/0.12.1/windows-x64/codebase-memory-mcp.exe",
-      "args": [
-       "--ui=false"
+     {
+      "op": "merge",
+      "root": "project",
+      "file": ".codex/config.toml",
+      "format": "toml",
+      "key": "mcp_servers.codebase-memory-mcp",
+      "entry": {
+       "command": ".aihq/ai-setup/codebase-memory-mcp/0.12.1/linux-x64/codebase-memory-mcp",
+       "args": [
+        "--ui=false"
+       ],
+       "env": {
+        "CBM_DIAGNOSTICS": "false"
+       }
+      },
+      "item": "cbm.mcp.codebase-memory-mcp",
+      "clis": [
+       "codex"
       ],
-      "env": {
-       "CBM_DIAGNOSTICS": "false"
-      }
+      "rootPaths": [
+       {
+        "pointer": "/command",
+        "root": "user",
+        "path": ".aihq/ai-setup/codebase-memory-mcp/0.12.1/linux-x64/codebase-memory-mcp"
+       }
+      ]
      },
-     "item": "cbm.mcp.codebase-memory-mcp",
-     "clis": [
-      "cursor"
-     ],
-     "rootPaths": [
-      {
-       "pointer": "/command",
-       "root": "user",
-       "path": ".aihq/ai-setup/codebase-memory-mcp/0.12.1/windows-x64/codebase-memory-mcp.exe"
-      }
-     ]
-    },
-    {
-     "op": "merge",
-     "root": "project",
-     "file": ".github/mcp.json",
-     "format": "json",
-     "key": "/mcpServers/codebase-memory-mcp",
-     "entry": {
-      "type": "stdio",
-      "command": ".aihq/ai-setup/codebase-memory-mcp/0.12.1/windows-x64/codebase-memory-mcp.exe",
-      "args": [
-       "--ui=false"
+     {
+      "op": "merge",
+      "root": "project",
+      "file": ".cursor/mcp.json",
+      "format": "json",
+      "key": "/mcpServers/codebase-memory-mcp",
+      "entry": {
+       "command": ".aihq/ai-setup/codebase-memory-mcp/0.12.1/linux-x64/codebase-memory-mcp",
+       "args": [
+        "--ui=false"
+       ],
+       "env": {
+        "CBM_DIAGNOSTICS": "false"
+       }
+      },
+      "item": "cbm.mcp.codebase-memory-mcp",
+      "clis": [
+       "cursor"
       ],
-      "env": {
-       "CBM_DIAGNOSTICS": "false"
-      }
+      "rootPaths": [
+       {
+        "pointer": "/command",
+        "root": "user",
+        "path": ".aihq/ai-setup/codebase-memory-mcp/0.12.1/linux-x64/codebase-memory-mcp"
+       }
+      ]
      },
-     "item": "cbm.mcp.codebase-memory-mcp",
-     "clis": [
-      "copilot"
-     ],
-     "rootPaths": [
-      {
-       "pointer": "/command",
-       "root": "user",
-       "path": ".aihq/ai-setup/codebase-memory-mcp/0.12.1/windows-x64/codebase-memory-mcp.exe"
-      }
-     ]
-    },
-    {
-     "op": "merge",
-     "root": "project",
-     "file": ".kimi-code/mcp.json",
-     "format": "json",
-     "key": "/mcpServers/codebase-memory-mcp",
-     "entry": {
-      "command": ".aihq/ai-setup/codebase-memory-mcp/0.12.1/windows-x64/codebase-memory-mcp.exe",
-      "args": [
-       "--ui=false"
+     {
+      "op": "merge",
+      "root": "project",
+      "file": ".github/mcp.json",
+      "format": "json",
+      "key": "/mcpServers/codebase-memory-mcp",
+      "entry": {
+       "type": "stdio",
+       "command": ".aihq/ai-setup/codebase-memory-mcp/0.12.1/linux-x64/codebase-memory-mcp",
+       "args": [
+        "--ui=false"
+       ],
+       "env": {
+        "CBM_DIAGNOSTICS": "false"
+       }
+      },
+      "item": "cbm.mcp.codebase-memory-mcp",
+      "clis": [
+       "copilot"
       ],
-      "env": {
-       "CBM_DIAGNOSTICS": "false"
-      }
+      "rootPaths": [
+       {
+        "pointer": "/command",
+        "root": "user",
+        "path": ".aihq/ai-setup/codebase-memory-mcp/0.12.1/linux-x64/codebase-memory-mcp"
+       }
+      ]
      },
-     "item": "cbm.mcp.codebase-memory-mcp",
-     "clis": [
-      "kimi"
-     ],
-     "rootPaths": [
-      {
-       "pointer": "/command",
-       "root": "user",
-       "path": ".aihq/ai-setup/codebase-memory-mcp/0.12.1/windows-x64/codebase-memory-mcp.exe"
-      }
-     ]
-    },
-    {
-     "op": "merge",
-     "root": "project",
-     "file": ".kiro/settings/mcp.json",
-     "format": "json",
-     "key": "/mcpServers/codebase-memory-mcp",
-     "entry": {
-      "command": ".aihq/ai-setup/codebase-memory-mcp/0.12.1/windows-x64/codebase-memory-mcp.exe",
-      "args": [
-       "--ui=false"
+     {
+      "op": "merge",
+      "root": "project",
+      "file": ".kimi-code/mcp.json",
+      "format": "json",
+      "key": "/mcpServers/codebase-memory-mcp",
+      "entry": {
+       "command": ".aihq/ai-setup/codebase-memory-mcp/0.12.1/linux-x64/codebase-memory-mcp",
+       "args": [
+        "--ui=false"
+       ],
+       "env": {
+        "CBM_DIAGNOSTICS": "false"
+       }
+      },
+      "item": "cbm.mcp.codebase-memory-mcp",
+      "clis": [
+       "kimi"
       ],
-      "env": {
-       "CBM_DIAGNOSTICS": "false"
-      }
+      "rootPaths": [
+       {
+        "pointer": "/command",
+        "root": "user",
+        "path": ".aihq/ai-setup/codebase-memory-mcp/0.12.1/linux-x64/codebase-memory-mcp"
+       }
+      ]
      },
-     "item": "cbm.mcp.codebase-memory-mcp",
-     "clis": [
-      "kiro"
-     ],
-     "rootPaths": [
-      {
-       "pointer": "/command",
-       "root": "user",
-       "path": ".aihq/ai-setup/codebase-memory-mcp/0.12.1/windows-x64/codebase-memory-mcp.exe"
-      }
-     ]
-    },
-    {
-     "op": "merge",
-     "root": "project",
-     "file": ".mcp.json",
-     "format": "json",
-     "key": "/mcpServers/codebase-memory-mcp",
-     "entry": {
-      "type": "stdio",
-      "command": ".aihq/ai-setup/codebase-memory-mcp/0.12.1/windows-x64/codebase-memory-mcp.exe",
-      "args": [
-       "--ui=false"
+     {
+      "op": "merge",
+      "root": "project",
+      "file": ".kiro/settings/mcp.json",
+      "format": "json",
+      "key": "/mcpServers/codebase-memory-mcp",
+      "entry": {
+       "command": ".aihq/ai-setup/codebase-memory-mcp/0.12.1/linux-x64/codebase-memory-mcp",
+       "args": [
+        "--ui=false"
+       ],
+       "env": {
+        "CBM_DIAGNOSTICS": "false"
+       }
+      },
+      "item": "cbm.mcp.codebase-memory-mcp",
+      "clis": [
+       "kiro"
       ],
-      "env": {
-       "CBM_DIAGNOSTICS": "false"
-      }
+      "rootPaths": [
+       {
+        "pointer": "/command",
+        "root": "user",
+        "path": ".aihq/ai-setup/codebase-memory-mcp/0.12.1/linux-x64/codebase-memory-mcp"
+       }
+      ]
      },
-     "item": "cbm.mcp.codebase-memory-mcp",
-     "clis": [
-      "claude-code"
-     ],
-     "rootPaths": [
-      {
-       "pointer": "/command",
-       "root": "user",
-       "path": ".aihq/ai-setup/codebase-memory-mcp/0.12.1/windows-x64/codebase-memory-mcp.exe"
-      }
-     ]
-    },
-    {
-     "op": "merge",
-     "root": "project",
-     "file": "opencode.json",
-     "format": "json",
-     "key": "/mcp/codebase-memory-mcp",
-     "entry": {
-      "type": "local",
-      "command": [
-       ".aihq/ai-setup/codebase-memory-mcp/0.12.1/windows-x64/codebase-memory-mcp.exe",
-       "--ui=false"
+     {
+      "op": "merge",
+      "root": "project",
+      "file": ".mcp.json",
+      "format": "json",
+      "key": "/mcpServers/codebase-memory-mcp",
+      "entry": {
+       "type": "stdio",
+       "command": ".aihq/ai-setup/codebase-memory-mcp/0.12.1/linux-x64/codebase-memory-mcp",
+       "args": [
+        "--ui=false"
+       ],
+       "env": {
+        "CBM_DIAGNOSTICS": "false"
+       }
+      },
+      "item": "cbm.mcp.codebase-memory-mcp",
+      "clis": [
+       "claude-code"
       ],
-      "environment": {
-       "CBM_DIAGNOSTICS": "false"
-      }
+      "rootPaths": [
+       {
+        "pointer": "/command",
+        "root": "user",
+        "path": ".aihq/ai-setup/codebase-memory-mcp/0.12.1/linux-x64/codebase-memory-mcp"
+       }
+      ]
      },
-     "item": "cbm.mcp.codebase-memory-mcp",
-     "clis": [
-      "opencode"
-     ],
-     "rootPaths": [
-      {
-       "pointer": "/command/0",
+     {
+      "op": "merge",
+      "root": "project",
+      "file": "opencode.json",
+      "format": "json",
+      "key": "/mcp/codebase-memory-mcp",
+      "entry": {
+       "type": "local",
+       "command": [
+        ".aihq/ai-setup/codebase-memory-mcp/0.12.1/linux-x64/codebase-memory-mcp",
+        "--ui=false"
+       ],
+       "environment": {
+        "CBM_DIAGNOSTICS": "false"
+       }
+      },
+      "item": "cbm.mcp.codebase-memory-mcp",
+      "clis": [
+       "opencode"
+      ],
+      "rootPaths": [
+       {
+        "pointer": "/command/0",
+        "root": "user",
+        "path": ".aihq/ai-setup/codebase-memory-mcp/0.12.1/linux-x64/codebase-memory-mcp"
+       }
+      ]
+     },
+     {
+      "op": "tool-command",
+      "aiSetup": "cbm.ai-setup.codebase-memory-mcp",
+      "qualification": "ff0ba8789308aa2aa2602c0d4d6e61c568724a40e345d590ae58b31598a91701",
+      "executable": {
        "root": "user",
-       "path": ".aihq/ai-setup/codebase-memory-mcp/0.12.1/windows-x64/codebase-memory-mcp.exe"
-      }
-     ]
-    }
-   ],
-   "missing": [],
-   "unavailable": [
-    {
-     "item": "cbm.ai-setup.codebase-memory-mcp",
-     "cell": "windows-x64",
-     "reason": "not-qualified",
-     "cause": "unknown",
-     "detail": "artifact and members verified against the release digests; not run natively on this cell"
-    },
-    {
-     "item": "cbm.mcp.codebase-memory-mcp",
-     "cli": "dsh",
-     "reason": "unsupported-kind",
-     "detail": "dsh MCP servers are entries inside a dsh profile, not a configuration file"
-    }
-   ],
-   "clashes": [],
-   "duplicates": [],
-   "references": [],
-   "warnings": [
-    {
-     "code": "mcp-timeouts-not-described",
-     "cli": "antigravity",
-     "items": [
-      "cbm.mcp.codebase-memory-mcp"
-     ]
-    },
-    {
-     "code": "mcp-timeouts-not-described",
-     "cli": "claude-code",
-     "items": [
-      "cbm.mcp.codebase-memory-mcp"
-     ]
-    },
-    {
-     "code": "mcp-timeouts-not-described",
-     "cli": "codex",
-     "items": [
-      "cbm.mcp.codebase-memory-mcp"
-     ]
-    },
-    {
-     "code": "mcp-timeouts-not-described",
-     "cli": "copilot",
-     "items": [
-      "cbm.mcp.codebase-memory-mcp"
-     ]
-    },
-    {
-     "code": "mcp-timeouts-not-described",
-     "cli": "cursor",
-     "items": [
-      "cbm.mcp.codebase-memory-mcp"
-     ]
-    },
-    {
-     "code": "mcp-timeouts-not-described",
-     "cli": "kimi",
-     "items": [
-      "cbm.mcp.codebase-memory-mcp"
-     ]
-    },
-    {
-     "code": "mcp-timeouts-not-described",
-     "cli": "kiro",
-     "items": [
-      "cbm.mcp.codebase-memory-mcp"
-     ]
-    },
-    {
-     "code": "mcp-timeouts-not-described",
-     "cli": "opencode",
-     "items": [
-      "cbm.mcp.codebase-memory-mcp"
-     ]
-    }
-   ]
+       "path": ".aihq/ai-setup/codebase-memory-mcp/0.12.1/linux-x64/codebase-memory-mcp"
+      },
+      "argv": [
+       "config",
+       "set",
+       "watcher_enabled",
+       "false"
+      ],
+      "readback": {
+       "argv": [
+        "config",
+        "get",
+        "watcher_enabled"
+       ],
+       "expected": "false"
+      },
+      "restore": {
+       "argv": [
+        "config",
+        "set",
+        "watcher_enabled",
+        "<prior>"
+       ]
+      },
+      "approval": "required"
+     },
+     {
+      "op": "tool-command",
+      "aiSetup": "cbm.ai-setup.codebase-memory-mcp",
+      "qualification": "ff0ba8789308aa2aa2602c0d4d6e61c568724a40e345d590ae58b31598a91701",
+      "executable": {
+       "root": "user",
+       "path": ".aihq/ai-setup/codebase-memory-mcp/0.12.1/linux-x64/codebase-memory-mcp"
+      },
+      "argv": [
+       "config",
+       "set",
+       "auto_watch",
+       "false"
+      ],
+      "readback": {
+       "argv": [
+        "config",
+        "get",
+        "auto_watch"
+       ],
+       "expected": "false"
+      },
+      "restore": {
+       "argv": [
+        "config",
+        "set",
+        "auto_watch",
+        "<prior>"
+       ]
+      },
+      "approval": "required"
+     },
+     {
+      "op": "tool-command",
+      "aiSetup": "cbm.ai-setup.codebase-memory-mcp",
+      "qualification": "ff0ba8789308aa2aa2602c0d4d6e61c568724a40e345d590ae58b31598a91701",
+      "executable": {
+       "root": "user",
+       "path": ".aihq/ai-setup/codebase-memory-mcp/0.12.1/linux-x64/codebase-memory-mcp"
+      },
+      "argv": [
+       "config",
+       "set",
+       "auto_index",
+       "false"
+      ],
+      "readback": {
+       "argv": [
+        "config",
+        "get",
+        "auto_index"
+       ],
+       "expected": "false"
+      },
+      "restore": {
+       "argv": [
+        "config",
+        "set",
+        "auto_index",
+        "<prior>"
+       ]
+      },
+      "approval": "required"
+     }
+    ],
+    "missing": [],
+    "unavailable": [
+     {
+      "item": "cbm.mcp.codebase-memory-mcp",
+      "cli": "dsh",
+      "reason": "unsupported-kind",
+      "detail": "dsh MCP servers are entries inside a dsh profile, not a configuration file"
+     }
+    ],
+    "clashes": [],
+    "duplicates": [],
+    "references": [],
+    "warnings": [
+     {
+      "code": "mcp-timeouts-not-described",
+      "cli": "antigravity",
+      "items": [
+       "cbm.mcp.codebase-memory-mcp"
+      ]
+     },
+     {
+      "code": "mcp-timeouts-not-described",
+      "cli": "claude-code",
+      "items": [
+       "cbm.mcp.codebase-memory-mcp"
+      ]
+     },
+     {
+      "code": "mcp-timeouts-not-described",
+      "cli": "codex",
+      "items": [
+       "cbm.mcp.codebase-memory-mcp"
+      ]
+     },
+     {
+      "code": "mcp-timeouts-not-described",
+      "cli": "copilot",
+      "items": [
+       "cbm.mcp.codebase-memory-mcp"
+      ]
+     },
+     {
+      "code": "mcp-timeouts-not-described",
+      "cli": "cursor",
+      "items": [
+       "cbm.mcp.codebase-memory-mcp"
+      ]
+     },
+     {
+      "code": "mcp-timeouts-not-described",
+      "cli": "kimi",
+      "items": [
+       "cbm.mcp.codebase-memory-mcp"
+      ]
+     },
+     {
+      "code": "mcp-timeouts-not-described",
+      "cli": "kiro",
+      "items": [
+       "cbm.mcp.codebase-memory-mcp"
+      ]
+     },
+     {
+      "code": "mcp-timeouts-not-described",
+      "cli": "opencode",
+      "items": [
+       "cbm.mcp.codebase-memory-mcp"
+      ]
+     }
+    ]
+   }
   },
   "files": [
    {
@@ -6459,41 +6820,51 @@
     }
    ]
   },
-  "pluginJson": "{\n  \"name\": \"superpowers-local\",\n  \"version\": \"0.1.0\",\n  \"description\": \"Superpowers as a local plugin (Core test fixture)\",\n  \"author\": {\n    \"name\": \"AIH Core tests\"\n  },\n  \"license\": \"MIT\",\n  \"keywords\": [\n    \"fixture\"\n  ]\n}\n",
-  "recipeJson": "{\n  \"content\": {\n    \"commit\": \"5bf4e78011075bcfc0dc295f0724994cd123ee71\",\n    \"repository\": \"https://github.com/obra/superpowers\"\n  },\n  \"data\": {\n    \"commit\": \"6d9c54450f8ad7e00372728854fa0bf0a2cece7a\",\n    \"repository\": \"https://github.com/samartomar/aih-catalog\"\n  },\n  \"framework\": \"superpowers\",\n  \"id\": \"superpowers-local\",\n  \"kind\": \"base\",\n  \"members\": [\n    {\n      \"item\": \"superpowers.skill.brainstorming\",\n      \"preTicked\": true\n    },\n    {\n      \"item\": \"superpowers.skill.diagnosing-superpowers\",\n      \"preTicked\": true\n    },\n    {\n      \"item\": \"superpowers.skill.dispatching-parallel-agents\",\n      \"preTicked\": true\n    },\n    {\n      \"item\": \"superpowers.skill.executing-plans\",\n      \"preTicked\": true\n    },\n    {\n      \"item\": \"superpowers.skill.finishing-a-development-branch\",\n      \"preTicked\": true\n    },\n    {\n      \"item\": \"superpowers.skill.receiving-code-review\",\n      \"preTicked\": true\n    },\n    {\n      \"item\": \"superpowers.skill.requesting-code-review\",\n      \"preTicked\": true\n    },\n    {\n      \"item\": \"superpowers.skill.subagent-driven-development\",\n      \"preTicked\": true\n    },\n    {\n      \"item\": \"superpowers.skill.systematic-debugging\",\n      \"preTicked\": true\n    },\n    {\n      \"item\": \"superpowers.skill.test-driven-development\",\n      \"preTicked\": true\n    },\n    {\n      \"item\": \"superpowers.skill.using-git-worktrees\",\n      \"preTicked\": true\n    },\n    {\n      \"item\": \"superpowers.skill.using-superpowers\",\n      \"preTicked\": true\n    },\n    {\n      \"item\": \"superpowers.skill.verification-before-completion\",\n      \"preTicked\": true\n    },\n    {\n      \"item\": \"superpowers.skill.writing-plans\",\n      \"preTicked\": true\n    },\n    {\n      \"item\": \"superpowers.skill.writing-skills\",\n      \"preTicked\": true\n    }\n  ],\n  \"plugins\": {\n    \"claude-code\": {\n      \"commit\": \"5bf4e78011075bcfc0dc295f0724994cd123ee71\",\n      \"marketplace\": \"superpowers-dev\",\n      \"path\": \"/\",\n      \"plugin\": \"superpowers\",\n      \"source\": \"superpowers\"\n    }\n  },\n  \"routes\": {\n    \"claude-code\": \"local-plugin\"\n  },\n  \"schema\": \"urn:aihq:catalog:recipe:0.1.0\"\n}\n",
+  "pluginJson": "{\n  \"name\": \"superpowers-plugins\",\n  \"version\": \"0.1.0\",\n  \"description\": \"Superpowers as native plugins (Core test fixture)\",\n  \"author\": {\n    \"name\": \"AIH Core tests\"\n  },\n  \"license\": \"MIT\",\n  \"keywords\": [\n    \"fixture\"\n  ]\n}\n",
+  "recipeJson": "{\n  \"clis\": {\n    \"kiro\": [\n      \"skill\"\n    ]\n  },\n  \"content\": {\n    \"commit\": \"5bf4e78011075bcfc0dc295f0724994cd123ee71\",\n    \"repository\": \"https://github.com/obra/superpowers\"\n  },\n  \"data\": {\n    \"commit\": \"32db9971497bcea87e9cf46df3a190dee077c72a\",\n    \"repository\": \"https://github.com/samartomar/aih-catalog\"\n  },\n  \"framework\": \"superpowers\",\n  \"id\": \"superpowers-plugins\",\n  \"kind\": \"base\",\n  \"members\": [\n    {\n      \"item\": \"superpowers.skill.brainstorming\",\n      \"preTicked\": true\n    }\n  ],\n  \"plugins\": {\n    \"claude-code\": {\n      \"commit\": \"5bf4e78011075bcfc0dc295f0724994cd123ee71\",\n      \"marketplace\": \"https://github.com/obra/superpowers-marketplace\",\n      \"marketplaceName\": \"superpowers-marketplace\",\n      \"path\": \"/\",\n      \"plugin\": \"superpowers\",\n      \"source\": \"superpowers\"\n    },\n    \"codex\": {\n      \"commit\": \"5bf4e78011075bcfc0dc295f0724994cd123ee71\",\n      \"marketplace\": \"https://github.com/obra/superpowers\",\n      \"marketplaceName\": \"superpowers-dev\",\n      \"path\": \"/\",\n      \"plugin\": \"superpowers\",\n      \"source\": \"superpowers\"\n    }\n  },\n  \"routes\": {\n    \"claude-code\": \"plugin\",\n    \"codex\": \"plugin\",\n    \"kiro\": \"items\"\n  },\n  \"schema\": \"urn:aihq:catalog:recipe:0.1.0\"\n}\n",
   "choices": {},
   "options": {
-   "scope": "project",
+   "scope": "user",
    "source": {
-    "repository": "https://github.com/example/superpowers-local-recipe",
+    "repository": "https://github.com/example/superpowers-plugins-recipe",
     "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
    }
   },
   "profiles": [
-   "claude-code"
+   "claude-code",
+   "codex",
+   "kiro"
   ],
   "plan": {
    "status": "ok",
    "recipe": {
-    "id": "superpowers-local",
-    "sha256": "b3f4a5fb9993a25ae33aeb2212b177a144addffb181ca80d98cfb8e5513e6222",
-    "repository": "https://github.com/example/superpowers-local-recipe",
+    "id": "superpowers-plugins",
+    "sha256": "1553250afb77cf698a18ac1ffb2d6d9b111c7ea3831159e2d5f4d41be6c369aa",
+    "repository": "https://github.com/example/superpowers-plugins-recipe",
     "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
    },
    "data": {
     "repository": "https://github.com/samartomar/aih-catalog",
-    "commit": "6d9c54450f8ad7e00372728854fa0bf0a2cece7a"
+    "commit": "32db9971497bcea87e9cf46df3a190dee077c72a"
    },
    "profiles": [
     {
      "id": "claude-code",
      "version": 4
+    },
+    {
+     "id": "codex",
+     "version": 4
+    },
+    {
+     "id": "kiro",
+     "version": 7
     }
    ],
    "plan": [
     {
      "op": "write",
-     "root": "project",
+     "root": "user",
      "path": ".aihq/notices/superpowers/LICENSE",
      "from": {
       "sourceId": "superpowers",
@@ -6502,4000 +6873,180 @@
      },
      "executable": false,
      "items": [
-      "superpowers.skill.brainstorming",
-      "superpowers.skill.diagnosing-superpowers",
-      "superpowers.skill.dispatching-parallel-agents",
-      "superpowers.skill.executing-plans",
-      "superpowers.skill.finishing-a-development-branch",
-      "superpowers.skill.receiving-code-review",
-      "superpowers.skill.requesting-code-review",
-      "superpowers.skill.subagent-driven-development",
-      "superpowers.skill.systematic-debugging",
-      "superpowers.skill.test-driven-development",
-      "superpowers.skill.using-git-worktrees",
-      "superpowers.skill.using-superpowers",
-      "superpowers.skill.verification-before-completion",
-      "superpowers.skill.writing-plans",
-      "superpowers.skill.writing-skills"
+      "superpowers.skill.brainstorming"
      ],
      "clis": [
-      "claude-code"
+      "kiro"
      ]
     },
     {
      "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/.agents/plugins/marketplace.json",
+     "root": "user",
+     "path": ".aihq/shared/superpowers/skill/brainstorming/061719b63041/SKILL.md",
      "from": {
-      "sourceId": "superpowers",
-      "sourcePath": ".agents/plugins/marketplace.json",
-      "sha256": "2b94116c190896480e5054222a744e375976f8ae5bdb66ff0ab6b348dfad4182"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ],
-     "contains": [
-      "superpowers.skill.brainstorming",
-      "superpowers.skill.diagnosing-superpowers",
-      "superpowers.skill.dispatching-parallel-agents",
-      "superpowers.skill.executing-plans",
-      "superpowers.skill.finishing-a-development-branch",
-      "superpowers.skill.receiving-code-review",
-      "superpowers.skill.requesting-code-review",
-      "superpowers.skill.subagent-driven-development",
-      "superpowers.skill.systematic-debugging",
-      "superpowers.skill.test-driven-development",
-      "superpowers.skill.using-git-worktrees",
-      "superpowers.skill.using-superpowers",
-      "superpowers.skill.verification-before-completion",
-      "superpowers.skill.writing-plans",
-      "superpowers.skill.writing-skills"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/.claude-plugin/marketplace.json",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": ".claude-plugin/marketplace.json",
-      "sha256": "bbc0b9b453afe5f027c14c6c8dba5ba6b214468cc8d1d5ccd6af55d3748d81b6"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/.claude-plugin/plugin.json",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": ".claude-plugin/plugin.json",
-      "sha256": "aaa8449b5cc65a6df6feaa09f9317e87efb51440b17f626104d57222b3611a8e"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/.codex-plugin/plugin.json",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": ".codex-plugin/plugin.json",
-      "sha256": "8f879f5e2f04c5d2a93bd9ea455072384dc35d01f1dfc5307ca1be0cef5be9aa"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/.cursor-plugin/plugin.json",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": ".cursor-plugin/plugin.json",
-      "sha256": "998f2cdd2824c4d84184043d07e94b9fbc0bdb5e79c23c14cd266355d0394fbd"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/.devin-plugin/plugin.json",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": ".devin-plugin/plugin.json",
-      "sha256": "717a5137ee3416c17bf7d2fbffb1edbc820e2bb8a6f5b9bc35b18b23afafd1bb"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/.gitattributes",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": ".gitattributes",
-      "sha256": "4702b23e09afad9638c184c8900b31af635673ba439c265ecc3d341efb54eaf8"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/.github/FUNDING.yml",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": ".github/FUNDING.yml",
-      "sha256": "2f9cdda7b1f3ea4be28bbcc3444c2c6512d7739589e6c5e72fd4f95950d3e7d4"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/.github/ISSUE_TEMPLATE/bug_report.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": ".github/ISSUE_TEMPLATE/bug_report.md",
-      "sha256": "32a5b6e5ad3528daac479ad0025502dfad9dd06fe457242c1506ac19c77d6e46"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/.github/ISSUE_TEMPLATE/config.yml",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": ".github/ISSUE_TEMPLATE/config.yml",
-      "sha256": "e955d428a9ac46ed35f407b6532d74d1dade217d89d9a4c7f6b05b72872a004a"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/.github/ISSUE_TEMPLATE/diagnosis_report.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": ".github/ISSUE_TEMPLATE/diagnosis_report.md",
-      "sha256": "42f87b4f856c872d01e933d2b2f4e1176e2811d1c36631679af6b9e76c3ee072"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/.github/ISSUE_TEMPLATE/feature_request.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": ".github/ISSUE_TEMPLATE/feature_request.md",
-      "sha256": "59ad1c8a7b5faca0273fa310f6c78fe2a3ec4917d9f3e12fb1220d5381c8f783"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/.github/ISSUE_TEMPLATE/platform_support.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": ".github/ISSUE_TEMPLATE/platform_support.md",
-      "sha256": "006109a23ce39dbf252cc9f8acb59765cc755a1edfeb840efc79035f2c1d44a9"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/.github/PULL_REQUEST_TEMPLATE.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": ".github/PULL_REQUEST_TEMPLATE.md",
-      "sha256": "b5cde91d5809bec88f6d11f6e295695549a59ea9fc5e32469ea12ad485cb37fb"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/.gitignore",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": ".gitignore",
-      "sha256": "30b79670d7359590a4f1798e99112d9298d8eed889042aba2ee9a1722dc06ebb"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/.hermes-plugin/__init__.py",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": ".hermes-plugin/__init__.py",
-      "sha256": "7fd93899e39371d56ba1e32660548673afa78f3a4a8bd306f93fbb418afa6f3c"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/.hermes-plugin/plugin.yaml",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": ".hermes-plugin/plugin.yaml",
-      "sha256": "5db5d7dcf9c6a7ce0cf2e90924087ea52e92510a91ccc60916b03562b0b49ca2"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/.kimi-plugin/plugin.json",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": ".kimi-plugin/plugin.json",
-      "sha256": "ea5a1db06d1577f9e08339c4353e9cbcd4d381d64b9523c756d5f237424b2d6e"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/.muse-plugin/marketplace.json",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": ".muse-plugin/marketplace.json",
-      "sha256": "abf65c85ebee8ef70da0890c617e544bca855b4cfa464e63df5c9cacd05c97f5"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/.muse-plugin/plugin.json",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": ".muse-plugin/plugin.json",
-      "sha256": "8ec5ba62667187e5660da986c5e5e21bf363a62bb7e1f461df15095e892eb960"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/.opencode/INSTALL.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": ".opencode/INSTALL.md",
-      "sha256": "cc6974985df02929468478efbf287b5a1f913badf3f384a2e4255585211e5c41"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/.opencode/plugins/superpowers.js",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": ".opencode/plugins/superpowers.js",
-      "sha256": "c979fe5a9fd6fddc9bc9730b34b25989f9d53939eed7d594c4564f6e47495f26"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/.pi/extensions/superpowers.ts",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": ".pi/extensions/superpowers.ts",
-      "sha256": "39c27000c047f8a1399a76e032e4cd239d7bdb0be168a121f46a2ac719deaae0"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/.pre-commit-config.yaml",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": ".pre-commit-config.yaml",
-      "sha256": "73070dfddbcb1e94980a2e7172532e5d6403e44aa3f30ef5de30306b77684f32"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/.version-bump.json",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": ".version-bump.json",
-      "sha256": "e89981610cdb3ad966c72cc49a3574d91edb625ec7ebf9287d5b5f924d17b4df"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/AGENTS.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "AGENTS.md",
-      "sha256": "28c88405f9357e01b06fb460fce2078ed0c264b5113160cff59ec6c5ee3cf74f"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/CLAUDE.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "CLAUDE.md",
-      "sha256": "a0b90c1acaaef41f4b7d00f5ea4eab4485718b887b0895506fdf690bf5acae1f"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/CODE_OF_CONDUCT.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "CODE_OF_CONDUCT.md",
-      "sha256": "5604db48bb38684df7b0816cc2a8b2659a9c7efcfb2fa17936e6b16b1ec79316"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/GEMINI.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "GEMINI.md",
-      "sha256": "0823da8b7277f8b623746d57c0bee75fda02e4c832fe57843e644d0fe633abbc"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/LICENSE",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "LICENSE",
-      "sha256": "a37e0e9697144819e1d965176ac4ae5bc3fa02d11e7812036bbcadf6dafe2400"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/README.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "README.md",
-      "sha256": "04fd40756d26d5f2132ddfbc5c3c35335b02bb456197308975f9d12eaa522382"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/RELEASE-NOTES.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "RELEASE-NOTES.md",
-      "sha256": "a28c759f43c29c5fb430e6dec8f2ff05167d41992d5d0417d2ed186655ac2196"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/assets/app-icon.png",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "assets/app-icon.png",
-      "sha256": "b7477eb39b5109617fe37e51dd65d8bdd8dff6c40fda49adfbc21eec445777ee"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/assets/superpowers-small.svg",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "assets/superpowers-small.svg",
-      "sha256": "54a632d9ee6197ccbc10d43d42217e23d08375bea63ba8eb4b6af757c1535038"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/docs/README.kimi.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "docs/README.kimi.md",
-      "sha256": "915b112731bbcb635885ed1c5f24a36b43248bc18689fa253bb4f89c937c6585"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/docs/README.opencode.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "docs/README.opencode.md",
-      "sha256": "753e14100ecb3b31663199711316f4e10017bddebf8976672b5e164d9567882f"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/docs/plans/2025-11-22-opencode-support-design.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "docs/plans/2025-11-22-opencode-support-design.md",
-      "sha256": "4688cb2e4bafa7e6124dd811be57c8873bfb4b8cccb95ddbd7032557a9cfd10b"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/docs/plans/2025-11-22-opencode-support-implementation.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "docs/plans/2025-11-22-opencode-support-implementation.md",
-      "sha256": "2cc68cc29ee1174e13a65739b004f2346911a0d89a20744930f9f5b81963b4f3"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/docs/plans/2025-11-28-skills-improvements-from-user-feedback.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "docs/plans/2025-11-28-skills-improvements-from-user-feedback.md",
-      "sha256": "cce0b2e951209ac7d555fcbacfc858d8069b4036019d44dd95bb4334afaf2e65"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/docs/plans/2026-01-17-visual-brainstorming.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "docs/plans/2026-01-17-visual-brainstorming.md",
-      "sha256": "2ff9c06d8c7cf650becb588d74507c5681c55844c61e21160a290cbe26d41ca4"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/docs/porting-to-a-new-harness.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "docs/porting-to-a-new-harness.md",
-      "sha256": "0718c66a4f57c3d7179335d385296ab3ca03b936546fec408324b39ca381952b"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/docs/superpowers/plans/2026-01-22-document-review-system.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "docs/superpowers/plans/2026-01-22-document-review-system.md",
-      "sha256": "92875a4d7db7acef7737ace512ed5a6ae29ab76aff421633276a4a824c5d5cf7"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/docs/superpowers/plans/2026-02-19-visual-brainstorming-refactor.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "docs/superpowers/plans/2026-02-19-visual-brainstorming-refactor.md",
-      "sha256": "fbc67c4e7c5e42ff6e8e647951b749a2610ca2e13639903867258032c175bbbe"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/docs/superpowers/plans/2026-03-11-zero-dep-brainstorm-server.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "docs/superpowers/plans/2026-03-11-zero-dep-brainstorm-server.md",
-      "sha256": "d1e3b19e1111cab0a113519a9d2d9e881080c5fe13c3227e6c22fa88d08dc11d"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/docs/superpowers/plans/2026-03-23-codex-app-compatibility.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "docs/superpowers/plans/2026-03-23-codex-app-compatibility.md",
-      "sha256": "28b0335e97ceea066ab2eefa9a02eea6bf30d3e580788ce462976efce13dc709"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/docs/superpowers/plans/2026-04-06-worktree-rototill.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "docs/superpowers/plans/2026-04-06-worktree-rototill.md",
-      "sha256": "98d21b8bbbee1d7359aaf65ba74a9f1313d9f5114000613301a00244a415f61f"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/docs/superpowers/plans/2026-05-06-lift-drill-into-evals.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "docs/superpowers/plans/2026-05-06-lift-drill-into-evals.md",
-      "sha256": "3b1b5c8748dde0754872181631ef8b6188d0221b2723106ab2a82d2b9290accd"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/docs/superpowers/plans/2026-05-07-pi-extension-and-evals.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "docs/superpowers/plans/2026-05-07-pi-extension-and-evals.md",
-      "sha256": "887dda265dc5f61ad4a04b9d0da98c059f6d93d08ff79180afbdafa7a000d75e"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/docs/superpowers/plans/2026-06-09-sdd-task-scoped-review-dispatch.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "docs/superpowers/plans/2026-06-09-sdd-task-scoped-review-dispatch.md",
-      "sha256": "1597b91dbf9f8113533c6da8410607c5ac6c47db92b043a1284fff075b037aa8"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/docs/superpowers/plans/2026-06-09-visual-companion-issues.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "docs/superpowers/plans/2026-06-09-visual-companion-issues.md",
-      "sha256": "bf939ca1e1398f54e1950193299084836e45767cb00735342e3d7c31ff1fe31e"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/docs/superpowers/plans/2026-06-10-visual-companion-auth-hardening.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "docs/superpowers/plans/2026-06-10-visual-companion-auth-hardening.md",
-      "sha256": "7387fa4ddbc9bf071088372802c9aed6e44b224875291d2309007d76929af2f2"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/docs/superpowers/plans/2026-06-11-visual-companion-final-hardening-fixup.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "docs/superpowers/plans/2026-06-11-visual-companion-final-hardening-fixup.md",
-      "sha256": "5604d33566ba5ca9940924819892a6d3f095a8704e2705e3fcc64a23334ca2f3"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/docs/superpowers/plans/2026-07-06-sdd-plan-scoped-workspace.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "docs/superpowers/plans/2026-07-06-sdd-plan-scoped-workspace.md",
-      "sha256": "2d1b484cd2a4ead41fd5be842ccbc4c114b7b5eb52135c79190a6f756acbfd39"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/docs/superpowers/plans/2026-07-15-sdd-fix-loop-redesign.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "docs/superpowers/plans/2026-07-15-sdd-fix-loop-redesign.md",
-      "sha256": "83189840f8591276c481187dc742f99f3e6add14eec0f7a782b5150a89024648"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/docs/superpowers/plans/2026-07-30-codex-efficiency-fixes.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "docs/superpowers/plans/2026-07-30-codex-efficiency-fixes.md",
-      "sha256": "78e7b8cd163ee78ac16a9ba9fbfffe3ae98b7711c092d75c7283bd325fdf42f7"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/docs/superpowers/plans/2026-08-06-hermes-version-bump-wiring.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "docs/superpowers/plans/2026-08-06-hermes-version-bump-wiring.md",
-      "sha256": "3a9669467c0db792fb1465ccee38e086349b8415aa7077e1d6b8633f47eab208"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/docs/superpowers/plans/2026-08-27-diagnosing-superpowers.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "docs/superpowers/plans/2026-08-27-diagnosing-superpowers.md",
-      "sha256": "a8a57533a032af65e649a63b9f0f9a306913cc319d3638ec609befcb6c77b7fd"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/docs/superpowers/specs/2026-01-22-document-review-system-design.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "docs/superpowers/specs/2026-01-22-document-review-system-design.md",
-      "sha256": "19dd839168b9e4a072985e8941aa3ae7cf9101357111620755d50dbeb1bea04b"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/docs/superpowers/specs/2026-02-19-visual-brainstorming-refactor-design.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "docs/superpowers/specs/2026-02-19-visual-brainstorming-refactor-design.md",
-      "sha256": "f27d0f9c33cc4f34101fd676d48e73d6259e6cd4e1b3adc477ea81f4c7557af7"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/docs/superpowers/specs/2026-03-11-zero-dep-brainstorm-server-design.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "docs/superpowers/specs/2026-03-11-zero-dep-brainstorm-server-design.md",
-      "sha256": "8f29bac7d4df2b51062c005fe4d591140f1da3ab2030b28537df6f964637b9e9"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/docs/superpowers/specs/2026-03-23-codex-app-compatibility-design.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "docs/superpowers/specs/2026-03-23-codex-app-compatibility-design.md",
-      "sha256": "f351216f0b8abb5f08a9209d71ec3c218c79b1ba9d6a1c68aec990ef00e31a53"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/docs/superpowers/specs/2026-04-06-worktree-rototill-design.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "docs/superpowers/specs/2026-04-06-worktree-rototill-design.md",
-      "sha256": "757ce61bbcd16dcb8f61fa69778ca7a3b1d26f7a11a0fcea3d302fd99a52ebae"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/docs/superpowers/specs/2026-05-05-platform-neutral-config-refs-design.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "docs/superpowers/specs/2026-05-05-platform-neutral-config-refs-design.md",
-      "sha256": "7a3c5e5fb77a3f8a500e9406283653cfee5edf1b98e58d5f267c5f21905eee19"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/docs/superpowers/specs/2026-05-05-platform-neutral-prose-design.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "docs/superpowers/specs/2026-05-05-platform-neutral-prose-design.md",
-      "sha256": "d55fa30a3b1422f8364a81f49c755ada9cc792b2cc10193b1dbd43c551918c19"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/docs/superpowers/specs/2026-05-05-platform-neutral-readme-design.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "docs/superpowers/specs/2026-05-05-platform-neutral-readme-design.md",
-      "sha256": "63eb346415386c6850832f4b7414d03570a033eaf37de0b60d2ec4834169896e"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/docs/superpowers/specs/2026-05-06-lift-drill-into-evals-design.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "docs/superpowers/specs/2026-05-06-lift-drill-into-evals-design.md",
-      "sha256": "fac3785f6f779bd899a6e93bcd60a934b4946ce4f7e8b6129d7910979650a6a1"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/docs/superpowers/specs/2026-06-09-sdd-task-scoped-review-dispatch-design.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "docs/superpowers/specs/2026-06-09-sdd-task-scoped-review-dispatch-design.md",
-      "sha256": "08b6b77be0d3b95e1d19a3dc320b93bba52917ca9beb0084fd74ecd75c015b59"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/docs/superpowers/specs/2026-06-10-positive-instruction-redesign-design.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "docs/superpowers/specs/2026-06-10-positive-instruction-redesign-design.md",
-      "sha256": "3a87b9e873728a3a4331437eb90f9fc5f4c9d7d0b88a931cce2bc3bda041b68b"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/docs/superpowers/specs/2026-06-10-strict-cost-sdd-design.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "docs/superpowers/specs/2026-06-10-strict-cost-sdd-design.md",
-      "sha256": "e8865d184479ffd4f2fe2c3072bf6a2b70179bbb4565cd6cefcbcb127c9f9b28"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/docs/superpowers/specs/2026-06-10-visual-companion-auth-hardening-design.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "docs/superpowers/specs/2026-06-10-visual-companion-auth-hardening-design.md",
-      "sha256": "8d97d0384c61c0400fb67429a4384ad989bdc11953cce160069c368ac1f7e362"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/docs/superpowers/specs/2026-06-11-visual-companion-final-hardening-fixup-design.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "docs/superpowers/specs/2026-06-11-visual-companion-final-hardening-fixup-design.md",
-      "sha256": "78c4fbc2b609b1fe3ca0d7aba0f4d800511baf069355d25b37da5cf957dc0e7c"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/docs/superpowers/specs/2026-07-06-sdd-plan-scoped-workspace-eval-results.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "docs/superpowers/specs/2026-07-06-sdd-plan-scoped-workspace-eval-results.md",
-      "sha256": "c4d2f3f086648ee6b949fd0ed999dd7b0a3a8d45ba290b2024389c66b2ed95b7"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/docs/superpowers/specs/2026-07-06-sdd-plan-scoped-workspace.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "docs/superpowers/specs/2026-07-06-sdd-plan-scoped-workspace.md",
-      "sha256": "301328cb8dec833dc35e05e90b4c10a6e67ebd915b33a3a5d34f83927094815d"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/docs/superpowers/specs/2026-07-15-sdd-fix-loop-redesign-design.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "docs/superpowers/specs/2026-07-15-sdd-fix-loop-redesign-design.md",
-      "sha256": "9ed33fe2821fd9d61e198c03e0377a9151294737a6ea34074637c1eef98c1a06"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/docs/superpowers/specs/2026-07-30-codex-efficiency-fixes-design.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "docs/superpowers/specs/2026-07-30-codex-efficiency-fixes-design.md",
-      "sha256": "6a6f81dcea03ebb8ffa710536fc92faab285c7bc894430c3348eb0bfa3fea926"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/docs/superpowers/specs/2026-08-05-hermes-version-bump-wiring-design.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "docs/superpowers/specs/2026-08-05-hermes-version-bump-wiring-design.md",
-      "sha256": "f649e3afbd3a14df4c1ac5bd1942ffb4846129836f20b5f2aa3263fd3c19ed69"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/docs/superpowers/specs/2026-08-27-diagnosing-superpowers-design.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "docs/superpowers/specs/2026-08-27-diagnosing-superpowers-design.md",
-      "sha256": "da21af32ea629de17c3221f08dc4825c0f26d7bea4902f217eba9e5caf7b966d"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/docs/testing.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "docs/testing.md",
-      "sha256": "2959880663be4abecbcf11331e64e435cfadffae2c9e2fb24eb5509224f51f30"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/docs/windows/polyglot-hooks.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "docs/windows/polyglot-hooks.md",
-      "sha256": "476cb301b99f0419ca7af197d1be8a8f777ef0e62fb9fc64a896a0e007e9d080"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/gemini-extension.json",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "gemini-extension.json",
-      "sha256": "f6178caaf68a6b85fb46057c6c804d0f0253e36c569de8572e0a4410f8c17085"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/hooks/hooks-cursor.json",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "hooks/hooks-cursor.json",
-      "sha256": "53d8ceb3ff5d8bb1c4f283f238cc868b8c1af22e40a3ac30f6d6e4173effefbd"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/hooks/hooks.json",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "hooks/hooks.json",
-      "sha256": "47fd72cc8bedf31c72702b35b4ed7bab670294d658c4ce518330337525a3798b"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/hooks/run-hook.cmd",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "hooks/run-hook.cmd",
-      "sha256": "d3d9c6199678dab2858e60509dde5e7414f13c2a2b5e48a38b1d368b6e1d6abb"
-     },
-     "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/hooks/session-start",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "hooks/session-start",
-      "sha256": "5e92229e49d7cff5e0355ab84b0bceb0d27d53c565b33210132ce6e413ee9665"
-     },
-     "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/index.js",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "index.js",
-      "sha256": "f0132fd5339befeb99ba903b1619fd9530969e5b4a1ea8cecf0b0a7f0213a099"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/package.json",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "package.json",
-      "sha256": "868afc1612a438852cc73a4bb27184a31a1b2837958f5b087aabadf6bb8fb21a"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/scripts/bump-version.sh",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "scripts/bump-version.sh",
-      "sha256": "fc96339dad5f54ffcef3393b28542dbe93ec168573c012d9c599603009e80006"
-     },
-     "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/scripts/lint-shell.sh",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "scripts/lint-shell.sh",
-      "sha256": "aa34cc2dad4b130231bcf21fdd18f3f91e8fd7ab80d88a82a13e1395f32756f8"
-     },
-     "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/scripts/package-codex-plugin.sh",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "scripts/package-codex-plugin.sh",
-      "sha256": "2541617b86519273428d12d18a5f7ec852ac39cfdec74622c01ce71a504bb80d"
-     },
-     "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/scripts/sync-to-codex-plugin.sh",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "scripts/sync-to-codex-plugin.sh",
-      "sha256": "d24c3a579f5d6759f08f8c1c9a7772caa6e937dcc124f1aae5fe0ffd1177ee24"
-     },
-     "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/brainstorming/SKILL.md",
-     "from": {
+      "item": "superpowers.skill.brainstorming",
       "sourceId": "superpowers",
       "sourcePath": "skills/brainstorming/SKILL.md",
       "sha256": "a32d2255354775aa124855aa7100cf276bea096fff4ebb3a0edf57be216e6c72"
      },
      "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
+     "render": {
+      "name": "skill",
+      "profile": "kiro",
+      "version": 7,
+      "installName": "brainstorming"
+     },
+     "scanned": false,
+     "item": "superpowers.skill.brainstorming",
      "clis": [
-      "claude-code"
+      "kiro"
      ]
     },
     {
      "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/brainstorming/scripts/frame-template.html",
+     "root": "user",
+     "path": ".aihq/shared/superpowers/skill/brainstorming/061719b63041/scripts/frame-template.html",
      "from": {
+      "item": "superpowers.skill.brainstorming",
       "sourceId": "superpowers",
       "sourcePath": "skills/brainstorming/scripts/frame-template.html",
       "sha256": "6a8a4e58bd6a44b904e2e3c57de774481d909204597e1498de53f1b2fecc4c4e"
      },
      "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
+     "item": "superpowers.skill.brainstorming",
      "clis": [
-      "claude-code"
+      "kiro"
      ]
     },
     {
      "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/brainstorming/scripts/helper.js",
+     "root": "user",
+     "path": ".aihq/shared/superpowers/skill/brainstorming/061719b63041/scripts/helper.js",
      "from": {
+      "item": "superpowers.skill.brainstorming",
       "sourceId": "superpowers",
       "sourcePath": "skills/brainstorming/scripts/helper.js",
       "sha256": "43c6d69954a46ec34a2a262bcc62a9a7e83e839c739f199cb72646d397c686e3"
      },
      "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
+     "item": "superpowers.skill.brainstorming",
      "clis": [
-      "claude-code"
+      "kiro"
      ]
     },
     {
      "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/brainstorming/scripts/server.cjs",
+     "root": "user",
+     "path": ".aihq/shared/superpowers/skill/brainstorming/061719b63041/scripts/server.cjs",
      "from": {
+      "item": "superpowers.skill.brainstorming",
       "sourceId": "superpowers",
       "sourcePath": "skills/brainstorming/scripts/server.cjs",
       "sha256": "2d2961ea8d11f56c5f4c3a1a68d22709efa5d7601a2246d8c880774e7e9e8412"
      },
      "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
+     "item": "superpowers.skill.brainstorming",
      "clis": [
-      "claude-code"
+      "kiro"
      ]
     },
     {
      "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/brainstorming/scripts/start-server.sh",
+     "root": "user",
+     "path": ".aihq/shared/superpowers/skill/brainstorming/061719b63041/scripts/start-server.sh",
      "from": {
+      "item": "superpowers.skill.brainstorming",
       "sourceId": "superpowers",
       "sourcePath": "skills/brainstorming/scripts/start-server.sh",
       "sha256": "a4e5ae84275bcaacd2f84345afeabe59cf7b00ba080e123da7cc1fb226f12847"
      },
      "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
+     "item": "superpowers.skill.brainstorming",
      "clis": [
-      "claude-code"
+      "kiro"
      ]
     },
     {
      "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/brainstorming/scripts/stop-server.sh",
+     "root": "user",
+     "path": ".aihq/shared/superpowers/skill/brainstorming/061719b63041/scripts/stop-server.sh",
      "from": {
+      "item": "superpowers.skill.brainstorming",
       "sourceId": "superpowers",
       "sourcePath": "skills/brainstorming/scripts/stop-server.sh",
       "sha256": "0b5ccbbd57f62d3ed88993f7940b5ee0e5c0fc9b21c550c623da4f6292e47daf"
      },
      "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
+     "item": "superpowers.skill.brainstorming",
      "clis": [
-      "claude-code"
+      "kiro"
      ]
     },
     {
      "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/brainstorming/spec-document-reviewer-prompt.md",
+     "root": "user",
+     "path": ".aihq/shared/superpowers/skill/brainstorming/061719b63041/spec-document-reviewer-prompt.md",
      "from": {
+      "item": "superpowers.skill.brainstorming",
       "sourceId": "superpowers",
       "sourcePath": "skills/brainstorming/spec-document-reviewer-prompt.md",
       "sha256": "95a0a195de9d984be2fffa95bab16fc8c563bc296a9cfc5e9c29cb3ece0d7457"
      },
      "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
+     "item": "superpowers.skill.brainstorming",
      "clis": [
-      "claude-code"
+      "kiro"
      ]
     },
     {
      "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/brainstorming/visual-companion.md",
+     "root": "user",
+     "path": ".aihq/shared/superpowers/skill/brainstorming/061719b63041/visual-companion.md",
      "from": {
+      "item": "superpowers.skill.brainstorming",
       "sourceId": "superpowers",
       "sourcePath": "skills/brainstorming/visual-companion.md",
       "sha256": "6ffcb038b53254bd31debaa15e12dcd4ff24bd63d690e0b644ac6396701cf2e2"
      },
      "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/diagnosing-superpowers/SKILL.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/diagnosing-superpowers/SKILL.md",
-      "sha256": "5a652f8132cc901eb5ca61f89157839f87a2f20aed037fc7a2b51051bc37cd19"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/diagnosing-superpowers/prompts/analyst-common.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/diagnosing-superpowers/prompts/analyst-common.md",
-      "sha256": "88801c36070be2a54a8a9a29632b01ab21db053e2e76ee49b5252a9b74ca4090"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/diagnosing-superpowers/prompts/cost-and-time.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/diagnosing-superpowers/prompts/cost-and-time.md",
-      "sha256": "fe97a66d4db3b436816ef82694bda413b522b3a862dd41978da01e358fffecc4"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/diagnosing-superpowers/prompts/plan-adherence.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/diagnosing-superpowers/prompts/plan-adherence.md",
-      "sha256": "1dcbab82033598a2e9c9ee42e950d4b1822d2c871c02cef9e102cdd5cbbda113"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/diagnosing-superpowers/prompts/quality-evidence.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/diagnosing-superpowers/prompts/quality-evidence.md",
-      "sha256": "749d11cf678f379ed77a29274cad456634e0284aa523639a1a214a9f2b986eb1"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/diagnosing-superpowers/prompts/repeated-work.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/diagnosing-superpowers/prompts/repeated-work.md",
-      "sha256": "895027f2dfa4b1b8bcdb7ac9aec8d45a80bff212fad6ec6cad5ab38fa68322f5"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/diagnosing-superpowers/prompts/request-conflicts.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/diagnosing-superpowers/prompts/request-conflicts.md",
-      "sha256": "e800e38d8b7752c212c76c5c3ed75cd78b749684263ea0c313586f26af6f4b5c"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/diagnosing-superpowers/prompts/scrub-audit.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/diagnosing-superpowers/prompts/scrub-audit.md",
-      "sha256": "5cc48f05a7f81f5f7e05e0c7ceafc0fb8774bcaf75fe88dcb5c7e408026c70ad"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/diagnosing-superpowers/prompts/scrub.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/diagnosing-superpowers/prompts/scrub.md",
-      "sha256": "854cb3320cc5377b493cea2f72519d67983464882db68a0f408a7d0a0f040b8c"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/diagnosing-superpowers/prompts/similar-session.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/diagnosing-superpowers/prompts/similar-session.md",
-      "sha256": "b190f713b463df2bb5ec3914647e204074d1bd50643a53159db6d13cace916c1"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/diagnosing-superpowers/prompts/skill-timeline.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/diagnosing-superpowers/prompts/skill-timeline.md",
-      "sha256": "45d604d583b57a77b9033eced8eb875ef342af70fcd66cf7d15c6dc89964890f"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/diagnosing-superpowers/prompts/stumbles.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/diagnosing-superpowers/prompts/stumbles.md",
-      "sha256": "1f2d1f048aff7b8b400006301f1ce8c232ecc7e9d5f705af27a849b2c03ea2e7"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/diagnosing-superpowers/references/context-safety.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/diagnosing-superpowers/references/context-safety.md",
-      "sha256": "e6be2bd3495f454d4bedee9484d728d245d1fa656e11fc4ceec5693c16e4730a"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/diagnosing-superpowers/references/github-issues.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/diagnosing-superpowers/references/github-issues.md",
-      "sha256": "a656f5e15b21c7a200c39c038f5ede74b9d6ea3ceeb90f39af7e930c8d8424d6"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/diagnosing-superpowers/references/redaction-policy.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/diagnosing-superpowers/references/redaction-policy.md",
-      "sha256": "96b16f47074838fe2d7e609577d6f8b0ad460f8378b281a3f96ee23cb5a08bde"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/diagnosing-superpowers/references/session-discovery.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/diagnosing-superpowers/references/session-discovery.md",
-      "sha256": "6d1dced083e5d978448a78df298cf515531b0eb39b2854a4a2afbffeb69a7435"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/diagnosing-superpowers/templates/bundle-README.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/diagnosing-superpowers/templates/bundle-README.md",
-      "sha256": "2e6ddc6b106028d5ebd00a50ad93a77111d675c219ee1273cd0857869e8d51ec"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/diagnosing-superpowers/templates/case.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/diagnosing-superpowers/templates/case.md",
-      "sha256": "597892462be83bc478536ec91f7c285f6dd25d119c560734a3a180fe8471301d"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/diagnosing-superpowers/templates/issue.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/diagnosing-superpowers/templates/issue.md",
-      "sha256": "8f28dbfe60602f77dda76d81815cb4e2dce7d3e2a93348890e1581be8310ac1f"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/diagnosing-superpowers/templates/report.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/diagnosing-superpowers/templates/report.md",
-      "sha256": "38295d0fd785e8608f330815c59ebd7047942002ec7085aecbed54681f56b0c1"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/dispatching-parallel-agents/SKILL.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/dispatching-parallel-agents/SKILL.md",
-      "sha256": "1968923066f3b707eb01d1992cdf4c42284c3855f70253b9cd5000ff45fca13c"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/executing-plans/SKILL.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/executing-plans/SKILL.md",
-      "sha256": "f38e8f2ddcf079f65493adc713c1fed78421dfaf5f4dbf6b3a6b2b1d95466e71"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/executing-plans/scripts/task-done",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/executing-plans/scripts/task-done",
-      "sha256": "f704dc216e0602f95c601b9ee1113c9a55cc1c5f6e4d149dddfba0fd3ad1c314"
-     },
-     "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/executing-plans/scripts/task-start",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/executing-plans/scripts/task-start",
-      "sha256": "f833693c8fce3700fc9f841562d80f8015cd40f652c168a3405ac3e46947a1fe"
-     },
-     "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/finishing-a-development-branch/SKILL.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/finishing-a-development-branch/SKILL.md",
-      "sha256": "8db5a922b242dd4e1bf824cb91c13b3e8d8e8a86d6ceaf7f0774eb9cce909d65"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/receiving-code-review/SKILL.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/receiving-code-review/SKILL.md",
-      "sha256": "091df1629510af1b92fc4abd6f96732ebedb4cb2c0f3457e8f2740b0504a2438"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/requesting-code-review/SKILL.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/requesting-code-review/SKILL.md",
-      "sha256": "cfcee1b06774e7c0517f1e09be1a11f2d5680257072723e709ddbcf7e08b795a"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/requesting-code-review/code-reviewer.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/requesting-code-review/code-reviewer.md",
-      "sha256": "82e370be6b3447523816286195571e4216ba56ba1ad6ad0e87862294c4c78dcb"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/subagent-driven-development/SKILL.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/subagent-driven-development/SKILL.md",
-      "sha256": "8dde5589ee083fb4999106d116f01c8fdaf3116a8a9813fdedeb80329de49046"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/subagent-driven-development/implementer-prompt.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/subagent-driven-development/implementer-prompt.md",
-      "sha256": "81dd9d5a3fb0b09b96b5829f03b9796842f3199ef7591d1ba1c2db2a515f64d0"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/subagent-driven-development/re-review-prompt.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/subagent-driven-development/re-review-prompt.md",
-      "sha256": "0828a5e9cbb12ba49f14621dd8c3953c48c0fc383e75bb5494f055ed0d6d824f"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/subagent-driven-development/scripts/review-package",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/subagent-driven-development/scripts/review-package",
-      "sha256": "f9275175b2276b1d5fdb1bae0bedaadd2a950659b7c6f311ea37ff85e1861b1f"
-     },
-     "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/subagent-driven-development/scripts/sdd-workspace",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/subagent-driven-development/scripts/sdd-workspace",
-      "sha256": "75ca46c756ba4209ca36e0d3d65567257ceb33bc7a6775b9dad946707cb3bd7b"
-     },
-     "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/subagent-driven-development/scripts/task-brief",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/subagent-driven-development/scripts/task-brief",
-      "sha256": "cc563538e09abf719b34ddf4b2fa7a65cf3b301729039dbfa923cb060f729146"
-     },
-     "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/subagent-driven-development/task-reviewer-prompt.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/subagent-driven-development/task-reviewer-prompt.md",
-      "sha256": "bfed55c8f19d0ff6ed57b0fe09127c92890e9311c6c73917129598826bf9ebe8"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/systematic-debugging/CREATION-LOG.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/systematic-debugging/CREATION-LOG.md",
-      "sha256": "c24733a5b1821bd6bed1fc950261f0b9f4e90097e0bbb96459d8179713730789"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/systematic-debugging/SKILL.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/systematic-debugging/SKILL.md",
-      "sha256": "808fc5717aa88ad65efff312b11c186294d3e6ee301afb584e2f86599b137787"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/systematic-debugging/condition-based-waiting-example.ts",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/systematic-debugging/condition-based-waiting-example.ts",
-      "sha256": "40ae5ebe497fdf310200e43fe986552546d0a22837c0d39e855db1cfd33eb88e"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/systematic-debugging/condition-based-waiting.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/systematic-debugging/condition-based-waiting.md",
-      "sha256": "e89fec8400d6cd50f43407cec9fab50976ba4d55d0ec2eb51c0bd68036b54c26"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/systematic-debugging/defense-in-depth.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/systematic-debugging/defense-in-depth.md",
-      "sha256": "1e175fb86fc357e58c6aebf5441e481e1b7868b4380c0456b63a17eefbd18ba7"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/systematic-debugging/find-polluter.sh",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/systematic-debugging/find-polluter.sh",
-      "sha256": "dd7b8f13c4cc2a24b33ff87b18da9248f3e1c80a085c3316224f69ff0fa5c43c"
-     },
-     "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/systematic-debugging/root-cause-tracing.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/systematic-debugging/root-cause-tracing.md",
-      "sha256": "75b933b6a8c40bdb2031b10f21654395b56ec6ab6bc7b018c18d3fe57aeb7fb8"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/systematic-debugging/test-academic.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/systematic-debugging/test-academic.md",
-      "sha256": "fe2ba480d78ac0d686dc025f41c2a32a43d642bf533f91b0c6053a04d35d6486"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/systematic-debugging/test-pressure-1.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/systematic-debugging/test-pressure-1.md",
-      "sha256": "0b6a915db0054577819834c79be9eb614e97bddba10d73768e1fbe91cfed048a"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/systematic-debugging/test-pressure-2.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/systematic-debugging/test-pressure-2.md",
-      "sha256": "b2030aeffba07050e8ad573ddf87486457c4a016a786bb326235bebd856f2016"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/systematic-debugging/test-pressure-3.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/systematic-debugging/test-pressure-3.md",
-      "sha256": "96b50a52e2c7989c9cf20fb752c47c1e9a3a70dc362f8f7989f8f5b64dac7708"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/test-driven-development/SKILL.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/test-driven-development/SKILL.md",
-      "sha256": "64b03fce4aee5a97a93160cea8111f3ba13a17b7c001db4bd5836d67fd10705d"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/test-driven-development/writing-good-tests.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/test-driven-development/writing-good-tests.md",
-      "sha256": "51471c853306ff92ca8bb41dcaea05f31c0e46b03651f8f3c99754b7172f4ae1"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/using-git-worktrees/SKILL.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/using-git-worktrees/SKILL.md",
-      "sha256": "8cfb86f121269e8f7f12361e6795c4f6738828340e28964c9229d365666c9edd"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/using-superpowers/SKILL.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/using-superpowers/SKILL.md",
-      "sha256": "82c5c8866ad7f5dd4440ce66bd7806ba48a2f13771beae5cf112e53f08fe36ba"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/using-superpowers/references/antigravity-tools.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/using-superpowers/references/antigravity-tools.md",
-      "sha256": "4880f6de3da4e32f9659ebe7a72b9e0ebfff04e028c2ed96173f86d0387a04c0"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/using-superpowers/references/claude-code-tools.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/using-superpowers/references/claude-code-tools.md",
-      "sha256": "21479a3fee27448cab8748a3b5687e53bb257883bda9c070426f9a1ab5cebf1b"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/using-superpowers/references/codex-tools.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/using-superpowers/references/codex-tools.md",
-      "sha256": "1a38ad9b188c393052f58d95657a1c35ea6aafc8b5a27f198f3922912f70bbe7"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/using-superpowers/references/gemini-tools.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/using-superpowers/references/gemini-tools.md",
-      "sha256": "62b9157bcb0ee3c6784e3d0da0798ddfa5872f9e0c34bea48f3079dabea71965"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/using-superpowers/references/hermes-tools.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/using-superpowers/references/hermes-tools.md",
-      "sha256": "e2185c976a3c87503910e05e2aea58cc89bc8e569bb624b93df9958ac47a9190"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/using-superpowers/references/muse-tools.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/using-superpowers/references/muse-tools.md",
-      "sha256": "5a1da5c575fe18456ca71cd47ebfd8a38c745f8d82a67fe64d5b83080000eeb3"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/using-superpowers/references/pi-tools.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/using-superpowers/references/pi-tools.md",
-      "sha256": "703dbc83d23ecab9c6f388460c38abc482e9dee2fe6772a8c7a255152ad3a4d5"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/verification-before-completion/SKILL.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/verification-before-completion/SKILL.md",
-      "sha256": "2befe7fc55bcadaa3d97dd9e8efeb633d2561c0ebe74c5a8b17c4d9e7e4520b3"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/writing-plans/SKILL.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/writing-plans/SKILL.md",
-      "sha256": "0bc3d36590f7b2c323ed3ec18ff77e9f8ed57af42f5680a02b11a2d20de265cf"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/writing-plans/plan-document-reviewer-prompt.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/writing-plans/plan-document-reviewer-prompt.md",
-      "sha256": "aa728b96aad603c8be28875a4305637f6c984aa81ffcadcb13e743202fa2a0c7"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/writing-skills/SKILL.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/writing-skills/SKILL.md",
-      "sha256": "bbdfe742f853562e643a3d40d64476359d47881e39cef80a189283fa26d11ab9"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/writing-skills/anthropic-best-practices.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/writing-skills/anthropic-best-practices.md",
-      "sha256": "217629b356c09c9bd11017c9788e8fc654ca1b32c92d4a51cd490e16dd65e59a"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/writing-skills/examples/CLAUDE_MD_TESTING.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/writing-skills/examples/CLAUDE_MD_TESTING.md",
-      "sha256": "0b379a3415e185d3c434b3ad283d8aa132f3022c2a4f210f168865b5986bcef0"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/writing-skills/graphviz-conventions.dot",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/writing-skills/graphviz-conventions.dot",
-      "sha256": "e2890a593c91370e384b42f2f67b1a6232c9e69dddea7891a0c1c46d7b20b694"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/writing-skills/persuasion-principles.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/writing-skills/persuasion-principles.md",
-      "sha256": "a51bc9bf75189ea73a27b3fb504a2fdfdb966fb1f7f1cdf03203230a216ccc03"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/writing-skills/render-graphs.js",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/writing-skills/render-graphs.js",
-      "sha256": "c7f412cc629461c4d10287e668731874c0497707023e3e3f74a5355eb2cee196"
-     },
-     "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/skills/writing-skills/testing-skills-with-subagents.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "skills/writing-skills/testing-skills-with-subagents.md",
-      "sha256": "c711346852c911b24a84aa161e0cff06a4cd7f4e2fa9e9c0a266cead5afcbade"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/antigravity/run-tests.sh",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/antigravity/run-tests.sh",
-      "sha256": "76355b01132d4f27cc5545c15926eb0c3614d38db2b5d6988a2d818918d9eaf1"
-     },
-     "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/antigravity/test-antigravity-tools.sh",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/antigravity/test-antigravity-tools.sh",
-      "sha256": "8114d937d2ff960262e5d281a7e1ea2f95eb05ceb1690ac91b0db059e0c83799"
-     },
-     "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/brainstorm-server/auth.test.js",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/brainstorm-server/auth.test.js",
-      "sha256": "8efa43628b582973dcc543c0768e91066cf9834292e2e724657c6801b63df062"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/brainstorm-server/branding.test.js",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/brainstorm-server/branding.test.js",
-      "sha256": "b116f645b46130a3a58867493863a1398cf5426375d695203c858c95eb5e8d02"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/brainstorm-server/browser-launcher.test.js",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/brainstorm-server/browser-launcher.test.js",
-      "sha256": "ffb9ccecf27968b9359049ff96b50725669b1f86863f88b583b9aa0c3aa37c94"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/brainstorm-server/helper.test.js",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/brainstorm-server/helper.test.js",
-      "sha256": "9917fc944e8c5594430ba2600035ff5fd8212119b9cae2d62c75f5725de94061"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/brainstorm-server/lifecycle.test.js",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/brainstorm-server/lifecycle.test.js",
-      "sha256": "8146fc31bd814dec0e497da6dc1c9423e4352e0fb1c3cdebd1b9db42a2ac8d8e"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/brainstorm-server/package-lock.json",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/brainstorm-server/package-lock.json",
-      "sha256": "80f45a9d8857e27d9363d47789284a26d13fb47388fa8596ef0db7207e6d7c10"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/brainstorm-server/package.json",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/brainstorm-server/package.json",
-      "sha256": "d785483894bfedbccf9731fd7ed52f959973f62dc9c42a8a7407fc7779d220c8"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/brainstorm-server/server.test.js",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/brainstorm-server/server.test.js",
-      "sha256": "fd1cc628222a6fcc657461b84f85f3b50d5a9709056dc9232241f9cb4182593a"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/brainstorm-server/start-server.test.sh",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/brainstorm-server/start-server.test.sh",
-      "sha256": "fb0c928e206fbd6a0fe77e750198d71ae0c331e361b13e9a8b8742cdb22302b5"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/brainstorm-server/stop-server.test.sh",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/brainstorm-server/stop-server.test.sh",
-      "sha256": "35e150e95f0e97d50470f2c0a30bc7c9c8c5cb7721c53dcff887b430067490db"
-     },
-     "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/brainstorm-server/windows-lifecycle.test.sh",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/brainstorm-server/windows-lifecycle.test.sh",
-      "sha256": "7dc8e09edfe0a4cc34550fdb0e5ae5117758991d490756971be51c88e4f5908d"
-     },
-     "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/brainstorm-server/ws-protocol.test.js",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/brainstorm-server/ws-protocol.test.js",
-      "sha256": "abd0a10eaffe4e30a9918c79c7692775db36c8a3e132e04d52ec06d6cddaa132"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/claude-code/README.md",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/claude-code/README.md",
-      "sha256": "df8cc7a1709b5fd881f41f6e7afc180f1b686c14b97624c27e4957a174c09911"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/claude-code/analyze-token-usage.py",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/claude-code/analyze-token-usage.py",
-      "sha256": "b3b124b975086e66540dca1328d7b6b75416450b0c93fc246f0d7d148fc2394c"
-     },
-     "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/claude-code/run-skill-tests.sh",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/claude-code/run-skill-tests.sh",
-      "sha256": "a7bffa447f489be5a9507114027ddcdb94409eba3156df88c9338307710502a4"
-     },
-     "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/claude-code/test-executing-plans-scripts.sh",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/claude-code/test-executing-plans-scripts.sh",
-      "sha256": "65629962e5fea4144310d42025ed7c39db5954b1f6add0ebf6a29b3b8f00b2d7"
-     },
-     "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/claude-code/test-helpers.sh",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/claude-code/test-helpers.sh",
-      "sha256": "b06a890c9d371195d8f256b1227607dd32ad28831658be1033756cc8dbcd86a7"
-     },
-     "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/claude-code/test-sdd-workspace.sh",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/claude-code/test-sdd-workspace.sh",
-      "sha256": "81697baaa96698f0ace309c746c2b68ff5db94905ea277c842067cc807dd57be"
-     },
-     "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/claude-code/test-subagent-driven-development-integration.sh",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/claude-code/test-subagent-driven-development-integration.sh",
-      "sha256": "0794d17e3cc5d8a64c07a6c181538e1142819b86382d171f677510cfe6a3f722"
-     },
-     "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/claude-code/test-subagent-driven-development.sh",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/claude-code/test-subagent-driven-development.sh",
-      "sha256": "37e9a1fbb20f9f6ca2e7eb62f16b4b04c90da2874ec48ec3d2cc5c73ed99155d"
-     },
-     "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/claude-code/test-worktree-native-preference.sh",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/claude-code/test-worktree-native-preference.sh",
-      "sha256": "1c0a94fb097ad33186bb7ea2b0321b11d8ba92ed8c6ef61464a2246eec33acf6"
-     },
-     "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/claude-code/test-worktree-path-policy.sh",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/claude-code/test-worktree-path-policy.sh",
-      "sha256": "3498f973a9cf288f2959b7a02fc3acea09ee11650b46d689aef81b394f8ab85c"
-     },
-     "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/codex-plugin-sync/test-sync-to-codex-plugin.sh",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/codex-plugin-sync/test-sync-to-codex-plugin.sh",
-      "sha256": "0fe708303673f20089c611060714cfb86de3fc620f9e6b7820e85c4fbc46fb74"
-     },
-     "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/codex/test-marketplace-manifest.sh",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/codex/test-marketplace-manifest.sh",
-      "sha256": "9c5afb24318bd959606f5063f444042e08e6fc2c6ff8c4988760476021e4ec90"
-     },
-     "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/codex/test-package-codex-plugin.sh",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/codex/test-package-codex-plugin.sh",
-      "sha256": "bbf76d50eac33b60d73318946bc1418a6e6c6d52cdd918f39c7b18b8eaa0b0f4"
-     },
-     "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/devin/test-devin-plugin.sh",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/devin/test-devin-plugin.sh",
-      "sha256": "e156be13b2e902449ef8bd1836b9dc60a7fc5f2f670896f4faf621d9a1f3a6e4"
-     },
-     "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/diagnosing-superpowers/test-skill-structure.sh",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/diagnosing-superpowers/test-skill-structure.sh",
-      "sha256": "35baf007e9a744621c6d374200cfac3b597a5b969bbf824178975257f239854b"
-     },
-     "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/explicit-skill-requests/prompts/action-oriented.txt",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/explicit-skill-requests/prompts/action-oriented.txt",
-      "sha256": "4ee13db41ce891b5b328f8ad5284e516253f87dc65307df0e60a2713a47442d1"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/explicit-skill-requests/prompts/after-planning-flow.txt",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/explicit-skill-requests/prompts/after-planning-flow.txt",
-      "sha256": "7da11dd7918b083c43087cd21e241d3b397d5488ba1e06bebed74488c4827d22"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/explicit-skill-requests/prompts/claude-suggested-it.txt",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/explicit-skill-requests/prompts/claude-suggested-it.txt",
-      "sha256": "cb46492d9f905ebf6098aa6d0884f046a1b863b39036e5ec9a3244991b758d6f"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/explicit-skill-requests/prompts/i-know-what-sdd-means.txt",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/explicit-skill-requests/prompts/i-know-what-sdd-means.txt",
-      "sha256": "64f33d0b328471c800541e268996a91e360d625bfe151b476b65bb64f0f1cd8d"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/explicit-skill-requests/prompts/mid-conversation-execute-plan.txt",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/explicit-skill-requests/prompts/mid-conversation-execute-plan.txt",
-      "sha256": "601301c1da6e138427c5c1b18acf34b3931bdd08397c3aec7bc94bec30d5c606"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/explicit-skill-requests/prompts/please-use-brainstorming.txt",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/explicit-skill-requests/prompts/please-use-brainstorming.txt",
-      "sha256": "de9508ffad9e29ee8ddda26ed9403b4a650e1081df39800edb6b56a6a3a859dd"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/explicit-skill-requests/prompts/skip-formalities.txt",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/explicit-skill-requests/prompts/skip-formalities.txt",
-      "sha256": "b4c1fc115fc67d9919a29db6d8ceaa57a41933bde343168bd0858a62cfe11c51"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/explicit-skill-requests/prompts/subagent-driven-development-please.txt",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/explicit-skill-requests/prompts/subagent-driven-development-please.txt",
-      "sha256": "c2499520cb588008437148facc965800e4a302baa1cc4d726f5b02bfcfc5f3e1"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/explicit-skill-requests/prompts/use-systematic-debugging.txt",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/explicit-skill-requests/prompts/use-systematic-debugging.txt",
-      "sha256": "4aa7a8da6f68bb22d2b1fb66aeb26c1bed6fdf86d33d2d6f7a9752334856a990"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/explicit-skill-requests/run-all.sh",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/explicit-skill-requests/run-all.sh",
-      "sha256": "b657ef562b6ce3d02b3422eb5ab8571be5545525249088034ab36c27343b95cc"
-     },
-     "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/explicit-skill-requests/run-extended-multiturn-test.sh",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/explicit-skill-requests/run-extended-multiturn-test.sh",
-      "sha256": "1004578e3ef68d6fda8646c9257d27dd4ca30c4c1bdc986a50fbcb929ea0934d"
-     },
-     "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/explicit-skill-requests/run-haiku-test.sh",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/explicit-skill-requests/run-haiku-test.sh",
-      "sha256": "27b92722271fd25dfcad9b04e8c45b81e2a51a51005c3bcf13dd9d5a70567d01"
-     },
-     "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/explicit-skill-requests/run-multiturn-test.sh",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/explicit-skill-requests/run-multiturn-test.sh",
-      "sha256": "dc22f0b1ed0d367811ecf046c942430d15e87f4b8b2b4cc8260d60e00bee6ecb"
-     },
-     "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/explicit-skill-requests/run-test.sh",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/explicit-skill-requests/run-test.sh",
-      "sha256": "841f1d014f231c84f441cc6b91f388cc3e9e788012e6d36f5e78406c1f4c9b49"
-     },
-     "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/hermes/__init__.py",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/hermes/__init__.py",
-      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/hermes/conftest.py",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/hermes/conftest.py",
-      "sha256": "daac0d99bc1848c35cf1aa85694d0dc752628acb876f552f65c15972942dd2f9"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/hermes/test_bootstrap.py",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/hermes/test_bootstrap.py",
-      "sha256": "a4aaeb394779f3d22106866bfe67723301a5cf317dfad7a1386994eddd7a3031"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/hermes/test_plugin.py",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/hermes/test_plugin.py",
-      "sha256": "a159fbee0e56b0ff320a85642b5b38f703ba64382d1e3de0200889598af8dfa2"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/hooks/test-session-start.sh",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/hooks/test-session-start.sh",
-      "sha256": "427f5464b635504ab2dc1f2bde9aa0bce348e13be451985e541099219130e92f"
-     },
-     "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/kimi/run-tests.sh",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/kimi/run-tests.sh",
-      "sha256": "fb53a9ce91ae119146764ef2d55c63a5d20b86198e2ee08759fbae8194177ff0"
-     },
-     "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/kimi/test-plugin-manifest.sh",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/kimi/test-plugin-manifest.sh",
-      "sha256": "d7ca4db2e67c8611d3d1fe1fbf28fe41a33b187155563f1a553212df04250aaa"
-     },
-     "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/opencode/run-tests.sh",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/opencode/run-tests.sh",
-      "sha256": "b2f2067cfefa61aec22da47686dcc7b60e4de16bca439d1f3e4631d71ad78054"
-     },
-     "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/opencode/setup.sh",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/opencode/setup.sh",
-      "sha256": "0e8600fa5e56d7613f41d19732601397d2c18087a71da2801cc53443756a6348"
-     },
-     "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/opencode/test-bootstrap-caching.mjs",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/opencode/test-bootstrap-caching.mjs",
-      "sha256": "7966d45d3bfa281679c917c03704824ae9752f2e624173b598baaea961bebafa"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/opencode/test-bootstrap-caching.sh",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/opencode/test-bootstrap-caching.sh",
-      "sha256": "b13d826fdae77feaf922f4009f544d0ad51ce722258dee997b252f76af70330a"
-     },
-     "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/opencode/test-plugin-loading.sh",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/opencode/test-plugin-loading.sh",
-      "sha256": "41389f92e160766cfb27bfd15849e3ef546427444f88d241506915044209bed0"
-     },
-     "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/opencode/test-priority.sh",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/opencode/test-priority.sh",
-      "sha256": "123a82b72f22a5a0d1be2c6cfb898bf4d8d772ee4c7ba2f4540562a1b62a0902"
-     },
-     "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/opencode/test-session-bootstrap.mjs",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/opencode/test-session-bootstrap.mjs",
-      "sha256": "843f69300ee5f93f5ec9a8cedf7467427cc254f91a6d21e4b4ddc15f849c3aa1"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/opencode/test-session-bootstrap.sh",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/opencode/test-session-bootstrap.sh",
-      "sha256": "8dd9605232ac6030f052ab0102fcea6109dfe6a44e74a2bbe15fd6eb450fe7db"
-     },
-     "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/opencode/test-skill-registration.mjs",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/opencode/test-skill-registration.mjs",
-      "sha256": "779ba75046c2860096e232b5efa298c2073b459234e7279d87510e10fdeacd79"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/opencode/test-skill-registration.sh",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/opencode/test-skill-registration.sh",
-      "sha256": "0d01ec62a39b3d996ca8c3160a93e7d5f0bc3591941a8ee6d48f65dd61eddd28"
-     },
-     "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/opencode/test-tools.sh",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/opencode/test-tools.sh",
-      "sha256": "ae8bfae51fd2d25b9659177ec257c0551bc521d7f9e7c60c34110497b501e182"
-     },
-     "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/pi/test-pi-extension.mjs",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/pi/test-pi-extension.mjs",
-      "sha256": "0f84e8fe4190575e907a109e3b2540a21832ddac4f1bdb76f1074489f4f605c6"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/shell-lint/test-lint-shell.sh",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/shell-lint/test-lint-shell.sh",
-      "sha256": "e777907226ed8614fe1cbc06afd538e223e4081c368757b26a5f77dfb4355b40"
-     },
-     "executable": false,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
+     "item": "superpowers.skill.brainstorming",
      "clis": [
-      "claude-code"
+      "kiro"
      ]
     },
     {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/systematic-debugging/test-find-polluter.sh",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/systematic-debugging/test-find-polluter.sh",
-      "sha256": "7c5ae1adb7c6e292b73eccba6ba442501c442aefe8c883a94c9fdd809d592cea"
-     },
-     "executable": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
+     "op": "link",
+     "root": "user",
+     "path": ".kiro/skills/brainstorming",
+     "to": ".aihq/shared/superpowers/skill/brainstorming/061719b63041",
+     "item": "superpowers.skill.brainstorming",
      "clis": [
-      "claude-code"
+      "kiro"
      ]
     },
     {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/version-bump/test-bump-version.sh",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/version-bump/test-bump-version.sh",
-      "sha256": "5ee6381b450985934877a6fb3da71f769559f413419c616158cd6b79ff582ff1"
-     },
-     "executable": false,
+     "op": "plugin",
+     "cli": "claude-code",
      "framework": "superpowers",
-     "route": "local-plugin",
+     "marketplace": "https://github.com/obra/superpowers-marketplace",
+     "marketplaceName": "superpowers-marketplace",
+     "plugin": "superpowers",
+     "repository": "https://github.com/obra/superpowers",
+     "commit": "5bf4e78011075bcfc0dc295f0724994cd123ee71",
      "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
+     "verify": "none"
     },
     {
-     "op": "write",
-     "root": "project",
-     "path": ".aihq/plugins/superpowers/tests/writing-skills/test-render-graphs.sh",
-     "from": {
-      "sourceId": "superpowers",
-      "sourcePath": "tests/writing-skills/test-render-graphs.sh",
-      "sha256": "c977fb34ec6614400673cc3d73e9979eb5428d35e1413c50ab4b1cef47eb7b3b"
-     },
-     "executable": true,
+     "op": "plugin",
+     "cli": "codex",
      "framework": "superpowers",
-     "route": "local-plugin",
+     "marketplace": "https://github.com/obra/superpowers",
+     "marketplaceName": "superpowers-dev",
+     "plugin": "superpowers",
+     "repository": "https://github.com/obra/superpowers",
+     "commit": "5bf4e78011075bcfc0dc295f0724994cd123ee71",
      "scanKey": "git-sha1:3c7f2d3ef243f88d3394158983e6845e313c438b",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "merge",
-     "root": "project",
-     "file": ".claude/settings.json",
-     "format": "json",
-     "key": "/enabledPlugins/superpowers@superpowers-dev",
-     "entry": true,
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "clis": [
-      "claude-code"
-     ]
-    },
-    {
-     "op": "merge",
-     "root": "project",
-     "file": ".claude/settings.json",
-     "format": "json",
-     "key": "/extraKnownMarketplaces/superpowers-dev",
-     "entry": {
-      "source": {
-       "path": "./.aihq/plugins/superpowers",
-       "source": "directory"
-      }
-     },
-     "framework": "superpowers",
-     "route": "local-plugin",
-     "clis": [
-      "claude-code"
-     ]
+     "verify": "none"
     }
    ],
    "missing": [],
@@ -10503,51 +7054,22 @@
    "clashes": [],
    "duplicates": [],
    "references": [],
-   "warnings": [
-    {
-     "code": "claude-known-marketplaces",
-     "cli": "claude-code",
-     "items": [
-      "superpowers.skill.brainstorming",
-      "superpowers.skill.diagnosing-superpowers",
-      "superpowers.skill.dispatching-parallel-agents",
-      "superpowers.skill.executing-plans",
-      "superpowers.skill.finishing-a-development-branch",
-      "superpowers.skill.receiving-code-review",
-      "superpowers.skill.requesting-code-review",
-      "superpowers.skill.subagent-driven-development",
-      "superpowers.skill.systematic-debugging",
-      "superpowers.skill.test-driven-development",
-      "superpowers.skill.using-git-worktrees",
-      "superpowers.skill.using-superpowers",
-      "superpowers.skill.verification-before-completion",
-      "superpowers.skill.writing-plans",
-      "superpowers.skill.writing-skills"
-     ],
-     "framework": "superpowers"
-    },
-    {
-     "code": "claude-start-at-root",
-     "cli": "claude-code",
-     "items": [
-      "superpowers.skill.brainstorming",
-      "superpowers.skill.diagnosing-superpowers",
-      "superpowers.skill.dispatching-parallel-agents",
-      "superpowers.skill.executing-plans",
-      "superpowers.skill.finishing-a-development-branch",
-      "superpowers.skill.receiving-code-review",
-      "superpowers.skill.requesting-code-review",
-      "superpowers.skill.subagent-driven-development",
-      "superpowers.skill.systematic-debugging",
-      "superpowers.skill.test-driven-development",
-      "superpowers.skill.using-git-worktrees",
-      "superpowers.skill.using-superpowers",
-      "superpowers.skill.verification-before-completion",
-      "superpowers.skill.writing-plans",
-      "superpowers.skill.writing-skills"
-     ],
-     "framework": "superpowers"
-    }
+   "warnings": []
+  },
+  "files": {
+   "upstream": "https://github.com/obra/superpowers",
+   "commit": "5bf4e78011075bcfc0dc295f0724994cd123ee71",
+   "license": "MIT",
+   "paths": [
+    "LICENSE",
+    "skills/brainstorming/SKILL.md",
+    "skills/brainstorming/scripts/frame-template.html",
+    "skills/brainstorming/scripts/helper.js",
+    "skills/brainstorming/scripts/server.cjs",
+    "skills/brainstorming/scripts/start-server.sh",
+    "skills/brainstorming/scripts/stop-server.sh",
+    "skills/brainstorming/spec-document-reviewer-prompt.md",
+    "skills/brainstorming/visual-companion.md"
    ]
   }
  },
@@ -10833,11 +7355,19 @@
    }
   },
   {
-   "step": "{\"clis\":[\"codex\"],\"file\":\"AGENTS.md\",\"format\":\"markdown\",\"from\":{\"item\":\"my-rules.rule.team\",\"sha256\":\"368bab9e69af6ba6b37f4c0252bcb7a312331d0d3b62624840e4d9f673a452bc\",\"sourceId\":\"my-rules\",\"sourcePath\":\"rules/team.md\"},\"item\":\"my-rules.rule.team\",\"key\":\"my-rules.rule.team\",\"op\":\"merge\",\"render\":{\"installName\":\"team\",\"name\":\"rule-block\",\"profile\":\"codex\",\"version\":4},\"root\":\"project\",\"scanned\":false}",
+   "step": "{\"clis\":[\"codex\"],\"file\":\"AGENTS.md\",\"format\":\"markdown\",\"from\":{\"item\":\"my-rules.rule.team\",\"sha256\":\"368bab9e69af6ba6b37f4c0252bcb7a312331d0d3b62624840e4d9f673a452bc\",\"sourceId\":\"my-rules\",\"sourcePath\":\"rules/team.md\"},\"inputs\":[{\"at\":{\"placeholder\":\"{{TEAM}}\"},\"input\":\"TEAM\",\"item\":\"my-rules.rule.team\"}],\"item\":\"my-rules.rule.team\",\"key\":\"my-rules.rule.team\",\"op\":\"merge\",\"render\":{\"installName\":\"team\",\"name\":\"rule-block\",\"profile\":\"codex\",\"version\":4},\"root\":\"project\",\"scanned\":false}",
    "result": {
     "status": "ok",
     "sha256": "368bab9e69af6ba6b37f4c0252bcb7a312331d0d3b62624840e4d9f673a452bc",
     "base64": "IyBUZWFtCgpBc2sge3tURUFNfX0gYmVmb3JlIGNoYW5naW5nIHRoZSBzdHlsZS4K"
+   }
+  },
+  {
+   "step": "{\"clis\":[\"kiro\"],\"executable\":false,\"from\":{\"item\":\"superpowers.skill.brainstorming\",\"sha256\":\"a32d2255354775aa124855aa7100cf276bea096fff4ebb3a0edf57be216e6c72\",\"sourceId\":\"superpowers\",\"sourcePath\":\"skills/brainstorming/SKILL.md\"},\"item\":\"superpowers.skill.brainstorming\",\"op\":\"write\",\"path\":\".aihq/shared/superpowers/skill/brainstorming/061719b63041/SKILL.md\",\"render\":{\"installName\":\"brainstorming\",\"name\":\"skill\",\"profile\":\"kiro\",\"version\":7},\"root\":\"user\",\"scanned\":false}",
+   "result": {
+    "status": "ok",
+    "sha256": "889802b9e53d065371fe0f4952ad524d7ebe6379888ebc636d3b14b385c3826e",
+    "base64": "LS0tCm5hbWU6IGJyYWluc3Rvcm1pbmcKZGVzY3JpcHRpb246IFlvdSBNVVNUIHVzZSB0aGlzIGJlZm9yZSBhbnkgY3JlYXRpdmUgd29yayAtIGNyZWF0aW5nIGZlYXR1cmVzLCBidWlsZGluZyBjb21wb25lbnRzLCBhZGRpbmcgZnVuY3Rpb25hbGl0eSwgb3IgbW9kaWZ5aW5nIGJlaGF2aW9yLiBFeHBsb3JlcyB1c2VyIGludGVudCwgcmVxdWlyZW1lbnRzIGFuZCBkZXNpZ24gYmVmb3JlIGltcGxlbWVudGF0aW9uLgotLS0KCiMgQnJhaW5zdG9ybWluZyBJZGVhcyBJbnRvIERlc2lnbnMKCkhlbHAgdHVybiBpZGVhcyBpbnRvIGZ1bGx5IGZvcm1lZCBkZXNpZ25zIGFuZCBzcGVjcyB0aHJvdWdoIG5hdHVyYWwgY29sbGFib3JhdGl2ZSBkaWFsb2d1ZS4KClN0YXJ0IGJ5IGNsYXNzaWZ5aW5nIGhvdyBtdWNoIHByb2Nlc3MgdGhlIHJlcXVlc3QgbmVlZHMsIHRoZW4gd29yawp0aHJvdWdoIHlvdXIgcGF0aDogdW5kZXJzdGFuZCB0aGUgY29udGV4dCwgcmVmaW5lIHRoZSBpZGVhLCBwcmVzZW50IGEKZGVzaWduLCBhbmQgZ2V0IHlvdXIgaHVtYW4gcGFydG5lcidzIGFwcHJvdmFsLgoKIyMgRXN0YWJsaXNoIFNoYXJlZCBVbmRlcnN0YW5kaW5nCgpUaGUgb3V0Y29tZSBvZiBicmFpbnN0b3JtaW5nIGlzIGFuIHVuZGVyc3RhbmRpbmcgeW91ciBodW1hbiBwYXJ0bmVyIGNhbgpyZWNvZ25pemUgYW5kIGNvcnJlY3QsIGdyb3VuZGVkIGluIHdoYXQgdGhleSB3YW50IHRvIGFjY29tcGxpc2guCgoxLiAqKkRpc2NvdmVyIGludGVudC4qKiBVc2UgdGhlIHJlcXVlc3QgYW5kIGF2YWlsYWJsZSBjb250ZXh0IHRvIGlkZW50aWZ5CiAgIHRoZSBpbnRlbmRlZCBvdXRjb21lLCB3aG8gaXQgaXMgZm9yLCBhbmQgd2hhdCBzdWNjZXNzIGxvb2tzIGxpa2UuIFdoZW4KICAgdGhhdCBpbmZvcm1hdGlvbiBpcyBtaXNzaW5nLCBhc2sgb25lIGZvY3VzZWQgcXVlc3Rpb24gYWJvdXQgcHVycG9zZSBvcgogICBpbnRlbmRlZCB1c2UgYmVmb3JlIHByb3Bvc2luZyBmZWF0dXJlcyBvciBhbiBhcHByb2FjaC4gS25vd2luZyB0aGUgYXBwCiAgIGdlbnJlIGRvZXMgbm90IHRlbGwgeW91IHdoeSB5b3VyIHBhcnRuZXIgd2FudHMgaXQuIEdhdGhlcmluZyBtaXNzaW5nCiAgIHJlcXVpcmVtZW50cyBkb2VzIG5vdCBhc2sgdGhlbSB0byBhdXRob3JpemUgdGhlIHRhc2sgYWdhaW4uCjIuICoqV3JpdGUgYmFjayB5b3VyIHVuZGVyc3RhbmRpbmcuKiogU3VtbWFyaXplIHRoZSBpbnRlbmRlZCBvdXRjb21lLAogICByZWxldmFudCBjb25zdHJhaW50cywgYW5kIHN1Y2Nlc3MgY3JpdGVyaWEgaW4gYSBzaG9ydCBub3RlIHlvdXIgcGFydG5lcgogICBjYW4gYXNzZXNzLiBTZXBhcmF0ZSB3aGF0IHRoZXkgc2FpZCBmcm9tIGFzc3VtcHRpb25zLiBJbnZpdGUgY29ycmVjdGlvbgogICBhbmQgaW5jb3Jwb3JhdGUgdGhlaXIgYW5zd2VyIGJlZm9yZSB0cmVhdGluZyB0aGlzIGFzIHRoZSBkZXNpZ24gYnJpZWYuCjMuICoqQ2FycnkgaW50ZW50IGludG8gdGhlIGRlc2lnbi4qKiBQcmVzZXJ2ZSB0aGUgYWdyZWVkIHVuZGVyc3RhbmRpbmcgaW4KICAgdGhlIHNlbGVjdGVkIHBhdGgncyBkZXNpZ24gYXJ0aWZhY3Q6IHRoZSB3cml0dGVuIHNwZWMgZm9yIGFyY2hpdGVjdHVyYWwKICAgd29yaywgb3IgdGhlIGluLWNoYXQgZGVzaWduL3Byb2JlIGZvciBib3VuZGVkIHdvcmsgYW5kIHNwaWtlcy4gQ2hlY2sKICAgcHJvcG9zZWQgZmVhdHVyZXMgYW5kIHRlY2huaWNhbCBjaG9pY2VzIGFnYWluc3QgdGhhdCB1bmRlcnN0YW5kaW5nLgoKV2hlbiB0aGUgcmVxdWVzdCBhbHJlYWR5IHN1cHBsaWVzIHRoZSBwdXJwb3NlIGFuZCBjb25zdHJhaW50cywgcmVmbGVjdAp0aGF0IHVuZGVyc3RhbmRpbmcgaW5zdGVhZCBvZiBhc2tpbmcgdGhlIHNhbWUgcXVlc3Rpb25zIGFnYWluLiBLZWVwIHRoZQpub3RlIGNvbmNpc2U7IGl0cyBhY2N1cmFjeSBhbmQgdGhlIG9wcG9ydHVuaXR5IHRvIGNvcnJlY3QgaXQgbWF0dGVyLgoKPEhBUkQtR0FURT4KQmVmb3JlIHRha2luZyBhbnkgaW1wbGVtZW50YXRpb24gYWN0aW9uLCBpbmNsdWRpbmcgaW52b2tpbmcgYW4KaW1wbGVtZW50YXRpb24gc2tpbGwsIHdyaXRpbmcgcHJvZHVjdCBjb2RlLCBzY2FmZm9sZGluZywgaW5zdGFsbGluZwpwcm9kdWN0IGRlcGVuZGVuY2llcywgb3IgY3JlYXRpbmcgYW4gZXh0ZXJuYWwgcHJvamVjdCwgY29tcGxldGUgdGhlCnNlbGVjdGVkIHBhdGgncyBwcmVyZXF1aXNpdGVzOgoKLSBTcGlrZTogdGhlIGh1bWFuIHBhcnRuZXIgYXBwcm92ZXMgdGhlIHF1ZXN0aW9uIGFuZCBwcm9iZS4KLSBCb3VuZGVkOiB0aGUgaHVtYW4gcGFydG5lciBhcHByb3ZlcyB0aGUgc2hvcnQgaW4tY2hhdCBkZXNpZ24uCi0gQXJjaGl0ZWN0dXJhbDogdGhlIGh1bWFuIHBhcnRuZXIgcmV2aWV3cyBhbmQgYXBwcm92ZXMgdGhlIHdyaXR0ZW4gc3BlYywKICB0aGVuIHJldmlld3MgdGhlIHdyaXR0ZW4gaW1wbGVtZW50YXRpb24gcGxhbiBhbmQgc2VsZWN0cyBpdHMgZXhlY3V0aW9uCiAgbWV0aG9kLiBDb252ZXJzYXRpb25hbCBkZXNpZ24gYXBwcm92YWwgb25seSBwZXJtaXRzIHdyaXRpbmcgdGhlIHNwZWM7CiAgd3JpdHRlbi1zcGVjIGFwcHJvdmFsIG9ubHkgcGVybWl0cyBpbnZva2luZyB3cml0aW5nLXBsYW5zLgoKQSByZXBseSBhcHByb3ZlcyB0aGUgc3RhZ2UgYWN0dWFsbHkgcHJlc2VudGVkLiBBcHByb3ZhbCBvZiBhbiBpZGVhIG9yCmZlYXR1cmUgc2NvcGUgZG9lcyBub3QgYXBwcm92ZSBhcnRpZmFjdHMgdGhhdCBkbyBub3QgZXhpc3QgeWV0LiBSZXN1bWUKYXQgdGhlIGVhcmxpZXN0IGluY29tcGxldGUgc3RhZ2U7IGRvIG5vdCB0dXJuIG9uZSBhcHByb3ZhbCBpbnRvIHBlcm1pc3Npb24KdG8gc2tpcCB0aGUgcmVzdCBvZiB0aGUgc2VsZWN0ZWQgcGF0aC4gUmVhZC1vbmx5IHByb2plY3QgZXhwbG9yYXRpb24gaXMKYWxsb3dlZCB3aGlsZSB0aG9zZSBwcmVyZXF1aXNpdGVzIHJlbWFpbiBpbmNvbXBsZXRlLgo8L0hBUkQtR0FURT4KCiMjIFRocmVlIFBhdGhzCgpCZWZvcmUgeW91ciBmaXJzdCBxdWVzdGlvbiwgY2xhc3NpZnkgdGhlIHJlcXVlc3QgYW5kIHNheSB0aGUKY2xhc3NpZmljYXRpb24gb3V0IGxvdWQg4oCUICJ0aGlzIGxvb2tzIGJvdW5kZWQsIHNvIEknbGwgcHJlc2VudCBhIHNob3J0CmRlc2lnbiBoZXJlIHJhdGhlciB0aGFuIHdyaXRlIGEgc3BlYyIg4oCUIHNvIHlvdXIgaHVtYW4gcGFydG5lciBjYW4Kb3ZlcnJpZGUgaXQ6CgotICoqU3Bpa2UqKiDigJQgYSBmZWFzaWJpbGl0eSBxdWVzdGlvbiAoImNhbiB3ZS4uLiIsICJpcyBpdCBwb3NzaWJsZS4uLiIsCiAgInF1aWNrIGFuZCBkaXJ0eSBpcyBmaW5lIikgd2hvc2Ugb3V0cHV0IGlzIGFuIGFuc3dlciwgbm90IGNvZGUgeW91CiAga2VlcC4gUHJlc2VudCB0aGUgcXVlc3Rpb24gYW5kIHdoYXQgeW91J2xsIHRyeSBpbiAyLTMgc2VudGVuY2VzLCBnZXQKICBhIG5vZCwgdGhlbiBmaW5kIG91dCBhcyBjaGVhcGx5IGFzIGNvcnJlY3RuZXNzIGFsbG93cy4gTm8gZGVzaWduCiAgZG9jLCBubyBzcGVjIGZpbGUuIFJlcG9ydCBmaW5kaW5ncyBhcyBhIHJlY29tbWVuZGF0aW9uOyBhbnl0aGluZyB5b3UKICBidWlsdCBzdGF5cyBsYWJlbGVkIHRocm93YXdheS4KLSAqKkJvdW5kZWQqKiDigJQgYSB3ZWxsLXNjb3BlZCBjaGFuZ2UgdG8gY29kZSB0aGF0IGFscmVhZHkgZXhpc3RzIGluCiAgdGhpcyByZXBvOiBhIG5ldyBmbGFnLCBhIHNtYWxsIGVuZHBvaW50LCBhIG9uZS1maWxlIGZpeC4KICBVbmRlcnN0YW5kaW5nIHRoZSBraW5kIG9mIGFwcCBpcyBub3QgZW5vdWdoIOKAlCBib3VuZGVkIG1lYW5zIHRoZSBmbG93CiAgeW91IGFyZSBjaGFuZ2luZyBpcyBhbHJlYWR5IGhlcmUgdG8gcmVhZC4gSWYgdGhlcmUgaXMgbm8gZXhpc3RpbmcKICBmbG93IHRvIGNoYW5nZSwgdGhlIHRhc2sgaXMgbm90IGJvdW5kZWQuIEFzayB0aGUgY2xhcmlmeWluZwogIHF1ZXN0aW9ucyB0aGF0IG1hdHRlciwgcHJlc2VudCBhIHNob3J0IGRlc2lnbiBJTiBDSEFUIChhIGZldwogIHNlbnRlbmNlcyB0byBhIGZldyBzaG9ydCBwYXJhZ3JhcGhzKSwgYW5kIFNUT1AuIEltcGxlbWVudGF0aW9uCiAgc3RhcnRzIG9ubHkgYWZ0ZXIgeW91ciBodW1hbiBwYXJ0bmVyIHNheXMgeWVzIHRvIHRoYXQgZGVzaWduIOKAlCBhCiAgYm91bmRlZCB0YXNrJ3MgYXBwcm92YWwgaXMgYXMgaGFyZCBhIGdhdGUgYXMgYW4gYXJjaGl0ZWN0dXJhbAogIG9uZS4gTm8gc3BlYyBmaWxlLCBubyBpbXBsZW1lbnRhdGlvbiBwbGFuIGRvY3VtZW50LgotICoqQXJjaGl0ZWN0dXJhbCoqIOKAlCBuZXcgcHJvamVjdHMsIG5ldyBzdWJzeXN0ZW1zLCBjaGFuZ2VzIHRoYXQKICByZXN0cnVjdHVyZSBob3cgY29tcG9uZW50cyBmaXQgdG9nZXRoZXIgb3IgYWx0ZXIgaW50ZXJmYWNlcyBvdGhlcnMKICBkZXBlbmQgb24uIEZvbGxvdyB0aGUgZnVsbCBwcm9jZXNzOiBxdWVzdGlvbnMsIGFwcHJvYWNoZXMsIHNlY3Rpb25lZAogIGRlc2lnbiwgd3JpdHRlbiBzcGVjLCB0aGVuIHRoZSB3cml0aW5nLXBsYW5zIHNraWxsLgoKV2hlbiBpbiBkb3VidCBiZXR3ZWVuIHR3byBwYXRocywgdGFrZSB0aGUgaGVhdmllciBvbmUuIFRoZSByYXRjaGV0IGlzCm9uZS13YXk6IGhpZGRlbiBjb21wbGV4aXR5IGRpc2NvdmVyZWQgbWlkLXRhc2sgdXBncmFkZXMgdGhlIHBhdGgg4oCUCnN0b3AsIHNheSBzbywgYW5kIHN0ZXAgdXAuIE5vdGhpbmcgZG93bmdyYWRlcyBtaWQtdGFzay4KCiMjIEFudGktUGF0dGVybjogIlRvbyBTaW1wbGUgVG8gTmVlZCBBcHByb3ZhbCIKCkV2ZXJ5IHBhdGggZW5kcyB3aXRoIHlvdXIgaHVtYW4gcGFydG5lciBhcHByb3ZpbmcgdGhlIHJlcXVpcmVkIGRlc2lnbgpiZWZvcmUgaW1wbGVtZW50YXRpb24uIEEgYm91bmRlZCBjaGFuZ2UgbWF5IG5lZWQgb25seSB0d28gc2VudGVuY2VzIGluCmNoYXQuIEEgbmV3IHRvZG8tbGlzdCBwcm9qZWN0IGlzIGFyY2hpdGVjdHVyYWwgYW5kIHJlcXVpcmVzIHRoZSB3cml0dGVuCnNwZWMgYW5kIHBsYW5uaW5nIGhhbmRvZmZzLiBTY2FsZSB0aGUgYXJ0aWZhY3QgdG8gdGhlIHNlbGVjdGVkIHBhdGg7CmNvbXBsZXRlIHRoYXQgcGF0aCdzIHJldmlld3MgYmVmb3JlIGltcGxlbWVudGF0aW9uLgoKIyMgUmVkIEZsYWdzCgp8IFRob3VnaHQgfCBSZWFsaXR5IHwKfC0tLS0tLS0tLXwtLS0tLS0tLS18CnwgIlRoaXMgaXMgdG9vIHNpbXBsZSB0byBuZWVkIGEgZGVzaWduIiB8IEZvbGxvdyB0aGUgc2VsZWN0ZWQgcGF0aDogYSBib3VuZGVkIGNoYW5nZSBnZXRzIGEgc2hvcnQgY2hhdCBkZXNpZ247IGFuIGFyY2hpdGVjdHVyYWwgY2hhbmdlIGdldHMgdGhlIHdyaXR0ZW4gc3BlYyBhbmQgcGxhbm5pbmcgaGFuZG9mZnMuIHwKfCAiSSdsbCBjYWxsIGl0IGJvdW5kZWQgYW5kIHNraXAgdGhlIHNwZWMiIHwgUmVhY2hpbmcgZm9yIGEgbGFiZWwgdG8gc2tpcCB3b3JrIElTIHRoZSBkb3VidCDigJQgdGFrZSB0aGUgaGVhdmllciBwYXRoLiB8CnwgIkl0J3MgYm91bmRlZCBhbmQgdGhlIGRlc2lnbiBpcyBvYnZpb3VzIOKAlCBJJ2xsIHN0YXJ0IHdoaWxlIHRoZXkgcmVhZCBpdCIgfCBUaGUgZ2F0ZSBpcyB0aGUgYXBwcm92YWwsIG5vdCB0aGUgZGVzaWduJ3MgbGVuZ3RoLiBQcmVzZW50LCB0aGVuIHN0b3AgdW50aWwgeW91IGhlYXIgeWVzLiB8CnwgIkkgdW5kZXJzdGFuZCB0aGlzIGtpbmQgb2YgYXBwLCBzbyBpdCdzIGJvdW5kZWQiIHwgQm91bmRlZCBtZWFzdXJlcyB0aGUgcmVwbywgbm90IHlvdXIgZmFtaWxpYXJpdHkuIEEgbmV3IHByb2plY3QgaGFzIG5vIGV4aXN0aW5nIGZsb3cg4oCUIGl0IGlzIGFyY2hpdGVjdHVyYWwuIHwKfCAiVGhlIHNwaWtlIHdvcmtzLCBzbyBJJ2xsIGtlZXAgdGhlIGNvZGUiIHwgQSBzcGlrZSdzIG91dHB1dCBpcyBhbiBhbnN3ZXIuIEtlZXBpbmcgdGhlIGNvZGUgaXMgYSBuZXcgcmVxdWVzdCDigJQgY2xhc3NpZnkgaXQuIHwKfCAiSXQgZ3JldywgYnV0IEknbSBhbG1vc3QgZG9uZSDigJQgbm8gbmVlZCB0byByZS1jbGFzc2lmeSIgfCBIaWRkZW4gY29tcGxleGl0eSB1cGdyYWRlcyB0aGUgcGF0aCBtaWQtdGFzay4gU3RvcCBhbmQgc2F5IHNvLiB8CnwgIlRoZXkgYXBwcm92ZWQgdGhlIHNwaWtlLCBzbyB0aGUgZm9sbG93LXVwIGNoYW5nZSBpcyBhcHByb3ZlZCB0b28iIHwgRWFjaCB0YXNrIGdldHMgaXRzIG93biBjbGFzc2lmaWNhdGlvbiBhbmQgaXRzIG93biBhcHByb3ZhbC4gfAoKIyMgQ2hlY2tsaXN0CgpDbGFzc2lmeSBmaXJzdCwgYW5ub3VuY2UgdGhlIHBhdGgsIHRoZW4gY3JlYXRlIGEgdGFzayBmb3IgZWFjaCBpdGVtIG9uCnlvdXIgcGF0aCBhbmQgY29tcGxldGUgdGhlbSBpbiBvcmRlci4KCioqU3Bpa2U6KioKMS4gKipFeHBsb3JlIHByb2plY3QgY29udGV4dCoqIOKAlCBlbm91Z2ggdG8gZnJhbWUgdGhlIHByb2JlCjIuICoqUHJlc2VudCBxdWVzdGlvbiArIHByb2JlIHBsYW4qKiDigJQgMi0zIHNlbnRlbmNlcwozLiAqKkdldCBhcHByb3ZhbCoqIOKAlCBhIG5vZCBpcyBlbm91Z2gKNC4gKipJbnZlc3RpZ2F0ZSoqIOKAlCBhcyBjaGVhcGx5IGFzIGNvcnJlY3RuZXNzIGFsbG93cwo1LiAqKlJlcG9ydCBmaW5kaW5ncyoqIOKAlCBhIHJlY29tbWVuZGF0aW9uOyBsYWJlbCBhbnl0aGluZyBidWlsdCBhcyB0aHJvd2F3YXkKCioqQm91bmRlZDoqKgoxLiAqKkV4cGxvcmUgcHJvamVjdCBjb250ZXh0Kiog4oCUIGNoZWNrIGZpbGVzLCBkb2NzLCByZWNlbnQgY29tbWl0cwoyLiAqKkFzayBjbGFyaWZ5aW5nIHF1ZXN0aW9ucyoqIOKAlCBvbmUgYXQgYSB0aW1lLCB0aGUgb25lcyB0aGF0IG1hdHRlcgozLiAqKlByZXNlbnQgc2hvcnQgZGVzaWduIGluIGNoYXQqKiDigJQgYXBwcm9hY2gsIGZpbGVzIHRvdWNoZWQsIHRlc3RpbmcKNC4gKipHZXQgYXBwcm92YWwqKiDigJQgU1RPUCBhbmQgd2FpdCBmb3IgYW4gZXhwbGljaXQgeWVzOyBwcmVzZW50aW5nIHRoZSBkZXNpZ24gYW5kIHN0YXJ0aW5nIGluIHRoZSBzYW1lIGJyZWF0aCBpcyBza2lwcGluZyB0aGUgZ2F0ZQo1LiAqKkltcGxlbWVudCoqIOKAlCBwcm9jZWVkIHdpdGggdGhlIG5vcm1hbCBkZXZlbG9wbWVudCB3b3JrZmxvdyAoVEREIGFwcGxpZXMpOyBubyBwbGFuIGRvY3VtZW50CgoqKkFyY2hpdGVjdHVyYWw6KioKMS4gKipFeHBsb3JlIHByb2plY3QgY29udGV4dCoqIOKAlCBjaGVjayBmaWxlcywgZG9jcywgcmVjZW50IGNvbW1pdHMKMi4gKipPZmZlciB0aGUgdmlzdWFsIGNvbXBhbmlvbiBqdXN0LWluLXRpbWUqKiDigJQgTk9UIHVwZnJvbnQuIFRoZSBmaXJzdCB0aW1lIGEgcXVlc3Rpb24gd291bGQgZ2VudWluZWx5IGJlIGNsZWFyZXIgc2hvd24gdGhhbiBkZXNjcmliZWQsIG9mZmVyIGl0IHRoZW4gKGl0cyBvd24gbWVzc2FnZSk7IG9uIGFwcHJvdmFsIGl0cyBicm93c2VyIHRhYiBvcGVucyBmb3IgeW91LiBJZiBubyB2aXN1YWwgcXVlc3Rpb24gZXZlciBhcmlzZXMsIG5ldmVyIG9mZmVyIGl0LiBTZWUgdGhlIFZpc3VhbCBDb21wYW5pb24gc2VjdGlvbiBiZWxvdy4KMy4gKipBc2sgY2xhcmlmeWluZyBxdWVzdGlvbnMqKiDigJQgb25lIGF0IGEgdGltZSwgdW5kZXJzdGFuZCBwdXJwb3NlL2NvbnN0cmFpbnRzL3N1Y2Nlc3MgY3JpdGVyaWEKNC4gKipQcm9wb3NlIDItMyBhcHByb2FjaGVzKiog4oCUIHdpdGggdHJhZGUtb2ZmcyBhbmQgeW91ciByZWNvbW1lbmRhdGlvbgo1LiAqKlByZXNlbnQgZGVzaWduKiog4oCUIGluIHNlY3Rpb25zIHNjYWxlZCB0byB0aGVpciBjb21wbGV4aXR5LCBnZXQgdXNlciBhcHByb3ZhbCBhZnRlciBlYWNoIHNlY3Rpb24KNi4gKipXcml0ZSBkZXNpZ24gZG9jKiog4oCUIHNhdmUgdG8gYGRvY3Mvc3VwZXJwb3dlcnMvc3BlY3MvWVlZWS1NTS1ERC08dG9waWM+LWRlc2lnbi5tZGAgYW5kIGNvbW1pdAo3LiAqKlNwZWMgc2VsZi1yZXZpZXcqKiDigJQgcXVpY2sgaW5saW5lIGNoZWNrIGZvciBwbGFjZWhvbGRlcnMsIGNvbnRyYWRpY3Rpb25zLCBhbWJpZ3VpdHksIHNjb3BlIChzZWUgYmVsb3cpCjguICoqVXNlciByZXZpZXdzIHdyaXR0ZW4gc3BlYyoqIOKAlCBhc2sgdXNlciB0byByZXZpZXcgdGhlIHNwZWMgZmlsZSBiZWZvcmUgcHJvY2VlZGluZwo5LiAqKlRyYW5zaXRpb24gdG8gaW1wbGVtZW50YXRpb24qKiDigJQgaW52b2tlIHdyaXRpbmctcGxhbnMgc2tpbGwgdG8gY3JlYXRlIGltcGxlbWVudGF0aW9uIHBsYW4KCiMjIFByb2Nlc3MgRmxvdwoKYGBgZG90CmRpZ3JhcGggYnJhaW5zdG9ybWluZyB7CiAgICAiQ2xhc3NpZnk6IHNwaWtlIC8gYm91bmRlZCAvIGFyY2hpdGVjdHVyYWwiIFtzaGFwZT1kaWFtb25kXTsKICAgICJQcmVzZW50IHF1ZXN0aW9uICsgcHJvYmUgKDItMyBzZW50ZW5jZXMpIiBbc2hhcGU9Ym94XTsKICAgICJBc2sgY2xhcmlmeWluZyBxdWVzdGlvbnMgKGJvdW5kZWQpIiBbc2hhcGU9Ym94XTsKICAgICJQcmVzZW50IHNob3J0IGRlc2lnbiBpbiBjaGF0IiBbc2hhcGU9Ym94XTsKICAgICJIdW1hbiBhcHByb3Zlcz8iIFtzaGFwZT1kaWFtb25kXTsKICAgICJJbnZlc3RpZ2F0ZTsgcmVwb3J0IHJlY29tbWVuZGF0aW9uIiBbc2hhcGU9ZG91YmxlY2lyY2xlXTsKICAgICJJbXBsZW1lbnQgdmlhIG5vcm1hbCB3b3JrZmxvdyAobm8gcGxhbiBkb2MpIiBbc2hhcGU9ZG91YmxlY2lyY2xlXTsKICAgICJFeHBsb3JlIHByb2plY3QgY29udGV4dCIgW3NoYXBlPWJveF07CiAgICAiQXNrIGNsYXJpZnlpbmcgcXVlc3Rpb25zIiBbc2hhcGU9Ym94XTsKICAgICJQcm9wb3NlIDItMyBhcHByb2FjaGVzIiBbc2hhcGU9Ym94XTsKICAgICJQcmVzZW50IGRlc2lnbiBzZWN0aW9ucyIgW3NoYXBlPWJveF07CiAgICAiVXNlciBhcHByb3ZlcyBkZXNpZ24/IiBbc2hhcGU9ZGlhbW9uZF07CiAgICAiV3JpdGUgZGVzaWduIGRvYyIgW3NoYXBlPWJveF07CiAgICAiU3BlYyBzZWxmLXJldmlld1xuKGZpeCBpbmxpbmUpIiBbc2hhcGU9Ym94XTsKICAgICJVc2VyIHJldmlld3Mgc3BlYz8iIFtzaGFwZT1kaWFtb25kXTsKICAgICJJbnZva2Ugd3JpdGluZy1wbGFucyBza2lsbCIgW3NoYXBlPWRvdWJsZWNpcmNsZV07CiAgICAiSGlkZGVuIGNvbXBsZXhpdHk/IFVwZ3JhZGUgcGF0aCIgW3NoYXBlPWJveF07CgogICAgIkNsYXNzaWZ5OiBzcGlrZSAvIGJvdW5kZWQgLyBhcmNoaXRlY3R1cmFsIiAtPiAiUHJlc2VudCBxdWVzdGlvbiArIHByb2JlICgyLTMgc2VudGVuY2VzKSIgW2xhYmVsPSJzcGlrZSJdOwogICAgIkNsYXNzaWZ5OiBzcGlrZSAvIGJvdW5kZWQgLyBhcmNoaXRlY3R1cmFsIiAtPiAiQXNrIGNsYXJpZnlpbmcgcXVlc3Rpb25zIChib3VuZGVkKSIgW2xhYmVsPSJib3VuZGVkIl07CiAgICAiQ2xhc3NpZnk6IHNwaWtlIC8gYm91bmRlZCAvIGFyY2hpdGVjdHVyYWwiIC0+ICJFeHBsb3JlIHByb2plY3QgY29udGV4dCIgW2xhYmVsPSJhcmNoaXRlY3R1cmFsIl07CiAgICAiUHJlc2VudCBxdWVzdGlvbiArIHByb2JlICgyLTMgc2VudGVuY2VzKSIgLT4gIkh1bWFuIGFwcHJvdmVzPyI7CiAgICAiQXNrIGNsYXJpZnlpbmcgcXVlc3Rpb25zIChib3VuZGVkKSIgLT4gIlByZXNlbnQgc2hvcnQgZGVzaWduIGluIGNoYXQiOwogICAgIlByZXNlbnQgc2hvcnQgZGVzaWduIGluIGNoYXQiIC0+ICJIdW1hbiBhcHByb3Zlcz8iOwogICAgIkh1bWFuIGFwcHJvdmVzPyIgLT4gIkludmVzdGlnYXRlOyByZXBvcnQgcmVjb21tZW5kYXRpb24iIFtsYWJlbD0ic3Bpa2U6IHllcyJdOwogICAgIkh1bWFuIGFwcHJvdmVzPyIgLT4gIkltcGxlbWVudCB2aWEgbm9ybWFsIHdvcmtmbG93IChubyBwbGFuIGRvYykiIFtsYWJlbD0iYm91bmRlZDogeWVzIl07CiAgICAiSGlkZGVuIGNvbXBsZXhpdHk/IFVwZ3JhZGUgcGF0aCIgLT4gIkNsYXNzaWZ5OiBzcGlrZSAvIGJvdW5kZWQgLyBhcmNoaXRlY3R1cmFsIjsKICAgICJFeHBsb3JlIHByb2plY3QgY29udGV4dCIgLT4gIkFzayBjbGFyaWZ5aW5nIHF1ZXN0aW9ucyI7CiAgICAiQXNrIGNsYXJpZnlpbmcgcXVlc3Rpb25zIiAtPiAiUHJvcG9zZSAyLTMgYXBwcm9hY2hlcyI7CiAgICAiUHJvcG9zZSAyLTMgYXBwcm9hY2hlcyIgLT4gIlByZXNlbnQgZGVzaWduIHNlY3Rpb25zIjsKICAgICJQcmVzZW50IGRlc2lnbiBzZWN0aW9ucyIgLT4gIlVzZXIgYXBwcm92ZXMgZGVzaWduPyI7CiAgICAiVXNlciBhcHByb3ZlcyBkZXNpZ24/IiAtPiAiUHJlc2VudCBkZXNpZ24gc2VjdGlvbnMiIFtsYWJlbD0ibm8sIHJldmlzZSJdOwogICAgIlVzZXIgYXBwcm92ZXMgZGVzaWduPyIgLT4gIldyaXRlIGRlc2lnbiBkb2MiIFtsYWJlbD0ieWVzIl07CiAgICAiV3JpdGUgZGVzaWduIGRvYyIgLT4gIlNwZWMgc2VsZi1yZXZpZXdcbihmaXggaW5saW5lKSI7CiAgICAiU3BlYyBzZWxmLXJldmlld1xuKGZpeCBpbmxpbmUpIiAtPiAiVXNlciByZXZpZXdzIHNwZWM/IjsKICAgICJVc2VyIHJldmlld3Mgc3BlYz8iIC0+ICJXcml0ZSBkZXNpZ24gZG9jIiBbbGFiZWw9ImNoYW5nZXMgcmVxdWVzdGVkIl07CiAgICAiVXNlciByZXZpZXdzIHNwZWM/IiAtPiAiSW52b2tlIHdyaXRpbmctcGxhbnMgc2tpbGwiIFtsYWJlbD0iYXBwcm92ZWQiXTsKfQpgYGAKCioqVGVybWluYWwgc3RhdGVzIGFyZSBwYXRoLWJvdW5kLioqIEFyY2hpdGVjdHVyYWw6IHRoZSBPTkxZIHNraWxsIHlvdQppbnZva2UgYWZ0ZXIgYnJhaW5zdG9ybWluZyBpcyB3cml0aW5nLXBsYW5zIOKAlCBuZXZlciBmcm9udGVuZC1kZXNpZ24sCm1jcC1idWlsZGVyLCBvciBhbnkgb3RoZXIgaW1wbGVtZW50YXRpb24gc2tpbGwuIEJvdW5kZWQ6IGFmdGVyCmFwcHJvdmFsLCBpbXBsZW1lbnRhdGlvbiBwcm9jZWVkcyBkaXJlY3RseSB0aHJvdWdoIHRoZSBub3JtYWwKZGV2ZWxvcG1lbnQgd29ya2Zsb3c7IG5vIHBsYW4gZG9jdW1lbnQuIFNwaWtlOiB0aGUgdGVybWluYWwgc3RhdGUgaXMgYQpyZXBvcnRlZCByZWNvbW1lbmRhdGlvbi4KCiMjIFRoZSBQcm9jZXNzCgpUaGUgc3Vic2VjdGlvbnMgYmVsb3cgc2VydmUgdGhlIGJvdW5kZWQgYW5kIGFyY2hpdGVjdHVyYWwgcGF0aHMgKGEKc3Bpa2Ugc3RvcHMgYXQgInByZXNlbnQgdGhlIHByb2JlLCBnZXQgYSBub2QiKS4gU2VjdGlvbnMgZnJvbQoqKkV4cGxvcmluZyBhcHByb2FjaGVzKiogb253YXJkIGFyZSBhcmNoaXRlY3R1cmFsLXBhdGggZGVwdGgg4oCUIGZvcgpib3VuZGVkIHdvcmssIGNvbnRleHQgcGx1cyBhIGZldyBxdWVzdGlvbnMgcGx1cyBhIHNob3J0IGluLWNoYXQgZGVzaWduCmlzIHRoZSB3aG9sZSBwcm9jZXNzLgoKKipVbmRlcnN0YW5kaW5nIHRoZSBpZGVhOioqCgotIENoZWNrIG91dCB0aGUgY3VycmVudCBwcm9qZWN0IHN0YXRlIGZpcnN0IChmaWxlcywgZG9jcywgcmVjZW50IGNvbW1pdHMpCi0gQmVmb3JlIGFza2luZyBkZXRhaWxlZCBxdWVzdGlvbnMsIGFzc2VzcyBzY29wZTogaWYgdGhlIHJlcXVlc3QgZGVzY3JpYmVzIG11bHRpcGxlIGluZGVwZW5kZW50IHN1YnN5c3RlbXMgKGUuZy4sICJidWlsZCBhIHBsYXRmb3JtIHdpdGggY2hhdCwgZmlsZSBzdG9yYWdlLCBiaWxsaW5nLCBhbmQgYW5hbHl0aWNzIiksIGZsYWcgdGhpcyBpbW1lZGlhdGVseS4gRG9uJ3Qgc3BlbmQgcXVlc3Rpb25zIHJlZmluaW5nIGRldGFpbHMgb2YgYSBwcm9qZWN0IHRoYXQgbmVlZHMgdG8gYmUgZGVjb21wb3NlZCBmaXJzdC4KLSBJZiB0aGUgcHJvamVjdCBpcyB0b28gbGFyZ2UgZm9yIGEgc2luZ2xlIHNwZWMsIGhlbHAgdGhlIHVzZXIgZGVjb21wb3NlIGludG8gc3ViLXByb2plY3RzOiB3aGF0IGFyZSB0aGUgaW5kZXBlbmRlbnQgcGllY2VzLCBob3cgZG8gdGhleSByZWxhdGUsIHdoYXQgb3JkZXIgc2hvdWxkIHRoZXkgYmUgYnVpbHQ/IFRoZW4gYnJhaW5zdG9ybSB0aGUgZmlyc3Qgc3ViLXByb2plY3QgdGhyb3VnaCB0aGUgbm9ybWFsIGRlc2lnbiBmbG93LiBFYWNoIHN1Yi1wcm9qZWN0IGdldHMgaXRzIG93biBzcGVjIOKGkiBwbGFuIOKGkiBpbXBsZW1lbnRhdGlvbiBjeWNsZS4KLSBGb3IgYXBwcm9wcmlhdGVseS1zY29wZWQgcHJvamVjdHMsIGFzayBxdWVzdGlvbnMgb25lIGF0IGEgdGltZSB0byByZWZpbmUgdGhlIGlkZWEKLSBQcmVmZXIgbXVsdGlwbGUgY2hvaWNlIHF1ZXN0aW9ucyB3aGVuIHBvc3NpYmxlLCBidXQgb3Blbi1lbmRlZCBpcyBmaW5lIHRvbwotIE9ubHkgb25lIHF1ZXN0aW9uIHBlciBtZXNzYWdlIC0gaWYgYSB0b3BpYyBuZWVkcyBtb3JlIGV4cGxvcmF0aW9uLCBicmVhayBpdCBpbnRvIG11bHRpcGxlIHF1ZXN0aW9ucwotIEZvY3VzIG9uIHVuZGVyc3RhbmRpbmc6IHB1cnBvc2UsIGNvbnN0cmFpbnRzLCBzdWNjZXNzIGNyaXRlcmlhCgoqKkV4cGxvcmluZyBhcHByb2FjaGVzOioqCgotIFByb3Bvc2UgMi0zIGRpZmZlcmVudCBhcHByb2FjaGVzIHdpdGggdHJhZGUtb2ZmcwotIFByZXNlbnQgb3B0aW9ucyBjb252ZXJzYXRpb25hbGx5IHdpdGggeW91ciByZWNvbW1lbmRhdGlvbiBhbmQgcmVhc29uaW5nCi0gTGVhZCB3aXRoIHlvdXIgcmVjb21tZW5kZWQgb3B0aW9uIGFuZCBleHBsYWluIHdoeQotIFlBR05JIHJ1dGhsZXNzbHkgLSByZW1vdmUgdW5uZWNlc3NhcnkgZmVhdHVyZXMgZnJvbSBldmVyeSBhcHByb2FjaCBhbmQgZGVzaWduCgoqKlByZXNlbnRpbmcgdGhlIGRlc2lnbjoqKgoKLSBPbmNlIHlvdSBiZWxpZXZlIHlvdSB1bmRlcnN0YW5kIHdoYXQgeW91J3JlIGJ1aWxkaW5nLCBwcmVzZW50IHRoZSBkZXNpZ24KLSBTY2FsZSBlYWNoIHNlY3Rpb24gdG8gaXRzIGNvbXBsZXhpdHk6IGEgZmV3IHNlbnRlbmNlcyBpZiBzdHJhaWdodGZvcndhcmQsIHVwIHRvIDIwMC0zMDAgd29yZHMgaWYgbnVhbmNlZAotIEFzayBhZnRlciBlYWNoIHNlY3Rpb24gd2hldGhlciBpdCBsb29rcyByaWdodCBzbyBmYXIKLSBDb3ZlcjogYXJjaGl0ZWN0dXJlLCBjb21wb25lbnRzLCBkYXRhIGZsb3csIGVycm9yIGhhbmRsaW5nLCB0ZXN0aW5nCi0gQmUgcmVhZHkgdG8gZ28gYmFjayBhbmQgY2xhcmlmeSBpZiBzb21ldGhpbmcgZG9lc24ndCBtYWtlIHNlbnNlCgoqKkRlc2lnbiBmb3IgaXNvbGF0aW9uIGFuZCBjbGFyaXR5OioqCgotIEJyZWFrIHRoZSBzeXN0ZW0gaW50byBzbWFsbGVyIHVuaXRzIHRoYXQgZWFjaCBoYXZlIG9uZSBjbGVhciBwdXJwb3NlLCBjb21tdW5pY2F0ZSB0aHJvdWdoIHdlbGwtZGVmaW5lZCBpbnRlcmZhY2VzLCBhbmQgY2FuIGJlIHVuZGVyc3Rvb2QgYW5kIHRlc3RlZCBpbmRlcGVuZGVudGx5Ci0gRm9yIGVhY2ggdW5pdCwgeW91IHNob3VsZCBiZSBhYmxlIHRvIGFuc3dlcjogd2hhdCBkb2VzIGl0IGRvLCBob3cgZG8geW91IHVzZSBpdCwgYW5kIHdoYXQgZG9lcyBpdCBkZXBlbmQgb24/Ci0gQ2FuIHNvbWVvbmUgdW5kZXJzdGFuZCB3aGF0IGEgdW5pdCBkb2VzIHdpdGhvdXQgcmVhZGluZyBpdHMgaW50ZXJuYWxzPyBDYW4geW91IGNoYW5nZSB0aGUgaW50ZXJuYWxzIHdpdGhvdXQgYnJlYWtpbmcgY29uc3VtZXJzPyBJZiBub3QsIHRoZSBib3VuZGFyaWVzIG5lZWQgd29yay4KLSBTbWFsbGVyLCB3ZWxsLWJvdW5kZWQgdW5pdHMgYXJlIGFsc28gZWFzaWVyIGZvciB5b3UgdG8gd29yayB3aXRoIC0geW91IHJlYXNvbiBiZXR0ZXIgYWJvdXQgY29kZSB5b3UgY2FuIGhvbGQgaW4gY29udGV4dCBhdCBvbmNlLCBhbmQgeW91ciBlZGl0cyBhcmUgbW9yZSByZWxpYWJsZSB3aGVuIGZpbGVzIGFyZSBmb2N1c2VkLiBXaGVuIGEgZmlsZSBncm93cyBsYXJnZSwgdGhhdCdzIG9mdGVuIGEgc2lnbmFsIHRoYXQgaXQncyBkb2luZyB0b28gbXVjaC4KCioqV29ya2luZyBpbiBleGlzdGluZyBjb2RlYmFzZXM6KioKCi0gRXhwbG9yZSB0aGUgY3VycmVudCBzdHJ1Y3R1cmUgYmVmb3JlIHByb3Bvc2luZyBjaGFuZ2VzLiBGb2xsb3cgZXhpc3RpbmcgcGF0dGVybnMuCi0gV2hlcmUgZXhpc3RpbmcgY29kZSBoYXMgcHJvYmxlbXMgdGhhdCBhZmZlY3QgdGhlIHdvcmsgKGUuZy4sIGEgZmlsZSB0aGF0J3MgZ3Jvd24gdG9vIGxhcmdlLCB1bmNsZWFyIGJvdW5kYXJpZXMsIHRhbmdsZWQgcmVzcG9uc2liaWxpdGllcyksIGluY2x1ZGUgdGFyZ2V0ZWQgaW1wcm92ZW1lbnRzIGFzIHBhcnQgb2YgdGhlIGRlc2lnbiAtIHRoZSB3YXkgYSBnb29kIGRldmVsb3BlciBpbXByb3ZlcyBjb2RlIHRoZXkncmUgd29ya2luZyBpbi4KLSBEb24ndCBwcm9wb3NlIHVucmVsYXRlZCByZWZhY3RvcmluZy4gU3RheSBmb2N1c2VkIG9uIHdoYXQgc2VydmVzIHRoZSBjdXJyZW50IGdvYWwuCgojIyBBZnRlciB0aGUgRGVzaWduIChhcmNoaXRlY3R1cmFsIHBhdGgpCgoqKkRvY3VtZW50YXRpb246KioKCi0gV3JpdGUgdGhlIHZhbGlkYXRlZCBkZXNpZ24gKHNwZWMpIHRvIGBkb2NzL3N1cGVycG93ZXJzL3NwZWNzL1lZWVktTU0tREQtPHRvcGljPi1kZXNpZ24ubWRgCiAgLSAoVXNlciBwcmVmZXJlbmNlcyBmb3Igc3BlYyBsb2NhdGlvbiBvdmVycmlkZSB0aGlzIGRlZmF1bHQpCi0gVXNlIGVsZW1lbnRzLW9mLXN0eWxlOndyaXRpbmctY2xlYXJseS1hbmQtY29uY2lzZWx5IHNraWxsIGlmIGF2YWlsYWJsZQotIENvbW1pdCB0aGUgZGVzaWduIGRvY3VtZW50IHRvIGdpdAoKKipTcGVjIFNlbGYtUmV2aWV3OioqCkFmdGVyIHdyaXRpbmcgdGhlIHNwZWMgZG9jdW1lbnQsIGxvb2sgYXQgaXQgd2l0aCBmcmVzaCBleWVzOgoKMS4gKipQbGFjZWhvbGRlciBzY2FuOioqIEFueSAiVEJEIiwgIlRPRE8iLCBpbmNvbXBsZXRlIHNlY3Rpb25zLCBvciB2YWd1ZSByZXF1aXJlbWVudHM/IEZpeCB0aGVtLgoyLiAqKkludGVybmFsIGNvbnNpc3RlbmN5OioqIERvIGFueSBzZWN0aW9ucyBjb250cmFkaWN0IGVhY2ggb3RoZXI/IERvZXMgdGhlIGFyY2hpdGVjdHVyZSBtYXRjaCB0aGUgZmVhdHVyZSBkZXNjcmlwdGlvbnM/CjMuICoqU2NvcGUgY2hlY2s6KiogSXMgdGhpcyBmb2N1c2VkIGVub3VnaCBmb3IgYSBzaW5nbGUgaW1wbGVtZW50YXRpb24gcGxhbiwgb3IgZG9lcyBpdCBuZWVkIGRlY29tcG9zaXRpb24/CjQuICoqQW1iaWd1aXR5IGNoZWNrOioqIENvdWxkIGFueSByZXF1aXJlbWVudCBiZSBpbnRlcnByZXRlZCB0d28gZGlmZmVyZW50IHdheXM/IElmIHNvLCBwaWNrIG9uZSBhbmQgbWFrZSBpdCBleHBsaWNpdC4KCkZpeCBhbnkgaXNzdWVzIGlubGluZS4gTm8gbmVlZCB0byByZS1yZXZpZXcg4oCUIGp1c3QgZml4IGFuZCBtb3ZlIG9uLgoKKipVc2VyIFJldmlldyBHYXRlOioqCkFmdGVyIHRoZSBzcGVjIHJldmlldyBsb29wIHBhc3NlcywgYXNrIHRoZSB1c2VyIHRvIHJldmlldyB0aGUgd3JpdHRlbiBzcGVjIGJlZm9yZSBwcm9jZWVkaW5nOgoKPiAiU3BlYyB3cml0dGVuIGFuZCBjb21taXR0ZWQgdG8gYDxwYXRoPmAuIFBsZWFzZSByZXZpZXcgaXQgYW5kIGxldCBtZSBrbm93IGlmIHlvdSB3YW50IHRvIG1ha2UgYW55IGNoYW5nZXMgYmVmb3JlIHdlIHN0YXJ0IHdyaXRpbmcgb3V0IHRoZSBpbXBsZW1lbnRhdGlvbiBwbGFuLiIKCldhaXQgZm9yIHRoZSB1c2VyJ3MgcmVzcG9uc2UuIElmIHRoZXkgcmVxdWVzdCBjaGFuZ2VzLCBtYWtlIHRoZW0gYW5kIHJlLXJ1biB0aGUgc3BlYyByZXZpZXcgbG9vcC4gT25seSBwcm9jZWVkIG9uY2UgdGhlIHVzZXIgYXBwcm92ZXMuCgoqKkltcGxlbWVudGF0aW9uOioqCgotIEludm9rZSB0aGUgd3JpdGluZy1wbGFucyBza2lsbCB0byBjcmVhdGUgYSBkZXRhaWxlZCBpbXBsZW1lbnRhdGlvbiBwbGFuCi0gRG8gTk9UIGludm9rZSBhbnkgb3RoZXIgc2tpbGwuIHdyaXRpbmctcGxhbnMgaXMgdGhlIG5leHQgc3RlcC4KCiMjIFZpc3VhbCBDb21wYW5pb24KCkEgYnJvd3Nlci1iYXNlZCBjb21wYW5pb24gZm9yIHNob3dpbmcgbW9ja3VwcywgZGlhZ3JhbXMsIGFuZCB2aXN1YWwgb3B0aW9ucyBkdXJpbmcgYnJhaW5zdG9ybWluZy4gQXZhaWxhYmxlIGFzIGEgdG9vbCDigJQgbm90IGEgbW9kZS4gQWNjZXB0aW5nIHRoZSBjb21wYW5pb24gbWVhbnMgaXQncyBhdmFpbGFibGUgZm9yIHF1ZXN0aW9ucyB0aGF0IGJlbmVmaXQgZnJvbSB2aXN1YWwgdHJlYXRtZW50OyBpdCBkb2VzIE5PVCBtZWFuIGV2ZXJ5IHF1ZXN0aW9uIGdvZXMgdGhyb3VnaCB0aGUgYnJvd3Nlci4KCioqT2ZmZXJpbmcgdGhlIGNvbXBhbmlvbiAoanVzdC1pbi10aW1lKToqKiBEbyBOT1Qgb2ZmZXIgaXQgdXBmcm9udC4gV2FpdCB1bnRpbCBhIHF1ZXN0aW9uIHdvdWxkIGdlbnVpbmVseSBiZSBjbGVhcmVyIHNob3duIHRoYW4gdG9sZCDigJQgYSByZWFsIG1vY2t1cCAvIGxheW91dCAvIGRpYWdyYW0gcXVlc3Rpb24sIG5vdCBtZXJlbHkgYSBVSSAqdG9waWMqLiBUaGUgZmlyc3QgdGltZSB0aGF0IGhhcHBlbnMsIG9mZmVyIGl0IHRoZW4sIGFzIGl0cyBvd24gbWVzc2FnZToKPiAiVGhpcyBuZXh0IHBhcnQgbWlnaHQgYmUgZWFzaWVyIGlmIEkgc2hvdyB5b3Ug4oCUIEkgY2FuIHB1dCB0b2dldGhlciBtb2NrdXBzLCBkaWFncmFtcywgYW5kIGNvbXBhcmlzb25zIGluIGEgYnJvd3NlciB0YWIgYXMgd2UgZ28uIEl0J3Mgc3RpbGwgbmV3IGFuZCBjYW4gYmUgdG9rZW4taW50ZW5zaXZlLiBXYW50IG1lIHRvPyBJJ2xsIG9wZW4gaXQgZm9yIHlvdS4iCgoqKlRoaXMgb2ZmZXIgTVVTVCBiZSBpdHMgb3duIG1lc3NhZ2UuKiogT25seSB0aGUgb2ZmZXIg4oCUIG5vIGNsYXJpZnlpbmcgcXVlc3Rpb24sIHN1bW1hcnksIG9yIG90aGVyIGNvbnRlbnQuIFdhaXQgZm9yIHRoZSB1c2VyJ3MgcmVzcG9uc2UuIElmIHRoZXkgYWNjZXB0LCBzdGFydCB0aGUgc2VydmVyIHdpdGggYC0tb3BlbmAgc28gdGhlaXIgYnJvd3NlciBvcGVucyB0byB0aGUgZmlyc3Qgc2NyZWVuIGF1dG9tYXRpY2FsbHkuIElmIHRoZXkgZGVjbGluZSwgY29udGludWUgdGV4dC1vbmx5IGFuZCBkb24ndCBvZmZlciBhZ2FpbiB1bmxlc3MgdGhleSByYWlzZSBpdC4KCioqUGVyLXF1ZXN0aW9uIGRlY2lzaW9uOioqIEV2ZW4gYWZ0ZXIgdGhlIHVzZXIgYWNjZXB0cywgZGVjaWRlIEZPUiBFQUNIIFFVRVNUSU9OIHdoZXRoZXIgdG8gdXNlIHRoZSBicm93c2VyIG9yIHRoZSB0ZXJtaW5hbC4gVGhlIHRlc3Q6ICoqd291bGQgdGhlIHVzZXIgdW5kZXJzdGFuZCB0aGlzIGJldHRlciBieSBzZWVpbmcgaXQgdGhhbiByZWFkaW5nIGl0PyoqCgotICoqVXNlIHRoZSBicm93c2VyKiogZm9yIGNvbnRlbnQgdGhhdCBJUyB2aXN1YWwg4oCUIG1vY2t1cHMsIHdpcmVmcmFtZXMsIGxheW91dCBjb21wYXJpc29ucywgYXJjaGl0ZWN0dXJlIGRpYWdyYW1zLCBzaWRlLWJ5LXNpZGUgdmlzdWFsIGRlc2lnbnMKLSAqKlVzZSB0aGUgdGVybWluYWwqKiBmb3IgY29udGVudCB0aGF0IGlzIHRleHQg4oCUIHJlcXVpcmVtZW50cyBxdWVzdGlvbnMsIGNvbmNlcHR1YWwgY2hvaWNlcywgdHJhZGVvZmYgbGlzdHMsIEEvQi9DL0QgdGV4dCBvcHRpb25zLCBzY29wZSBkZWNpc2lvbnMKCkEgcXVlc3Rpb24gYWJvdXQgYSBVSSB0b3BpYyBpcyBub3QgYXV0b21hdGljYWxseSBhIHZpc3VhbCBxdWVzdGlvbi4gIldoYXQgZG9lcyBwZXJzb25hbGl0eSBtZWFuIGluIHRoaXMgY29udGV4dD8iIGlzIGEgY29uY2VwdHVhbCBxdWVzdGlvbiDigJQgdXNlIHRoZSB0ZXJtaW5hbC4gIldoaWNoIHdpemFyZCBsYXlvdXQgd29ya3MgYmV0dGVyPyIgaXMgYSB2aXN1YWwgcXVlc3Rpb24g4oCUIHVzZSB0aGUgYnJvd3Nlci4KCklmIHRoZXkgYWdyZWUgdG8gdGhlIGNvbXBhbmlvbiwgcmVhZCB0aGUgZGV0YWlsZWQgZ3VpZGUgYmVmb3JlIHByb2NlZWRpbmc6CmBza2lsbHMvYnJhaW5zdG9ybWluZy92aXN1YWwtY29tcGFuaW9uLm1kYAo="
    }
   }
  ]

@@ -1,17 +1,20 @@
 // Records REAL @aihq/catalog output for Core's tests: the producer, planners and renders of the Catalog package built
-// from samartomar/aih-catalog commit 6d9c54450f8ad7e00372728854fa0bf0a2cece7a (unreleased 0.1.0 candidate).
+// from samartomar/aih-catalog commit 32db9971497bcea87e9cf46df3a190dee077c72a (unreleased 0.1.0 candidate).
 //
-//   node test/fixtures/catalog-6d9c544/generate.mjs --consumer <folder with that @aihq/catalog installed> \
-//     --tarball-sha256 <sha256 of the packed tarball> --data <aih-catalog checkout at that commit>/data //     --superpowers <Git checkout of obra/superpowers holding its pinned commit>
+//   node test/fixtures/catalog-32db997/generate.mjs --consumer <folder with that @aihq/catalog installed> \
+//     --tarball-sha256 <sha256 of the packed tarball> --data <aih-catalog checkout at that commit>/data \
+//     --superpowers <Git checkout of obra/superpowers holding its pinned commit> --cbm-license <the cbm LICENSE file>
 //
 // `recorded.json` holds, byte for byte as Catalog returned them: a bring-your-own content document (built by
 // `buildContent` from the small folder below), the nine shipped tool profiles, `planInstall` plans for it at user and
-// project scope, every `renderStep` result those plans need, and the real codebase-memory-mcp (cbm) data plan on
-// windows-x64, and a `planRecipe` plan of a local-plugin recipe over Catalog's Superpowers data for Claude Code (the recipe
-// document is a Core-side FIXTURE; the plan is Catalog's). `recipe-files.json.gz` holds the Superpowers plugin folder's
-// bytes at its pinned commit, read from Git (MIT, its LICENSE included). Core's tests replay the renders and that one
-// `planRecipe` call instead of importing Catalog. This is real Catalog output for this
-// candidate only: it says nothing about a released Catalog, a client loading the result, or a qualified AI setup.
+// project scope, every `renderStep` result those plans need, Catalog's real codebase-memory-mcp (cbm) data plans on
+// windows-x64 (not qualified there) and linux-x64 (qualified: acquire, MCP entries and settings commands with their
+// `restore`), and a `planRecipe` plan of a recipe over Catalog's Superpowers data that installs the native plugin on Claude
+// Code and Codex (by marketplace name) and the items on Kiro (the recipe document is a Core-side FIXTURE; the plan is
+// Catalog's). `recipe-files.json.gz` holds only the Superpowers files that plan copies, at the pinned upstream commit,
+// read from Git (MIT, its LICENSE included; the commit is recorded beside it in `recorded.json`). Core's tests replay the
+// renders and that one `planRecipe` call instead of importing Catalog. This is real Catalog output for this candidate only:
+// it says nothing about a released Catalog, a client loading the result, or a qualified AI setup.
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -24,8 +27,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const arg = name => { const at = process.argv.indexOf(name); assert.ok(at > 0 && process.argv[at + 1], `missing ${name}`); return process.argv[at + 1]; };
 const consumer = resolve(arg('--consumer')), data = resolve(arg('--data')), tarballSha256 = arg('--tarball-sha256');
-const superpowersGit = resolve(arg('--superpowers'));
-const COMMIT = '6d9c54450f8ad7e00372728854fa0bf0a2cece7a';
+const superpowersGit = resolve(arg('--superpowers')), cbmLicense = resolve(arg('--cbm-license'));
+const COMMIT = '32db9971497bcea87e9cf46df3a190dee077c72a';
 const packageDir = join(consumer, 'node_modules', '@aihq', 'catalog');
 const manifest = JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8'));
 const entry = name => import(pathToFileURL(join(packageDir, manifest.exports[name].import)).href);
@@ -76,11 +79,14 @@ try {
   const ids = content.items.map(item => item.id);
   const plans = {
     user: reader.planInstall(ids, [content], profiles, { scope: 'user', data: null }),
-    // `ship` is left out at project scope: its user-only renders differ in the one `.agents/skills` folder six
-    // clients share, which Catalog reports as a clash (a plan Core refuses `plan-unresolved`).
+    // `ship` is left out at project scope: the user-only skill's renders still differ in the one `.agents/skills` folder
+    // six clients share, which Catalog reports as a clash (recorded below as `shipClashes`; Core refuses it
+    // `plan-unresolved`).
     project: reader.planInstall(ids.filter(id => id !== `${FRAMEWORK}.skill.ship`), [content], profiles, { scope: 'project', data: null }),
   };
   for (const [scope, plan] of Object.entries(plans)) assert.ok(plan.plan && !plan.clashes.length, `${scope}: ${JSON.stringify(plan.clashes)}`);
+  const withShip = reader.planInstall(ids, [content], profiles, { scope: 'project', data: null });
+  const shipClashes = withShip.clashes, shipUnavailable = withShip.unavailable;
 
   // A rule declaring an input with a placeholder in its own file, planned for Claude Code alone (a rule file) and with
   // Codex too (a block in the shared AGENTS.md).
@@ -100,64 +106,74 @@ try {
     [name, reader.planInstall(ruleIds, [rulesBuilt.content], profiles.filter(profile => ids.includes(profile.id)), { scope: 'project', data: null })]));
   const rulesFiles = rulesRead.files.map(entry => ({ sourceId: RULES, sourcePath: entry.path, sha256: entry.sha256, text: new TextDecoder().decode(entry.bytes) }));
 
-  // cbm: Catalog's own codebase-memory-mcp data, planned for every client on windows-x64 with its qualifications.
+  // cbm: Catalog's own codebase-memory-mcp data, planned for every client with its qualifications, on windows-x64 (this
+  // host's cell, not qualified) and linux-x64 (qualified).
   const cbm = (await readContentFile(join(data, 'cbm', 'content.json'))).content;
   const qualifications = readdirSync(join(data, 'qualifications')).sort().map(name =>
     reader.readQualification(readFileSync(join(data, 'qualifications', name))).qualification);
   const dataPin = { repository: 'https://github.com/samartomar/aih-catalog', commit: COMMIT };
-  const cbmPlan = reader.planInstall(cbm.items.map(item => item.id), [cbm], profiles,
-    { scope: 'project', data: dataPin, cell: 'windows-x64', qualifications });
-  assert.ok(cbmPlan.plan, JSON.stringify(cbmPlan));
-  const used = cbmPlan.plan.filter(step => step.qualification).map(step => step.qualification);
-  // The one source file the cbm plan copies (its licence notice), read from the pinned upstream commit.
+  const cbmPlans = Object.fromEntries(['windows-x64', 'linux-x64'].map(cell => [cell, reader.planInstall(cbm.items.map(item => item.id), [cbm], profiles,
+    { scope: 'project', data: dataPin, cell, qualifications })]));
+  for (const plan of Object.values(cbmPlans)) assert.ok(plan.plan, JSON.stringify(plan));
+  const used = Object.values(cbmPlans).flatMap(plan => plan.plan.filter(step => step.qualification).map(step => step.qualification));
+  // The one source file the cbm plan copies (its licence notice), as supplied and checked against the content's sha256.
   const cbmSource = cbm.sources[0];
-  const cbmFiles = await Promise.all(cbmSource.notices.map(async notice => {
-    const url = `${cbmSource.repository.replace('https://github.com/', 'https://raw.githubusercontent.com/')}/${cbmSource.commit}/${notice.sourcePath}`;
-    const text = await (await fetch(url)).text();
-    assert.equal(sha256(encode(text)), notice.sha256, url);
+  const cbmFiles = cbmSource.notices.map(notice => {
+    const text = readFileSync(cbmLicense, 'utf8');
+    assert.equal(sha256(encode(text)), notice.sha256, notice.sourcePath);
     return { sourceId: cbmSource.id, sourcePath: notice.sourcePath, sha256: notice.sha256, text };
-  }));
-  const cbmQualifications = qualifications.filter(record => used.includes(sha256(encode(`${JSON.stringify(sorted(record), null, 2)}\n`))));
+  });
+  const cbmQualifications = qualifications.filter(record => used.some(digest => digest.replace(/^sha256:/, '') ===
+    sha256(encode(`${JSON.stringify(sorted(record), null, 2)}\n`))));
 
-  // A local-plugin recipe over Catalog's Superpowers data: Claude Code copies the pinned plugin folder as one unit.
+  // A recipe over Catalog's Superpowers data at user scope: the native plugin on Claude Code and Codex, each from the
+  // marketplace its recipe names by its declared name, and one skill as items on Kiro.
   const superpowers = (await readContentFile(join(data, 'superpowers', 'content.json'))).content;
   const upstream = superpowers.sources.find(source => source.id === 'superpowers');
-  const recipeDocument = { schema: 'urn:aihq:catalog:recipe:0.1.0', id: 'superpowers-local', kind: 'base', framework: 'superpowers',
-    content: { repository: upstream.repository, commit: upstream.commit }, routes: { 'claude-code': 'local-plugin' },
-    plugins: { 'claude-code': { source: 'superpowers', path: '/', plugin: 'superpowers', commit: upstream.commit, marketplace: 'superpowers-dev' } },
-    members: superpowers.items.filter(item => item.kind === 'skill').map(item => ({ item: item.id, preTicked: true })), data: dataPin };
+  const pinned = { source: 'superpowers', path: '/', plugin: 'superpowers', commit: upstream.commit };
+  const recipeDocument = { schema: 'urn:aihq:catalog:recipe:0.1.0', id: 'superpowers-plugins', kind: 'base', framework: 'superpowers',
+    content: { repository: upstream.repository, commit: upstream.commit }, routes: { 'claude-code': 'plugin', codex: 'plugin', kiro: 'items' },
+    plugins: { 'claude-code': { ...pinned, marketplace: 'https://github.com/obra/superpowers-marketplace', marketplaceName: 'superpowers-marketplace' },
+      codex: { ...pinned, marketplace: upstream.repository, marketplaceName: 'superpowers-dev' } },
+    clis: { kiro: ['skill'] }, members: [{ item: 'superpowers.skill.brainstorming', preTicked: true }], data: dataPin };
   // The recipe file in Catalog's canonical form (sorted keys, two-space indent): its sha256 is the recipe's identity.
   const recipeJson = `${JSON.stringify(sorted(recipeDocument), null, 2)}\n`;
-  const pluginJson = `${JSON.stringify({ name: 'superpowers-local', version: '0.1.0', description: 'Superpowers as a local plugin (Core test fixture)',
+  const pluginJson = `${JSON.stringify({ name: 'superpowers-plugins', version: '0.1.0', description: 'Superpowers as native plugins (Core test fixture)',
     author: { name: 'AIH Core tests' }, license: 'MIT', keywords: ['fixture'] }, null, 2)}\n`;
   assert.equal(reader.readRecipe(encode(pluginJson), encode(recipeJson)).status, 'ok');
-  const recipeProfiles = profiles.filter(profile => profile.id === 'claude-code');
+  const recipeProfiles = profiles.filter(profile => ['claude-code', 'codex', 'kiro'].includes(profile.id));
   // Exactly the call Core makes to prove the origin (the parsed recipe.json, the request's contents and profiles).
-  const recipeOptions = { scope: 'project', source: { repository: 'https://github.com/example/superpowers-local-recipe', commit: 'a'.repeat(40) } };
+  const recipeOptions = { scope: 'user', source: { repository: 'https://github.com/example/superpowers-plugins-recipe', commit: 'a'.repeat(40) } };
   const recipePlan = reader.planRecipe(JSON.parse(recipeJson), [superpowers], recipeProfiles, {}, recipeOptions);
   assert.equal(recipePlan.status, 'ok', JSON.stringify(recipePlan).slice(0, 2000));
+  assert.deepEqual(recipePlan.plan.filter(step => step.op === 'plugin').map(step => [step.cli, step.marketplaceName]),
+    [['claude-code', 'superpowers-marketplace'], ['codex', 'superpowers-dev']]);
   const named = [...new Set(recipePlan.plan.filter(step => step.from?.sourceId === 'superpowers').map(step => step.from.sourcePath))].sort();
   const recipeFiles = named.map(path => {
     const bytes = execFileSync('git', ['-C', superpowersGit, 'show', `${upstream.commit}:${path}`], { maxBuffer: 64 * 1_048_576 });
-    const listed = superpowers.plugins[0].files.find(file => file.sourcePath === path) ?? upstream.notices.find(notice => notice.sourcePath === path);
+    const listed = superpowers.items.flatMap(item => item.files ?? []).find(file => file.sourceId === 'superpowers' && file.sourcePath === path) ??
+      upstream.notices.find(notice => notice.sourcePath === path);
     assert.equal(sha256(bytes), listed.sha256, path);
-    // UTF-8 text as text (it compresses far better), any other bytes as base64.
+    // UTF-8 text as text, any other bytes as base64.
     const text = bytes.toString('utf8');
     return { sourceId: 'superpowers', sourcePath: path, sha256: listed.sha256,
       ...(Buffer.from(text, 'utf8').equals(bytes) ? { text } : { base64: bytes.toString('base64') }) };
   });
+  assert.ok(named.includes('LICENSE'), 'the upstream LICENSE is kept with its files');
   writeFileSync(join(here, 'recipe-files.json.gz'), gzipSync(`${JSON.stringify(recipeFiles)}\n`, { level: 9 }));
 
   const files = read.files.map(entry => ({ sourceId: FRAMEWORK, sourcePath: entry.path, sha256: entry.sha256,
     text: new TextDecoder().decode(entry.bytes) }));
   const renders = [];
   const seen = new Set();
+  const recipeTexts = recipeFiles.map(({ sourceId, sourcePath, text, base64 }) => ({ sourceId, sourcePath, bytes: text === undefined ?
+    new Uint8Array(Buffer.from(base64, 'base64')) : encode(text) }));
   for (const [plan, docs, texts] of [...Object.values(plans).map(plan => [plan, content, files]),
-    ...Object.values(rulesPlans).map(plan => [plan, rulesBuilt.content, rulesFiles])]) for (const step of plan.plan) {
+    ...Object.values(rulesPlans).map(plan => [plan, rulesBuilt.content, rulesFiles]), [recipePlan, superpowers, recipeTexts]]) for (const step of plan.plan) {
     if (!step.render || seen.has(canonical(step))) continue;
     seen.add(canonical(step));
-    const from = step.from ? [{ sourceId: step.from.sourceId, sourcePath: step.from.sourcePath,
-      bytes: encode(texts.find(entry => entry.sourcePath === step.from.sourcePath).text) }] : [];
+    const source = step.from ? texts.find(entry => entry.sourcePath === step.from.sourcePath) : undefined;
+    const from = source ? [{ sourceId: step.from.sourceId, sourcePath: step.from.sourcePath, bytes: source.bytes ?? encode(source.text) }] : [];
     const result = reader.renderStep(step, [docs], profiles, from);
     renders.push({ step: canonical(step), result: result.status === 'ok' ?
       { status: 'ok', sha256: result.sha256, base64: Buffer.from(result.bytes).toString('base64') } : result });
@@ -166,12 +182,14 @@ try {
     producer: { package: '@aihq/catalog', version: manifest.version, repository: 'https://github.com/samartomar/aih-catalog', commit: COMMIT,
       tarballSha256, note: 'Real output of this unreleased Catalog candidate, recorded for Core tests; no client or qualification evidence.' },
     profiles: Object.fromEntries(Object.keys(toolProfiles).sort().map(id => [id, toolProfiles[id]])),
-    byo: { content, files, plans },
+    byo: { content, files, plans, shipClashes, shipUnavailable },
     rules: { content: rulesBuilt.content, files: rulesFiles, plans: rulesPlans },
-    cbm: { content: cbm, qualifications: cbmQualifications, plan: cbmPlan, files: cbmFiles },
-    recipe: { content: superpowers, pluginJson, recipeJson, choices: {}, options: recipeOptions, profiles: recipeProfiles.map(profile => profile.id), plan: recipePlan },
+    cbm: { content: cbm, qualifications: cbmQualifications, plans: cbmPlans, files: cbmFiles },
+    recipe: { content: superpowers, pluginJson, recipeJson, choices: {}, options: recipeOptions, profiles: recipeProfiles.map(profile => profile.id), plan: recipePlan,
+      files: { upstream: upstream.repository, commit: upstream.commit, license: 'MIT', paths: named } },
     renders,
   };
   writeFileSync(join(here, 'recorded.json'), `${JSON.stringify(recorded, null, 1)}\n`);
-  console.log(`recorded ${renders.length} renders; user ${plans.user.plan.length} steps, project ${plans.project.plan.length}, cbm ${cbmPlan.plan.length}`);
+  console.log(`recorded ${renders.length} renders; user ${plans.user.plan.length} steps, project ${plans.project.plan.length}, ` +
+    `cbm ${Object.entries(cbmPlans).map(([cell, plan]) => `${cell} ${plan.plan.length}`).join(', ')}, recipe ${recipePlan.plan.length} (${named.length} files)`);
 } finally { rmSync(folder, { recursive: true, force: true }); }

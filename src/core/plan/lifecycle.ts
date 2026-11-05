@@ -456,7 +456,8 @@ async function prepareProgramRemoval(plugins: { managementId: string; plugin: Pl
         args: argv.slice(1).map(literal => ({ literal })), cwd, env: {}, acceptedExitCodes: [0],
         effects: [`The ${plugin.cli} CLI's own plugin removal; Core can't show its effects`], requires: at ? [`remove-${at - 1}`] : [], checks: [] };
     });
-    selections.push({ id: selectionId, managementId, scope, configuration: {}, requires: [], recipe: { inline: {
+    // Its own engine management id: one framework's plugin on several CLIs (Claude Code and Codex) is one removal each.
+    selections.push({ id: selectionId, managementId: `aih-plugin-removal-${index}`, scope, configuration: {}, requires: [], recipe: { inline: {
       schema: 'urn:aihq:core:recipe:1.0.0', id: 'plugin-removal', description: 'Removes a native plugin', inputs: {}, materials: [],
       targets: [scope], prerequisites: [], operations: ops, checks: [] } } });
   });

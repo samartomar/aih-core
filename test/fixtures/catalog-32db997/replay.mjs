@@ -1,7 +1,7 @@
 // Plan requests made from REAL @aihq/catalog output recorded in `recorded.json` (samartomar/aih-catalog commit
-// 6d9c544, unreleased 0.1.0 candidate; see generate.mjs). The content, profiles, plans and render bytes are Catalog's
-// own; only `renderStep` here is a replay of the recorded results, so Core's tests need no Catalog install. Nothing here
-// shows a client loading the result, a released Catalog, or a qualified AI setup.
+// 32db997, unreleased 0.1.0 candidate; see generate.mjs). The content, profiles, plans and render bytes are Catalog's
+// own; only `renderStep` and `planRecipe` here replay the recorded results, so Core's tests need no Catalog install.
+// Nothing here shows a client loading the result, a released Catalog, or a qualified AI setup.
 import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 
@@ -52,21 +52,22 @@ export function rulesRequest(name, project, team = 'platform') {
 }
 
 /**
- * Catalog's real `planRecipe` plan of a local-plugin recipe (a Core-side FIXTURE document) over its Superpowers data for
- * Claude Code at project scope, with the plugin folder's bytes at the pinned upstream commit and the recipe proof.
+ * Catalog's real `planRecipe` plan of a recipe (a Core-side FIXTURE document) over its Superpowers data at user scope:
+ * the native plugin on Claude Code and Codex by marketplace name, and one skill as items on Kiro, with the bytes of the
+ * files it copies at the pinned upstream commit and the recipe proof.
  */
 export function recipeRequest(project) {
   const { content, plan, pluginJson, recipeJson, choices, profiles: ids } = recorded.recipe;
   const files = JSON.parse(gunzipSync(readFileSync(new URL('./recipe-files.json.gz', import.meta.url))).toString('utf8'));
-  return { schema: PLAN_REQUEST, scope: 'project', target: { project }, plan: structuredClone(plan), contents: [structuredClone(content)],
+  return { schema: PLAN_REQUEST, scope: 'user', target: { project }, plan: structuredClone(plan), contents: [structuredClone(content)],
     profiles: structuredClone(profiles.filter(profile => ids.includes(profile.id))),
     files: files.map(({ text, base64, ...entry }) => ({ ...entry, bytes: text === undefined ? Buffer.from(base64, 'base64') : Buffer.from(text, 'utf8') })),
     recipeProof: { pluginJson, recipeJson, choices: structuredClone(choices) } };
 }
 
-/** Catalog's real codebase-memory-mcp data plan on windows-x64 at project scope. */
-export function cbmRequest(project) {
-  const { content, plan, files, qualifications } = recorded.cbm;
-  return { schema: PLAN_REQUEST, scope: 'project', target: { project }, plan: structuredClone(plan), contents: [structuredClone(content)],
+/** Catalog's real codebase-memory-mcp data plan on `cell` (`windows-x64` or `linux-x64`) at project scope. */
+export function cbmRequest(project, cell = 'windows-x64') {
+  const { content, plans, files, qualifications } = recorded.cbm;
+  return { schema: PLAN_REQUEST, scope: 'project', target: { project }, plan: structuredClone(plans[cell]), contents: [structuredClone(content)],
     profiles: structuredClone(profiles), files: withBytes(files), qualifications: structuredClone(qualifications) };
 }
