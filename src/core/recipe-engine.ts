@@ -1880,8 +1880,14 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
         } else {
           // The effect made the target's parent folders: pin them as they now are for the reviewed write.
           step.pins = pathPins(join(step.root, ...step.path.split('/')));
-          if (outcome.facts !== undefined && step.item) for (const holder of [step.item, metadataState.itemUpdates.get(step.root)?.[step.item.id]?.item])
-            if (holder?.facts.plan) holder.facts.plan = { ...holder.facts.plan, aiSetup: outcome.facts as never };
+          // Every step of the item holds its own copy of the item's facts, and a later step (a tool-command) publishes its
+          // copy: each one, and the update, gets the acquisition's facts.
+          if (outcome.facts !== undefined && step.item) {
+            const id = step.item.id;
+            for (const holder of [step.item, ...metadataState.steps.filter(other => other.root === step.root && other.item?.id === id).map(other => other.item!),
+              metadataState.itemUpdates.get(step.root)?.[id]?.item])
+              if (holder?.facts.plan) holder.facts.plan = { ...holder.facts.plan, aiSetup: outcome.facts as never };
+          }
         }
       }
       if (operation.application === 'failed') { /* The effect failed: its write is not attempted. */ }

@@ -86,6 +86,14 @@ test('an acquired tool runs its input-bearing command, reads it back, and its MC
   assert.deepEqual(entry.programs.map(program => [program.op, program.argv, program.executable, program.undo]),
     [['tool-command', ['config', 'set', 'auto_index', 'false'], setup.program,
       { argv: ['config', 'set', 'auto_index', 'unset'], readback: { argv: ['config', 'get', 'auto_index'], expected: 'unset' } }]]);
+  // The native archive's download stays recorded although later steps of the same item (the tool-command) ran after it.
+  const archive = { role: 'artifact', file: setup.acquire.distribution.file, sha256: setup.acquire.distribution.sha256, origin: 'downloaded',
+    url: setup.acquire.distribution.url };
+  assert.deepEqual(entry.aiSetup?.downloads, [archive], JSON.stringify(entry));
+  const ownership = join(home, '.aih', 'core', 'ownership');
+  const stored = readdirSync(ownership).flatMap(name => Object.values(JSON.parse(readFileSync(join(ownership, name), 'utf8')).items ?? {}))
+    .find(item => item.plan?.managementId === setup.id);
+  assert.deepEqual(stored?.plan?.aiSetup?.downloads, [archive], JSON.stringify(stored));
 });
 
 test('the tool-command keys are the ones Catalog 32db997 plans for a real AI setup (cbm on linux-x64)', () => {
