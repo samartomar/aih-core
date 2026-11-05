@@ -740,7 +740,11 @@ const prepared = await prepare({ ...request, recipeProof: { pluginJson, recipeJs
   `aih`, such as the duplicate resolver a plan mixing frameworks adds) are supplied like any content: pass
   `aihContent.content` from `@aihq/catalog/reader` in `contents` and its files in `files`.
 - **Root paths.** A merge entry's `rootPaths` (`[{ pointer, root: 'user', path }]`, an acquired executable) are
-  written as absolute paths under your home; the entry must hold exactly that path at each pointer.
+  written as absolute paths under your home; the entry must hold exactly that path at each pointer. A project-scope merge
+  therefore writes an absolute path inside your home into the project's file. Each path must be inside the folder an
+  `acquire` step of the same plan places, or inside an AI setup folder Core already acquired (its marker present);
+  otherwise Prepare reports a `root-path-unplaced` plan problem naming the step. When that acquire step is skipped, the
+  entry is skipped with it.
 - **Path references.** A plan with a `path` reference is refused `plan-unresolved`; a plugin-namespaced `name`
   reference is a warning and installs.
 - **Receipts** record the Catalog `version` and the profile ids and versions each management id was planned with;
@@ -870,7 +874,12 @@ qualification documents the plan's acquire steps name in `qualifications`.
   `tools`) uses its qualified bytes when obtainable and installable on the interpreter in use. Otherwise Core obtains the
   source and every dependency wheel exactly, makes an isolated build environment from that interpreter under the
   folder's `build/`, installs only those wheels offline and builds with `pip wheel --no-index --no-deps
-  --no-build-isolation`, with pip configuration, user site and index variables neutralised. The built wheel must be the
+  --no-build-isolation`, with pip configuration, user site and index variables neutralised. The build frontend is the
+  pinned pip when the dependencies list one, otherwise the pip of that build environment; pip need not be pinned. The
+  build's `HOME`, `USERPROFILE` (and `APPDATA` on Windows) and temporary folders are inside `build/`, and the host's
+  `CC`, `CXX`, `CFLAGS`, `CXXFLAGS`, `CPPFLAGS`, `LDFLAGS`, `SETUPTOOLS_*` and `DISTUTILS_*` never reach it. The
+  network is not blocked: the build is offline only through pip's flags, so a build backend that downloads on its own
+  is not stopped. The built wheel must be the
   closure entry's name and version; it is recorded as built from pinned source (`byteQualified: false`, with the source
   and dependency sha256s and its own), never as the qualified bytes. Host tools are prerequisites: a missing one is
   `build-failed`; the observed version and executable sha256 are recorded next to the qualification's, without being

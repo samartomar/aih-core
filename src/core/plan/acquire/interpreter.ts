@@ -56,7 +56,9 @@ else:
 export interface PythonResult { ok: boolean; output: unknown; reason: string }
 
 /** Runs the helper with one interpreter; output is bounded, and a deadline or the caller's signal stops it. */
-export async function runHelper(executable: string, args: string[], options: { signal?: AbortSignal; timeoutMs: number; cwd: string; env?: Record<string, string> }): Promise<PythonResult> {
+/** Host variables a source build never receives. */
+const BUILD_DROPPED = /^(CC|CXX|CFLAGS|CXXFLAGS|CPPFLAGS|LDFLAGS|SETUPTOOLS_.*|DISTUTILS_.*)$/i;
+export async function runHelper(executable: string, args: string[], options: { signal?: AbortSignal; timeoutMs: number; cwd: string; env?: Record<string, string>; build?: boolean }): Promise<PythonResult> {
   const resolved = resolveExecutable(executable);
   if (!resolved) return { ok: false, output: null, reason: 'interpreter-unavailable' };
   const dir = mkdtempSync(join(tmpdir(), 'aih-python-'));
@@ -68,6 +70,8 @@ export async function runHelper(executable: string, args: string[], options: { s
   // pip's configuration, user site and index variables never reach an install or build (C78): only the files Core names.
   for (const key of Object.keys(env)) if (/^PIP_/i.test(key) && !['PIP_NO_INPUT', 'PIP_DISABLE_PIP_VERSION_CHECK'].includes(key)) delete env[key];
   env.PIP_CONFIG_FILE = devNull; env.PIP_NO_INDEX = '1';
+  // A source build never takes the host's compiler, flags or setuptools/distutils settings (C78).
+  if (options.build) for (const key of Object.keys(env)) if (BUILD_DROPPED.test(key)) delete env[key];
   Object.assign(env, options.env ?? {});
   try {
     return await new Promise<PythonResult>(resolve => {

@@ -82,6 +82,26 @@ test('a wheel with no obtainable qualified bytes is built offline from its pinne
   assert.ok(recorded.some(entry => entry.role === 'build-dependency' && entry.origin === 'downloaded'), JSON.stringify(recorded));
 });
 
+test('a build runs with its home and temp inside the build folder and without the host compiler or setuptools settings', async () => {
+  installedPython({ version: '3.13.1' });
+  const record = join(scratch, 'build-env.json');
+  const host = { CC: 'host-cc', CXX: 'host-cxx', CFLAGS: '-O0', CPPFLAGS: '-I/host', LDFLAGS: '-L/host', SETUPTOOLS_USE_DISTUTILS: 'stdlib',
+    DISTUTILS_DEBUG: '1', AIH_FAKE_BUILD_RECORD: record };
+  const saved = Object.fromEntries(Object.keys(host).map(key => [key, process.env[key]]));
+  Object.assign(process.env, host);
+  try {
+    const setup = buildSetup('b-env');
+    const prepared = await prepare(setupRequest(project(), [setup]));
+    assert.equal((await apply(prepared.handle, approve(prepared.review))).completion, 'complete');
+    const seen = JSON.parse(readFileSync(record, 'utf8'));
+    const lower = Object.fromEntries(Object.entries(seen).map(([key, value]) => [key.toUpperCase(), value]));
+    const work = join(home, ...setup.folder.split('/'), 'build');
+    for (const key of ['HOME', 'USERPROFILE', 'TMP', 'TEMP', ...(process.platform === 'win32' ? ['APPDATA'] : [])])
+      assert.ok(lower[key]?.startsWith(work), `${key}=${lower[key]}`);
+    assert.deepEqual(Object.keys(lower).filter(key => /^(CC|CXX|CFLAGS|CPPFLAGS|LDFLAGS|SETUPTOOLS_.*|DISTUTILS_.*)$/.test(key)), []);
+  } finally { for (const [key, value] of Object.entries(saved)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; } }
+});
+
 test('qualified bytes are used when obtainable and installable; when not installable on this interpreter the wheel is built', async () => {
   installedPython({ version: '3.13.1' });
   const target = project();

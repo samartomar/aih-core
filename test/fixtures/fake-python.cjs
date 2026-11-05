@@ -38,6 +38,9 @@ if (/^python/i.test(basename(process.execPath))) {
     fs.writeFileSync(join(dirname(dirname(process.execPath)), 'fake-buildenv.json'), JSON.stringify(args.map(wheel => basename(wheel))));
   } else if (command === 'build') {
     if (facts.failBuild || !fs.existsSync(args[0])) { process.stderr.write('fixture: build failed\n'); process.exit(1); }
+    // The environment a build ran with, for tests that check what reaches it (`AIH_FAKE_BUILD_RECORD` names the file).
+    if (process.env.AIH_FAKE_BUILD_RECORD) fs.writeFileSync(process.env.AIH_FAKE_BUILD_RECORD, JSON.stringify(Object.fromEntries(
+      Object.entries(process.env).filter(([key]) => /^(HOME|USERPROFILE|APPDATA|TMP|TEMP|TMPDIR|CC|CXX|CFLAGS|CPPFLAGS|LDFLAGS|SETUPTOOLS_.*|DISTUTILS_.*)$/i.test(key)))));
     const [, name, version] = /^(.+)-([^-]+)\.tar\.gz$/.exec(basename(args[0]));
     const file = `${name}-${version}-py3-none-any.whl`;
     fs.mkdirSync(args[1], { recursive: true });

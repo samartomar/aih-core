@@ -95,7 +95,7 @@ export function acquisition(spec: AcquireSpec, home: string, installed: Installe
     return cached.get(key)!;
   };
   const options = (signal?: AbortSignal, env?: Record<string, string>) =>
-    ({ ...(signal ? { signal } : {}), timeoutMs: PROCESS_DEADLINE, cwd: folder, ...(env ? { env } : {}) });
+    ({ ...(signal ? { signal } : {}), timeoutMs: PROCESS_DEADLINE, cwd: folder, ...(env ? { env, build: true } : {}) });
   const step = (result: { ok: boolean; reason: string }): void => {
     if (result.reason === 'cancelled') throw new AcquireError('cancelled');
     if (!result.ok) throw new BuildFailure('build-failed');
@@ -127,7 +127,9 @@ export function acquisition(spec: AcquireSpec, home: string, installed: Installe
       writeFileSync(path, await fetchOnce('build-dependency', dependency, signal), { flag: 'wx', mode: 0o644 });
       dependencies.push(path);
     }
-    const env = { TMPDIR: temp, TEMP: temp, TMP: temp };
+    // The build's home, user data and temporary files are its own folder: no host configuration or cache is read (C78).
+    const env: Record<string, string> = { TMPDIR: temp, TEMP: temp, TMP: temp, HOME: temp, USERPROFILE: temp,
+      ...(process.platform === 'win32' ? { APPDATA: temp } : {}) };
     const environment = join(work, 'env');
     step(await runHelper(python, ['venv', environment], options(signal, env)));
     const buildPython = environmentPython(environment);
