@@ -11,6 +11,7 @@ import { readbackMatches, removeClone } from './program/effect.js';
 import { SETUP_MARKER } from './steps/upstream-setup.js';
 import { projectRoot } from '../internal/host-files.js';
 import { removeAcquiredFolder } from './acquire/effect.js';
+import { directoryMap, type CreatedDirectories } from '../internal/created-directories.js';
 import { MANIFEST } from './acquire/types.js';
 import { linkRecordPath, removeLink } from './links.js';
 import type { LinkFacts } from '../internal/custody-items.js';
@@ -280,12 +281,18 @@ function removeReleasedSetups(run: Run): void {
   const pattern = new RegExp(`^(\\.aihq/ai-setup/[^/]+/[^/]+/[^/]+)/${MANIFEST.replace('.', '\\.')}$`);
   let home: string;
   try { home = projectRoot(homedir()); } catch { return; }
+  // The folders the home's receipt records as Core-created (read once, after the run released the marker).
+  let recorded: CreatedDirectories | undefined;
+  const created = (): CreatedDirectories => {
+    try { recorded ??= directoryMap(readOwnership(home).value.directories); } catch { recorded = {}; }
+    return recorded;
+  };
   for (const member of run.members) {
     if (member.intent !== 'remove' || member.check !== 'absent') continue;
     // An upstream setup's clone goes with its marker (contract 12): Core wrote it, so Core removes it.
     if (isAbsolute(member.path) && basename(member.path) === SETUP_MARKER) { removeClone(member.path); continue; }
     if (member.scope !== 'user') continue;
     const into = pattern.exec((isAbsolute(member.path) ? relative(home, member.path) : member.path).replaceAll('\\', '/'))?.[1];
-    if (into) try { removeAcquiredFolder(home, into); } catch { /* left for the person; list no longer claims it */ }
+    if (into) try { removeAcquiredFolder(home, into, created()); } catch { /* left for the person; list no longer claims it */ }
   }
 }

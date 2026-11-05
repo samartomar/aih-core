@@ -1878,8 +1878,19 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
           if (outcome.status === 'cancelled' || controls.signal?.aborted) throw new Error('cancelled');
           settleFailedEffect(step, state.steps.slice(index + 1));
         } else {
-          // The effect made the target's parent folders: pin them as they now are for the reviewed write.
+          // The effect made the target's parent folders: pin them as they now are for the reviewed write, and record the
+          // ones that were absent at review as Core-created, so removal may take them once they are empty.
+          const firstAbsent = step.pins?.find(pin => pin.identity === 'absent')?.path;
           step.pins = pathPins(join(step.root, ...step.path.split('/')));
+          if (firstAbsent) {
+            const created: CreatedDirectories = createdDirectories.get(step.root) ?? Object.create(null);
+            for (const parent of directoryParents(step.path)) {
+              if (join(step.root, ...parent.split('/')).length < firstAbsent.length) continue;
+              const identity = directoryIdentity(step.root, parent);
+              if (identity) created[parent] = identity;
+            }
+            createdDirectories.set(step.root, created);
+          }
           // Every step of the item holds its own copy of the item's facts, and a later step (a tool-command) publishes its
           // copy: each one, and the update, gets the acquisition's facts.
           if (outcome.facts !== undefined && step.item) {

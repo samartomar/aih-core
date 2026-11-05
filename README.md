@@ -913,8 +913,11 @@ qualification documents the plan's acquire steps name in `qualifications`.
   were and unrelated items still run.
 - **Custody.** The folder holds Core's marker `.aih-acquired`, the receipt member that carries the claims; while an
   acquisition runs the folder also holds `.aih-acquiring`, and a failed, cancelled or interrupted attempt is cleared and
-  redone by the next Apply. A folder Core didn't make fails the step (`target-occupied`). When removal takes the marker's
-  last claim, the whole folder goes.
+  redone by the next Apply. A folder Core didn't make fails the step (`target-occupied`). The parent folders an
+  acquisition made (from the first one absent at review, such as `.aihq` or `.aihq/ai-setup`) are recorded in the
+  receipt as Core-created. When removal takes the marker's last claim, the whole folder goes, with its empty version
+  and name folders and every empty parent above them that the receipt records as Core-created; a folder the person
+  made stays.
 
 ### Tool commands, upstream installers and upstream setups
 

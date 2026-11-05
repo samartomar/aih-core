@@ -293,3 +293,24 @@ test('two projects share one AI setup folder: removing it from one project keeps
   await removeFrom(two);
   assert.equal(existsSync(folder), false, 'the acquired folder goes with its last claim');
 });
+
+test('removing the last AI setup leaves no empty folder Core made: .aihq/ai-setup and .aihq go, a folder the person made stays', async () => {
+  noPython();
+  const saved = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
+  try {
+    for (const prior of [false, true]) {
+      const fresh = join(scratch, `parents-home-${prior}`); mkdirSync(fresh);
+      // With `prior`, the person already has an empty `~/.aihq`: Core did not make it, so it stays.
+      if (prior) mkdirSync(join(fresh, '.aihq'));
+      process.env.HOME = fresh; process.env.USERPROFILE = fresh;
+      const target = project();
+      const native = nativeSetup(server, { name: `parents-${prior}` });
+      const prepared = await prepare(setupRequest(target, [native]));
+      assert.equal((await apply(prepared.handle, approve(prepared.review))).completion, 'complete');
+      const removal = await prepareRemoval({ target: { project: target }, scope: 'user', removals: [{ managementId: native.id }] });
+      assert.equal((await apply(removal.handle, approve(removal.review))).completion, 'complete');
+      assert.equal(existsSync(join(fresh, '.aihq', 'ai-setup')), false, 'the empty AI setup root Core made goes');
+      assert.equal(existsSync(join(fresh, '.aihq')), prior, prior ? 'a folder the person made stays' : 'the empty .aihq Core made goes');
+    }
+  } finally { Object.assign(process.env, saved); }
+});

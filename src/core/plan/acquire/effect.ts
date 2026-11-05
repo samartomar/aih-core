@@ -11,6 +11,7 @@ import { chmodSync, existsSync, linkSync, lstatSync, mkdirSync, readdirSync, rea
 import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { resolveExecutable } from '../../internal/approved-process.js';
+import { directoryIdentity, type CreatedDirectories } from '../../internal/created-directories.js';
 import { readArchive } from './archive.js';
 import { AcquireError } from './download.js';
 import { environmentPython, probeInterpreter, runHelper, standalonePython } from './interpreter.js';
@@ -366,15 +367,25 @@ export function acquisition(spec: AcquireSpec, home: string, installed: Installe
   };
 }
 
-/** After removal: the AI setup folder whose marker is gone, with every file the acquisition left in it. */
-export function removeAcquiredFolder(home: string, into: string): boolean {
+/**
+ * After removal: the AI setup folder whose marker is gone, with every file the acquisition left in it. Its empty version
+ * and name folders go too, and so do the empty parents above them (`.aihq/ai-setup`, `.aihq`) that `created` records as
+ * made by Core with the identity they still have; a folder the person made stays.
+ */
+export function removeAcquiredFolder(home: string, into: string, created: CreatedDirectories = {}): boolean {
   if (!contained(home, into)) return false;
   const folder = join(home, ...into.split('/'));
   if (!existsSync(folder) || existsSync(join(folder, MANIFEST))) return false;
   rmSync(folder, { recursive: true, force: true, maxRetries: 3 });
-  // Empty version and name folders go too; `.aihq/ai-setup` itself stays.
-  for (let current = dirname(folder), depth = 0; depth < 2; current = dirname(current), depth++) {
-    try { if (readdirSync(current).length) break; rmdirSync(current); } catch { break; }
+  const parents = into.split('/').slice(0, -1);
+  for (let depth = 0; parents.length; parents.pop(), depth++) {
+    const path = parents.join('/');
+    try {
+      if (depth >= 2 && (created[path] === undefined || directoryIdentity(home, path) !== created[path])) break;
+      const current = join(home, ...parents);
+      if (readdirSync(current).length) break;
+      rmdirSync(current);
+    } catch { break; }
   }
   return true;
 }
