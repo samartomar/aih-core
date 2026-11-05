@@ -71,16 +71,19 @@ export function privateInputsOption(output: Output, mappings: string[] | undefin
  */
 export async function applyReviewed(output: Output, preparation: { status: string; handle?: PlanHandle; review?: Review },
     values: { apply?: boolean; yes?: boolean; 'allow-partial'?: boolean }, signal: AbortSignal, controls: object,
-    beforeApply?: (handle: PlanHandle, review: Review) => Promise<Run | undefined>): Promise<void> {
+    beforeApply?: (handle: PlanHandle, review: Review) => Promise<Run | undefined>, withReview = false): Promise<void> {
   if (!values.apply || !preparation.handle || !preparation.review)
     return emit(output, printable(preparation), exitCode(preparation as PlanPreparation));
   if (!await approved(preparation.review, values.yes === true, signal))
     return emit(output, refusal('approval-required', 'Apply needs `--yes` or an interactive yes.'), 2);
+  // `withReview`: the command prepares its review afresh, so the review it approved is printed beside the run; a
+  // preview from an earlier command is a different preparation with its own digest.
+  const shown = (run: Run) => withReview ? { review: preparation.review!, run } : run;
   const instead = await beforeApply?.(preparation.handle, preparation.review);
-  if (instead) return emit(output, instead, exitCode(instead));
+  if (instead) return emit(output, shown(instead), exitCode(instead));
   const result = await apply(preparation.handle, { approved: true, origin: values.yes ? 'automation' : 'interactive',
     reviewDigest: preparation.review.reviewDigest, ...(values['allow-partial'] ? { allowPartial: true } : {}) }, controls);
-  emit(output, result, exitCode(result));
+  emit(output, shown(result as Run), exitCode(result));
 }
 export function emit(output: Output, result: unknown, code: number): void {
   process.stdout.write(JSON.stringify(result, null, output.json ? undefined : 2) + '\n');

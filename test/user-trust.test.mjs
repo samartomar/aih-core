@@ -347,8 +347,11 @@ test('CLI previews and applies user-tools-ca with a temp home and fixture PATH',
   assert.equal(existsSync(join(cliHome, '.gitconfig')), false);
   assert.equal(run(['--apply']).status, 2);
   const applied = run(['--apply', '--yes']);
-  const result = JSON.parse(applied.stdout);
+  // Apply prints the review it prepared and approved beside the run, so the approved digest is on record.
+  const { review, run: result } = JSON.parse(applied.stdout);
+  assert.equal(review?.schema, 'urn:aihq:core:review:0.1.0', applied.stdout + applied.stderr);
   assert.equal(result.schema, 'urn:aihq:core:run:0.1.0', applied.stdout + applied.stderr);
+  assert.equal(result.reviewDigest, review.reviewDigest);
   assert.ok(['complete', 'incomplete'].includes(result.completion), applied.stdout);
   assert.equal(applied.status, result.completion === 'complete' ? 0 : 1);
   assert.match(readFileSync(join(cliHome, '.gitconfig'), 'utf8'), /sslCAInfo/);

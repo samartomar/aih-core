@@ -58,7 +58,10 @@ await check('the aih CLI reads a 0.1.0 inputs file with paths relative to it and
   assert.equal(review.request, 'repair');
   const applied = aih(['repair', 'user-tools-ca', '--target', 'git', '--inputs-file', 'repair-inputs.json', '--offline', '--apply', '--yes', '--no-log', '--json']);
   assert.equal(applied.status, 0, applied.stdout + applied.stderr);
-  assert.equal(conforms(JSON.parse(applied.stdout)).completion, 'complete');
+  // The approved review is printed beside the run: Apply prepared it in this command, so it is the one the run binds.
+  const { review: approvedReview, run: appliedRun } = JSON.parse(applied.stdout);
+  assert.equal(conforms(appliedRun).completion, 'complete');
+  assert.equal(conforms(approvedReview).reviewDigest, appliedRun.reviewDigest);
   const unknown = aih(['repair', 'user-tools-ca', '--target', 'gradle', '--offline', '--no-log', '--json']);
   assert.equal(unknown.status, 2, unknown.stdout + unknown.stderr);
   assert.equal(JSON.parse(unknown.stdout).status, 'invalid');

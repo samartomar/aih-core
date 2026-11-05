@@ -1,7 +1,8 @@
 // aih repair <repair-id> --target <id>... [--inputs-file <json>] [--offline] [--resolutions <file>] [--apply [--yes] [--allow-partial]] [--no-log] [--json]
 // aih export-ca [--format pem|pkcs7-der] [--output <path>] [--inputs-file <json>] [--offline] [--resolutions <file>] [--apply [--yes]] [--no-log] [--json]
 // (contract 10, 22). Inputs files are `repair-inputs`, `macos-session-inputs` or `export-inputs` 0.1.0; supplied paths in
-// them resolve from the document's own folder. Both commands print a 0.1.0 review or run.
+// them resolve from the document's own folder. Both commands print a 0.1.0 review, or with `--apply` the review they
+// approved and its run as `{ review, run }`.
 import { createHash, randomUUID } from 'node:crypto';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { repairIndex } from '../../harness/contracts.mjs';
@@ -111,5 +112,5 @@ export async function run(command: Command, args: string[], signal: AbortSignal)
     await apply(handle, { approved: true, origin: 'automation', reviewDigest: '' }, controls);
     return { schema: RUN, status: 'ok', runId: randomUUID(), completion: 'rejected', code: 'REVIEW_STALE', changed: 'input',
       reason: 'input-file-changed', reviewDigest: review.reviewDigest, steps: [], members: [], history: { status: 'disabled' } } satisfies Run;
-  });
+  }, true);
 }

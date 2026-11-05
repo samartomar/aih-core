@@ -1287,6 +1287,17 @@ aih export-ca --format pem --output exports/company.pem --inputs-file export-inp
 `urn:aihq:core:export-inputs:0.1.0` with `sources`, and a macOS session uses `urn:aihq:core:macos-session-inputs:0.1.0`
 with `session`. Without an inputs file, `aih repair` prepares the OS-sourced file route.
 
+Without `--apply` both commands print the preparation. With `--apply` the command prepares again and approves that
+review, so it prints `{ "review": …, "run": … }`: the review it approved, and the run, whose `reviewDigest` names it.
+A preview printed by an earlier command is a separate preparation; its `reviewDigest` differs, and only the review
+printed with the run was approved.
+
+A repair run lists each member it touched in `members`, checked on disk after Apply (`present-matching`,
+`present-different`, `absent` or `unchecked`). Removing a repair with `prepareRemoval` (`aih remove <repair-id>
+--scope user`) checks every member it releases the same way, and each removal step is verified from those checks
+(`passed` `member-checked`). A configuration file the repair created, such as a `pip.conf` that did not exist before,
+is removed with its last entry; a file you already had keeps your own settings, byte for byte.
+
 ## What each result status lets you claim
 
 Check install and removal wording against this table. Each status establishes only what its row says; the fields are independent, so read them together. Operation `application` and `verification` are per operation in a run result; `completion` is the whole run; `disposition` is the `prepareRemoval` (`aih remove`) entry before any Apply.
