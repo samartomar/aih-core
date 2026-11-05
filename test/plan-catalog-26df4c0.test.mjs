@@ -111,13 +111,15 @@ for (const scope of ['user', 'project']) test(`the real bring-your-own ${scope} 
   placed(request.plan, recorded.byo.files, roots);
   if (scope === 'project') {
     // Catalog 26df4c0's Cursor and OpenCode profiles declare their own environment reference for MCP env: their files
-    // hold the reference, never the secret; a client with none (Claude Code) holds the value and the review warns.
+    // hold the reference, never the secret, as Claude Code's does; a client with none (Copilot) holds the value.
     const cursor = JSON.parse(readFileSync(join(target, '.cursor', 'mcp.json'), 'utf8'));
     assert.equal(cursor.mcpServers['exa-web-search'].env.EXA_API_KEY, '${env:EXA_API_KEY}');
     const opencode = JSON.parse(readFileSync(join(target, 'opencode.json'), 'utf8'));
     assert.equal(opencode.mcp['exa-web-search'].environment.EXA_API_KEY, '{env:EXA_API_KEY}');
     const claude = JSON.parse(readFileSync(join(target, '.mcp.json'), 'utf8'));
-    assert.equal(claude.mcpServers['exa-web-search'].env.EXA_API_KEY, BYO_SECRET);
+    assert.equal(claude.mcpServers['exa-web-search'].env.EXA_API_KEY, '${EXA_API_KEY}');
+    const copilot = JSON.parse(readFileSync(join(target, '.github', 'mcp.json'), 'utf8'));
+    assert.equal(copilot.mcpServers['exa-web-search'].env.EXA_API_KEY, BYO_SECRET);
   }
   await removeAll(target, scope);
   gone(request.plan, roots);
