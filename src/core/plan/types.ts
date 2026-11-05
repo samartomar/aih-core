@@ -171,8 +171,15 @@ export interface ReviewProgram {
   managed: boolean;
   /** A tool-command's readback (D57), checked after it runs. */
   readback: { argv: string[]; expected: string } | null;
-  /** The reverse command and its readback copied into the receipt; `null` when Core can't undo the command. */
+  /**
+   * The undo command and its readback: at removal, the restore filled with the value read before install; `null` in an
+   * install review (a restore's undo is known only once its prior value is read) and when Core can't undo the command.
+   */
   undo: { argv: string[]; readback: { argv: string[]; expected: string } } | null;
+  /** A tool-command with a restore: the readback Apply runs before the command, whose output is kept as the prior value. */
+  prior?: { argv: string[] };
+  /** A tool-command's restore as planned: `<prior>` stands once for that value; removal runs it, then the readback. */
+  restore?: { argv: string[] };
   /** What Core can't remove around this program. */
   cantRemove: string;
   /** An upstream setup's clone, with the git Prepare pinned. */

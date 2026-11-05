@@ -913,10 +913,17 @@ the undo, and `cantRemove`, which says what Core can't remove around it.
   verification `readback-matched`; otherwise the step fails (`readback-mismatch`). Inputs bind at argv slots (`{NAME}`
   markers) or environment names (`inputs: [{ item, input, at: { argv } | { env } }]`); a secret comes only from
   `controls.privateInputs` (`--private-input`), runs as its value, and is redacted from the review, history and receipt.
-  The step is grouped under its `aiSetup` id, after that setup's `acquire`. When the AI setup item's settings command names
-  a reverse (`aiSetup.settings.commands[].reverse: { argv, readback }`), it is copied into the receipt; removal runs it
-  and its readback before the AI setup folder goes, and a differing readback keeps the receipt. Without one, the review
-  and the removal say Core can't undo the command.
+  The step is grouped under its `aiSetup` id, after that setup's `acquire`. A step with `restore: { argv }` (Catalog's
+  settings commands; `<prior>` exactly once, as a whole argument) puts the earlier value back at removal. Apply runs the
+  readback first and keeps its output (trimmed, one line of at most 4096 characters) as the prior value; the receipt's
+  undo, kept before the command starts, is the restore with `<prior>` replaced by that value and the readback expecting
+  it. A readback that fails or shows more than one line fails the step before the command runs (`prior-unreadable`).
+  A prior value holding a supplied secret value is never recorded, and removal then says Core can't undo the command.
+  Installing the same command again (after an interrupted or complete install) keeps the first prior value rather than
+  reading the value Core set. The install review shows `program.prior` (the readback run first) and `program.restore`
+  (the planned argv with `<prior>`); the removal review shows the filled restore command and its readback. Removal runs
+  it before the AI setup folder goes; a failed restore or a readback that doesn't show the prior value fails that step and
+  keeps the receipt. Without `restore`, the review and the removal say Core can't undo the command.
 - **`upstream-installer`** (`managed: false`) runs the AI setup's own installer argv, whose program is found on `PATH` and
   pinned by sha256 at Prepare. Core clones nothing and can't remove what it installs; removal releases only its receipt.
 - **`upstream-setup`** clones `repository` at the exact `commit` into `into` with the `git` Prepare pinned (`clone
@@ -940,7 +947,8 @@ the undo, and `cantRemove`, which says what Core can't remove around it.
   was interrupted is `effectsUncertain`; the next Prepare shows it again (`previous: interrupted`) for a fresh approval,
   and Core never re-runs or rolls it back by itself. Without a readback an applied command is `unverified`
   (`command-effects-unknown`); an exit status never confirms its effects. `list` shows the saved facts under `programs`.
-- **Not yet:** Catalog records no reverse on settings commands; the tests use fake programs and a local git repository.
+- **Evidence:** the `tool-command` shape is checked against a real Catalog plan; the tests run fake programs and a local
+  git repository, never a real tool.
 
 ### Update from a new plan or change request
 

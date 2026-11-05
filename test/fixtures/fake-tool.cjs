@@ -6,7 +6,8 @@
 // loaded with `NODE_OPTIONS=--require <this file>`; elsewhere it is a shell script that runs this file with
 // `FAKE_TOOL_NAME`. In any other process it does nothing. State goes to `<FAKE_TOOL_STATE>/<name>.json`.
 // `FAKE_TOOL_MODE` (comma-separated): `set-fail` (exit 1), `readback-wrong` (get prints `wrong`), `set-hang` (waits
-// 30 s, then fails; writes `<name>.started`), `setup-fail`, `unset-noop` (exit 0, changes nothing).
+// 30 s, then fails; writes `<name>.started`), `setup-fail`, `unset-noop` and `set-noop` (exit 0, change nothing),
+// `get-fail` (get exits 1). An unset key reads as `unset` (the way a tool prints its default).
 'use strict';
 const { basename, join } = require('node:path');
 const fs = require('node:fs');
@@ -39,9 +40,13 @@ if (name) {
     if (verb === 'set') {
       if (modes.has('set-hang')) hang();
       if (modes.has('set-fail')) process.exit(1);
-      state.settings[key] = value; save(); process.exit(0);
+      if (!modes.has('set-noop')) { state.settings[key] = value; save(); }
+      process.exit(0);
     }
-    if (verb === 'get') { process.stdout.write(`${modes.has('readback-wrong') ? 'wrong' : state.settings[key] ?? ''}\n`); process.exit(0); }
+    if (verb === 'get') {
+      if (modes.has('get-fail')) process.exit(1);
+      process.stdout.write(`${modes.has('readback-wrong') ? 'wrong' : state.settings[key] ?? 'unset'}\n`); process.exit(0);
+    }
     if (verb === 'unset') { if (!modes.has('unset-noop')) { delete state.settings[key]; save(); } process.exit(0); }
     process.exit(64);
   }

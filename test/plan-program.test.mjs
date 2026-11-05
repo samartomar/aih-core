@@ -12,7 +12,8 @@ import { createHash } from 'node:crypto';
 import { apply, list, prepare, prepareRemoval } from '../dist/core/index.js';
 import { validateFormat } from '../dist/core/contracts.js';
 import { artifactServer } from './fixtures/acquire-fixture.mjs';
-import { fakeState, installFakePrograms, installerStep, programEnvironment, programRequest, toolSetup, upstreamRepository } from './fixtures/program-fixture.mjs';
+import { fakeState, installFakePrograms, installerStep, programEnvironment, programRequest, seedToolSettings, toolSetup, upstreamRepository } from './fixtures/program-fixture.mjs';
+import { recorded } from './fixtures/catalog-32db997/replay.mjs';
 
 const scratch = mkdtempSync(join(tmpdir(), 'aih-program-'));
 const keys = ['HOME', 'USERPROFILE', 'PATH', 'NODE_OPTIONS', 'FAKE_TOOL_STATE', 'FAKE_TOOL_MODE'];
@@ -60,7 +61,11 @@ test('an acquired tool runs its input-bearing command, reads it back, and its MC
   assert.equal(command.program.executableSha256, setup.qualification.observed.members[0].sha256);
   assert.deepEqual(command.program.env, [{ name: 'TOOL_TOKEN', value: '[REDACTED]' }]);
   assert.deepEqual(command.program.readback, { argv: ['config', 'get', 'auto_index'], expected: 'false' });
-  assert.deepEqual(command.program.undo.argv, ['config', 'unset', 'auto_index']);
+  // The readback runs first and its output is the prior value the restore puts back; the undo is known only then.
+  assert.deepEqual([command.program.prior, command.program.restore, command.program.undo],
+    [{ argv: ['config', 'get', 'auto_index'] }, { argv: ['config', 'set', 'auto_index', '<prior>'] }, null]);
+  assert.match(command.sentence, /^Runs `config get auto_index` and keeps what it shows as the prior value, then runs /);
+  assert.match(command.program.cantRemove, /^Removal runs `config set auto_index <prior>` with `<prior>` as the value/);
   assert.match(command.cantPromise, /can't/);
   assert.equal(fakeState(state, 'fake-tool').calls.length, 0, 'Prepare runs nothing');
 
@@ -70,15 +75,26 @@ test('an acquired tool runs its input-bearing command, reads it back, and its MC
   assert.deepEqual(outcomes(run).map(row => row.slice(0, 3)), [[0, setup.id, 'applied'], [1, setup.mcpItem, 'applied'], [2, setup.id, 'applied']]);
   assert.deepEqual(byStep(run, 2).verification, { status: 'passed', reason: 'readback-matched' });
   const calls = fakeState(state, 'fake-tool').calls;
-  assert.deepEqual(calls.map(call => call.argv), [['config', 'set', 'auto_index', 'false'], ['config', 'get', 'auto_index']]);
-  assert.equal(calls[0].tokenSha256, createHash('sha256').update(secret).digest('hex'), 'the secret reached the command environment');
+  assert.deepEqual(calls.map(call => call.argv), [['config', 'get', 'auto_index'], ['config', 'set', 'auto_index', 'false'], ['config', 'get', 'auto_index']]);
+  assert.equal(calls[1].tokenSha256, createHash('sha256').update(secret).digest('hex'), 'the secret reached the command environment');
   assert.ok(existsSync(join(project, '.mcp.json')));
   for (const where of [join(home, '.aih', 'core')]) assert.ok(!treeHas(where, secret), 'no receipt or history holds the secret');
 
   const listed = conforms(await list({ target: { project }, scope: 'both' }));
   const entry = listed.entries.find(item => item.managementId === setup.id);
-  assert.deepEqual(entry.programs.map(program => [program.op, program.argv, program.executable, program.undo.argv]),
-    [['tool-command', ['config', 'set', 'auto_index', 'false'], setup.program, ['config', 'unset', 'auto_index']]]);
+  // The prior value (the fake prints `unset` for a key it never set) is filled into the restore and its readback.
+  assert.deepEqual(entry.programs.map(program => [program.op, program.argv, program.executable, program.undo]),
+    [['tool-command', ['config', 'set', 'auto_index', 'false'], setup.program,
+      { argv: ['config', 'set', 'auto_index', 'unset'], readback: { argv: ['config', 'get', 'auto_index'], expected: 'unset' } }]]);
+});
+
+test('the tool-command keys are the ones Catalog 32db997 plans for a real AI setup (cbm on linux-x64)', () => {
+  const real = recorded.cbm.plans['linux-x64'].plan.filter(step => step.op === 'tool-command');
+  const fixture = toolSetup(server, { name: 'graph-keys' }).toolCommands;
+  assert.ok(real.length > 0);
+  for (const step of [...real, ...fixture]) assert.deepEqual(Object.keys(step).sort(), ['aiSetup', 'approval', 'argv', 'executable', 'op', 'qualification', 'readback', 'restore']);
+  assert.deepEqual(Object.keys(real[0].restore), Object.keys(fixture[0].restore));
+  for (const step of [...real, ...fixture]) assert.equal(step.restore.argv.filter(arg => arg === '<prior>').length, 1);
 });
 
 /** Whether any file under `dir` holds `text`. */
@@ -130,55 +146,131 @@ test('a failed acquisition leaves its tool-command and its MCP consumer not atte
   assert.equal(fakeState(state, 'fake-tool').calls.length, 0, 'the tool never ran');
 });
 
-test('removal runs the saved reverse command and its readback; a reverse whose readback differs keeps the receipt', async () => {
+/** Prepares `request` and returns the Apply arguments that approve its review. */
+async function approved(request, controls) { const prepared = await prepare(request, controls); assert.equal(prepared.status, 'ready', JSON.stringify(prepared).slice(0, 2000)); return [prepared.handle, approve(prepared.review), controls]; }
+/** Removes the MCP item first (it needs its AI setup, C60), then prepares the AI setup's removal. */
+async function setupRemoval(project, setup) {
+  const mcp = await prepareRemoval({ target: { project }, scope: 'project', removals: [{ managementId: setup.mcpItem }] });
+  assert.equal((await apply(mcp.handle, approve(mcp.review))).completion, 'complete');
+  return () => prepareRemoval({ target: { project }, scope: 'user', removals: [{ managementId: setup.id }] });
+}
+
+test('removal runs the restore with the value read before install and checks the readback shows it; a mismatch or failure is reported and keeps the receipt', async () => {
   const project = fresh();
+  seedToolSettings(state, { auto_index: 'true' });
   const setup = toolSetup(server, { name: 'graph-d' });
   const prepared = await prepare(programRequest(project, { setups: [setup] }));
   assert.equal((await apply(prepared.handle, approve(prepared.review))).completion, 'complete');
-  // The MCP item needs its AI setup (C60): it goes first, then the AI setup.
-  const mcp = await prepareRemoval({ target: { project }, scope: 'project', removals: [{ managementId: setup.mcpItem }] });
-  assert.equal((await apply(mcp.handle, approve(mcp.review))).completion, 'complete');
-  const removalRequest = { target: { project }, scope: 'user', removals: [{ managementId: setup.id }] };
+  assert.deepEqual(fakeState(state, 'fake-tool').settings, { auto_index: 'false' });
+  const removal = await setupRemoval(project, setup);
 
-  mode('unset-noop');
-  const held = await prepareRemoval(removalRequest);
+  mode('set-noop');
+  const held = await removal();
   assert.ok(held.review, JSON.stringify(held));
   conforms(held.review);
-  const reverse = held.review.steps.find(step => step.op === 'tool-command');
-  assert.equal(reverse.effect, 'run-program');
-  assert.deepEqual(reverse.program.argv, ['config', 'unset', 'auto_index']);
-  assert.match(reverse.program.executableSha256, /^[a-f0-9]{64}$/);
-  const failed = conforms(await apply(held.handle, approve(held.review)));
-  assert.equal(failed.completion, 'incomplete', JSON.stringify(failed));
-  assert.ok(failed.steps.some(step => step.managementId === setup.id && step.verification.reason === 'readback-mismatch'), JSON.stringify(failed));
+  const restore = held.review.steps.find(step => step.op === 'tool-command');
+  assert.equal(restore.effect, 'run-program');
+  assert.deepEqual([restore.program.argv, restore.program.readback], [['config', 'set', 'auto_index', 'true'], { argv: ['config', 'get', 'auto_index'], expected: 'true' }]);
+  assert.equal(restore.sentence, 'Runs `config set auto_index true`, then checks that `config get auto_index` reads `true`');
+  assert.match(restore.program.executableSha256, /^[a-f0-9]{64}$/);
+  const mismatched = conforms(await apply(held.handle, approve(held.review)));
+  assert.equal(mismatched.completion, 'incomplete', JSON.stringify(mismatched));
+  assert.ok(mismatched.steps.some(step => step.managementId === setup.id && step.verification.reason === 'readback-mismatch'), JSON.stringify(mismatched));
   assert.ok(existsSync(join(home, ...setup.folder.split('/'))), 'the AI setup stays while its undo is unconfirmed');
 
+  mode('set-fail');
+  const failing = await removal();
+  const failed = conforms(await apply(failing.handle, approve(failing.review)));
+  assert.equal(failed.completion, 'incomplete', JSON.stringify(failed));
+  assert.ok(failed.steps.some(step => step.managementId === setup.id && step.application === 'failed'), JSON.stringify(failed));
+  assert.ok(existsSync(join(home, ...setup.folder.split('/'))), 'a failed restore keeps the AI setup and its receipt');
+
   mode('');
-  const removal = await prepareRemoval(removalRequest);
-  const run = conforms(await apply(removal.handle, approve(removal.review)));
+  const again = await removal();
+  const run = conforms(await apply(again.handle, approve(again.review)));
   assert.equal(run.completion, 'complete', JSON.stringify(run));
   assert.ok(run.steps.some(step => step.verification.reason === 'readback-matched'));
-  assert.deepEqual(fakeState(state, 'fake-tool').settings, {});
+  assert.deepEqual(fakeState(state, 'fake-tool').settings, { auto_index: 'true' }, 'the value from before install is back');
   assert.equal(existsSync(join(home, ...setup.folder.split('/'))), false, 'the AI setup folder goes with its last claim');
 });
 
-test('without a reverse command the review and removal say Core cannot undo the command', async () => {
+test('a prior value that cannot be read fails the step before the command runs', async () => {
+  const project = fresh('get-fail');
+  const setup = toolSetup(server, { name: 'graph-g' });
+  const prepared = await prepare(programRequest(project, { setups: [setup] }));
+  const run = conforms(await apply(prepared.handle, approve(prepared.review)));
+  assert.equal(run.completion, 'incomplete', JSON.stringify(run));
+  const command = byStep(run, 2);
+  assert.deepEqual([command.application, command.reason, command.effectsUncertain ?? false, command.verification],
+    ['failed', 'prior-unreadable', false, { status: 'failed', reason: 'prior-unreadable' }]);
+  assert.deepEqual(fakeState(state, 'fake-tool').calls.map(call => call.argv), [['config', 'get', 'auto_index']], 'the command never ran');
+});
+
+test('installing the same command again keeps the first prior value, so removal still puts that one back', async () => {
   const project = fresh();
-  const setup = toolSetup(server, { name: 'graph-e', reverse: false });
+  seedToolSettings(state, { auto_index: 'true' });
+  const setup = toolSetup(server, { name: 'graph-h' });
+  const request = programRequest(project, { setups: [setup] });
+  assert.equal((await apply(...await approved(request))).completion, 'complete');
+  const again = await prepare(request);
+  assert.equal(again.status, 'ready', JSON.stringify(again).slice(0, 2000));
+  const step = again.review.steps.find(item => item.op === 'tool-command');
+  assert.equal(step.program.prior, undefined, 'the readback is not run again');
+  assert.deepEqual(step.program.undo, { argv: ['config', 'set', 'auto_index', 'true'], readback: { argv: ['config', 'get', 'auto_index'], expected: 'true' } });
+  assert.match(step.sentence, /^Keeps the prior value `true` an earlier install read, then runs /);
+  assert.equal(conforms(await apply(again.handle, approve(again.review))).completion, 'complete');
+  const removal = await setupRemoval(project, setup);
+  const prepared = await removal();
+  assert.equal(conforms(await apply(prepared.handle, approve(prepared.review))).completion, 'complete');
+  assert.deepEqual(fakeState(state, 'fake-tool').settings, { auto_index: 'true' });
+});
+
+test('a prior value holding a supplied secret is never recorded: removal says Core cannot restore it', async () => {
+  const project = fresh();
+  const secret = 'tok-graph-i-1234567890';
+  seedToolSettings(state, { auto_index: secret });
+  const setup = toolSetup(server, { name: 'graph-i', token: true });
+  const controls = { privateInputs: { [setup.id]: { TOOL_TOKEN: secret } } };
+  const prepared = await prepare(programRequest(project, { setups: [setup] }), controls);
+  assert.equal(conforms(await apply(prepared.handle, approve(prepared.review), controls)).completion, 'complete');
+  assert.ok(!treeHas(join(home, '.aih', 'core'), secret), 'no receipt or history holds the secret');
+  const entry = (await list({ target: { project }, scope: 'user' })).entries.find(item => item.managementId === setup.id);
+  assert.equal(entry.programs[0].undo, null);
+  const removal = await (await setupRemoval(project, setup))();
+  const stated = removal.review.steps.find(item => item.op === 'tool-command');
+  assert.equal(stated.effect, 'unchanged');
+  assert.match(stated.cantPromise, /can't undo .*no restore command with the value read before it/);
+});
+
+test('without a restore command the review and removal say Core cannot undo the command', async () => {
+  const project = fresh();
+  const setup = toolSetup(server, { name: 'graph-e', restore: false });
   const prepared = await prepare(programRequest(project, { setups: [setup] }));
   const step = prepared.review.steps.find(item => item.op === 'tool-command');
-  assert.equal(step.program.undo, null);
-  assert.match(step.program.cantRemove, /can't undo/);
+  assert.deepEqual([step.program.undo, step.program.prior, step.program.restore], [null, undefined, undefined]);
+  assert.match(step.program.cantRemove, /can't undo .*names no restore command/);
   assert.equal((await apply(prepared.handle, approve(prepared.review))).completion, 'complete');
-  const mcp = await prepareRemoval({ target: { project }, scope: 'project', removals: [{ managementId: setup.mcpItem }] });
-  assert.equal((await apply(mcp.handle, approve(mcp.review))).completion, 'complete');
-  const removal = await prepareRemoval({ target: { project }, scope: 'user', removals: [{ managementId: setup.id }] });
+  assert.deepEqual(fakeState(state, 'fake-tool').calls.map(call => call.argv[1]), ['set', 'get'], 'no readback before the command');
+  const removal = await (await setupRemoval(project, setup))();
   const stated = removal.review.steps.find(item => item.op === 'tool-command');
   assert.equal(stated.effect, 'unchanged');
   assert.match(stated.cantPromise, /can't undo/);
   const run = conforms(await apply(removal.handle, approve(removal.review)));
   assert.equal(run.completion, 'complete', JSON.stringify(run));
   assert.deepEqual(fakeState(state, 'fake-tool').settings, { auto_index: 'false' }, 'the setting stays: nothing undid it');
+});
+
+test('a restore that is not `{ argv }` with `<prior>` once, as a whole argument, is invalid', async () => {
+  for (const restore of [{ argv: ['config', 'set', 'auto_index'] }, { argv: ['config', 'set', 'auto_index', '<prior>', '<prior>'] },
+    { argv: ['config', 'set', 'auto_index', 'x<prior>'] }, { argv: ['config', 'set', 'auto_index', '<prior>'], extra: true }]) {
+    const project = fresh();
+    const setup = toolSetup(server, { name: 'graph-j' });
+    const request = programRequest(project, { setups: [setup] });
+    request.plan.plan.find(step => step.op === 'tool-command').restore = restore;
+    const refused = await prepare(request);
+    assert.equal(refused.status, 'invalid', JSON.stringify(refused));
+    assert.match(JSON.stringify(refused.problems), /restore/);
+  }
 });
 
 test('an upstream installer runs its exact pinned argv, is managed: false, and removal says what Core cannot remove', async () => {
@@ -260,12 +352,16 @@ test('a cancelled command is effectsUncertain, leaves the install interrupted, a
   assert.equal(run.completion, 'cancelled', JSON.stringify(run));
   assert.equal(byStep(run, 2).effectsUncertain, true, JSON.stringify(run));
   const listed = await list({ target: { project }, scope: 'user' });
-  assert.equal(listed.entries.find(entry => entry.managementId === setup.id).installState, 'interrupted');
+  const interrupted = listed.entries.find(entry => entry.managementId === setup.id);
+  assert.equal(interrupted.installState, 'interrupted');
+  // The prior value was kept before the command started, so the interrupted install can still be restored.
+  assert.deepEqual(interrupted.programs[0].undo, { argv: ['config', 'set', 'auto_index', 'unset'], readback: { argv: ['config', 'get', 'auto_index'], expected: 'unset' } });
   mode('');
   const again = await prepare(request);
   assert.equal(again.status, 'ready', JSON.stringify(again));
   const step = again.review.steps.find(item => item.op === 'tool-command');
   assert.equal(step.previous, 'interrupted');
+  assert.deepEqual([step.program.prior, step.program.undo?.readback.expected], [undefined, 'unset'], 'the kept prior value is not read again');
   assert.match(step.cantPromise, /interrupted, so its effects are uncertain/);
   const finished = conforms(await apply(again.handle, approve(again.review)));
   assert.equal(finished.completion, 'complete', JSON.stringify(finished));

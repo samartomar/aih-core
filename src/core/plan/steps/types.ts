@@ -121,8 +121,13 @@ export interface LoweredProgram {
   /** The folder the command runs in, relative to the root ('' is the root itself). */
   cwd: string;
   readback?: Readback;
-  /** A `tool-command`'s reverse command and its readback, copied into the receipt; `null` when the AI setup names none. */
+  /**
+   * A `tool-command`'s undo known at Prepare: always `null` now. A step with a `restore` gets its undo at Apply (the
+   * restore with the value its readback showed before the command), recorded in the receipt.
+   */
   undo?: { argv: string[]; readback: Readback } | null;
+  /** A `tool-command`'s `restore` argv as planned, with `<prior>` standing once for the value read before the command. */
+  restore?: { argv: string[] };
   /** An `upstream-setup`'s clone: the repository at the exact commit, into a folder marked by `marker`. */
   clone?: { repository: string; commit: string; into: string; marker: Buffer };
   needs?: string[];

@@ -523,8 +523,8 @@ async function prepareProgramRemoval(plugins: { managementId: string; plugin: Pl
     steps.push({ step: index, op: program.op, managementId, item: managementId, effect: reversible ? 'run-program' : 'unchanged',
       sentence: reversible ? `Runs \`${program.undo!.argv.join(' ')}\`, then checks that \`${program.undo!.readback.argv.join(' ')}\` reads \`${program.undo!.readback.expected}\`` :
         program.op === 'upstream-setup' ? `Removes the clone \`${program.clone?.into ?? ''}\` with the install` : `Releases the record of \`${command}\``,
-      cantPromise: reversible ? 'Core can\'t show or roll back what the reverse command changes; it checks only the readback.' :
-        program.op === 'tool-command' ? `Core can't undo \`${command}\`: the AI setup named no reverse command.` :
+      cantPromise: reversible ? 'Core can\'t show or roll back what the restore command changes; it checks only that the readback shows the prior value again.' :
+        program.op === 'tool-command' ? `Core can't undo \`${command}\`: the receipt holds no restore command with the value read before it.` :
         program.op === 'upstream-installer' ? `Core can't remove what \`${command}\` installed: it is not managed by Core. Remove it with the tool's own uninstaller.` :
         `Core removes only its clone; it can't remove what \`${command}\` wrote elsewhere.`,
       program: { kind: program.op, argv: reversible ? program.undo!.argv : program.argv,

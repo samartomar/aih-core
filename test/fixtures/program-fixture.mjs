@@ -1,8 +1,7 @@
 // Core-side producer and host FIXTURES for program steps (`tool-command`, `upstream-installer`, `upstream-setup`;
-// contract 8.1, 12). No compatible @aihq/catalog artifact exists: step shapes follow Catalog's in-progress planner
-// (`ToolCommandStep`, `UpstreamInstallerStep`, `SetupStep`). The reverse command on an AI setup's settings command
-// (`settings.commands[].reverse: { argv, readback }`) is a Core-side assumption Catalog does not record yet. The programs
-// are `fake-tool.cjs` fakes; the upstream repository is a local git repository reached through a disposable home's
+// contract 8.1, 12). Step shapes follow Catalog's planner (`ToolCommandStep`, `UpstreamInstallerStep`, `SetupStep`); the
+// `tool-command` keys, `restore: { argv }` with `<prior>` included, are those of Catalog 32db997's real cbm plan
+// (test/plan-program.test.mjs compares them with test/fixtures/catalog-32db997). The programs are `fake-tool.cjs` fakes; the upstream repository is a local git repository reached through a disposable home's
 // `url.<local>.insteadOf` rule. Nothing here proves a real tool, installer, setup or repository.
 import { execFileSync } from 'node:child_process';
 import { chmodSync, copyFileSync, linkSync, mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
@@ -52,6 +51,11 @@ export function gitFolder() {
   } catch { gitDir = null; }
   return gitDir;
 }
+/** Settings the fake tool already holds before a test installs anything (its `config get` prints them). */
+export function seedToolSettings(state, settings) {
+  mkdirSync(state, { recursive: true });
+  writeFileSync(join(state, 'fake-tool.json'), JSON.stringify({ calls: [], settings }, null, 2));
+}
 /** What one fake recorded. */
 export function fakeState(state, name) {
   const file = join(state, `${name}.json`);
@@ -60,11 +64,11 @@ export function fakeState(state, name) {
 
 /**
  * A native-archive AI setup whose qualified executable member is the fake tool (`bin/fake-tool`), with its MCP item and
- * a `tool-command` per settings command (`config set <key> <value>`, read back with `config get <key>`). `reverse`
- * adds the Core-side reverse (`config unset <key>`, read back as empty). `token` binds the item's secret `TOOL_TOKEN`
+ * a `tool-command` per settings command (`config set <key> <value>`, read back with `config get <key>`). `restore`
+ * adds Catalog's `restore: { argv: ['config', 'set', <key>, '<prior>'] }`. `token` binds the item's secret `TOOL_TOKEN`
  * to the command's environment.
  */
-export function toolSetup(server, { name = 'code-graph', version = '1.4.0', settings = [['auto_index', 'false']], reverse = true, token = false,
+export function toolSetup(server, { name = 'code-graph', version = '1.4.0', settings = [['auto_index', 'false']], restore = true, token = false,
     archive } = {}) {
   const id = `fixture.ai-setup.${name}`;
   const cell = hostCell();
@@ -83,9 +87,10 @@ export function toolSetup(server, { name = 'code-graph', version = '1.4.0', sett
     distribution: { kind: 'native-archive', file, url: server.url(`/${file}`), sha256: sha256(tar), bytes: tar.length },
     executable: `${into}${program}`, qualification: qualificationSha, scanned: false };
   const commands = settings.map(([key, value]) => ({ argv: ['config', 'set', key, value], readback: { argv: ['config', 'get', key], expected: value },
-    ...(reverse ? { reverse: { argv: ['config', 'unset', key], readback: { argv: ['config', 'get', key], expected: '' } } } : {}) }));
+    ...(restore ? { restore: { argv: ['config', 'set', key, '<prior>'] } } : {}) }));
   const toolCommands = commands.map(command => ({ op: 'tool-command', aiSetup: id, qualification: qualificationSha,
-    executable: { root: 'user', path: `${into}${program}` }, argv: command.argv, readback: command.readback, approval: 'required',
+    executable: { root: 'user', path: `${into}${program}` }, argv: command.argv, readback: command.readback,
+    ...(command.restore ? { restore: command.restore } : {}), approval: 'required',
     ...(token ? { inputs: [{ item: id, input: 'TOOL_TOKEN', at: { env: 'TOOL_TOKEN' } }] } : {}) }));
   const mcpItem = `fixture.mcp.${name}`;
   const item = { id, kind: 'ai-setup', name, files: [], aiSetup: { version, mcpItem, settings: { commands, files: [] } },

@@ -1,6 +1,6 @@
 // Runs inside a disposable consumer with the packed @aihq/core installed; public entries and the `aih` bin only.
 // Program steps through plan requests (contract 8.1, 12, C30, C60): an acquired tool, its input-bearing tool-command and
-// the MCP entry that starts it; a forced failure beside an unrelated item; the saved reverse at removal; a killed
+// the MCP entry that starts it; a forced failure beside an unrelated item; the restore with its prior value at removal; a killed
 // command; an upstream setup and an upstream installer. Every program is a `fake-tool.cjs` PROCESS FIXTURE, artifacts
 // come from a local HTTPS FIXTURE server and the upstream repository is a local git FIXTURE.
 import assert from 'node:assert/strict';
@@ -84,7 +84,8 @@ try {
     assert.deepEqual([result.status, run.completion], [0, 'complete'], result.stdout + result.stderr);
     assert.deepEqual(step(run, 2).verification, { status: 'passed', reason: 'readback-matched' });
     assert.ok(!result.stdout.includes(secret), 'the CLI output never shows the secret');
-    const [set] = fakeState(state, 'fake-tool').calls;
+    const [prior, set] = fakeState(state, 'fake-tool').calls;
+    assert.deepEqual(prior.argv, ['config', 'get', 'auto_index'], 'the readback runs first: its output is the prior value');
     assert.deepEqual(set.argv, ['config', 'set', 'auto_index', 'false']);
     assert.equal(set.tokenSha256, createHash('sha256').update(secret).digest('hex'));
     assert.ok(JSON.parse(readFileSync(join(project, '.mcp.json'), 'utf8')).mcpServers['packed-graph']);
@@ -99,12 +100,12 @@ try {
     assert.deepEqual([step(out.run, 0).application, step(out.run, 3).application, step(out.run, 2).application, step(out.run, 1).application],
       ['failed', 'not-attempted', 'not-attempted', 'applied']);
   });
-  await check('removal-runs-saved-reverse-and-readback', async () => {
+  await check('removal-runs-restore-with-prior-and-readback', async () => {
     const mcp = await child(['remove', journey.mcpItem, project, 'project'], environment());
     assert.equal(mcp.removed.completion, 'complete', JSON.stringify(mcp));
     const out = await child(['remove', journey.id, project, 'user'], environment());
     assert.equal(out.removed.completion, 'complete', JSON.stringify(out));
-    assert.deepEqual(out.review.steps.find(entry => entry.op === 'tool-command').program.argv, ['config', 'unset', 'auto_index']);
+    assert.deepEqual(out.review.steps.find(entry => entry.op === 'tool-command').program.argv, ['config', 'set', 'auto_index', 'unset']);
     assert.ok(out.removed.steps.some(entry => entry.verification.reason === 'readback-matched'));
     assert.equal(existsSync(join(home, ...journey.folder.split('/'))), false);
   });

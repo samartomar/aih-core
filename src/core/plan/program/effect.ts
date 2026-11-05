@@ -8,10 +8,15 @@ import { randomUUID } from 'node:crypto';
 import { basename, dirname, join } from 'node:path';
 import { resolveProgram, runApprovedProcess, type ResolvedExecutable } from '../../internal/approved-process.js';
 import { SETUP_MARKER } from '../steps/upstream-setup.js';
+import { PRIOR } from '../steps/tool-command.js';
 import type { LoweredProgram, Readback } from '../steps/types.js';
 
 export interface EffectOutcome { status: 'passed' | 'failed' | 'cancelled'; reason: string; effectsUncertain: boolean }
-export interface Effect { run(signal?: AbortSignal): Promise<EffectOutcome> }
+/**
+ * `recordUndo`: the engine keeps a command's undo in the receipt (a `tool-command` restore with its prior value, or `null`
+ * when the prior value can't be kept), called before the command starts.
+ */
+export interface Effect { run(signal?: AbortSignal, hooks?: { recordUndo(step: number, undo: { argv: string[]; readback: Readback } | null): void }): Promise<EffectOutcome> }
 /** What one program step's check found, by plan step: its readback (tool-command) or that its effects can't be checked. */
 export type Verifications = Map<number, { status: string; reason: string }>;
 const COMMAND_DEADLINE = 30 * 60_000;
@@ -83,7 +88,7 @@ export function commandEffect(lowered: LoweredProgram, root: string, pinned: Res
   const run = (executable: ResolvedExecutable, args: string[], capture: boolean, signal?: AbortSignal) => runApprovedProcess({ executable, args, cwd,
     env: lowered.env, timeoutMs: COMMAND_DEADLINE, maxOutputBytes: OUTPUT_BYTES, acceptedExitCodes: [0], capture, ...(signal ? { signal } : {}) });
   return {
-    async run(signal) {
+    async run(signal, hooks) {
       let executable = pinned;
       if (lowered.executable.from === 'acquired') {
         executable = resolveProgram(join(root, ...lowered.executable.path.split('/')));
@@ -93,6 +98,21 @@ export function commandEffect(lowered: LoweredProgram, root: string, pinned: Res
         executable = resolveProgram(join(cwd, ...lowered.executable.path.split('/')));
       }
       if (!executable) return { status: 'failed', reason: 'program-unavailable', effectsUncertain: false };
+      // A restore needs the value before the command: the readback runs first and its output is kept in the receipt
+      // before the command starts. Nothing runs when no prior value can be read.
+      // An earlier install's prior value, kept at Prepare (`undo`), is never read again.
+      if (lowered.restore && lowered.readback && !lowered.undo) {
+        const prior = await priorValue(executable, lowered.readback.argv, cwd, lowered.env, signal);
+        if (prior.status === 'cancelled') return { status: 'cancelled', reason: 'cancelled', effectsUncertain: false };
+        if (prior.status !== 'passed') {
+          verifications.set(step, { status: 'failed', reason: prior.reason });
+          return { status: 'failed', reason: prior.reason, effectsUncertain: false };
+        }
+        // A prior value holding a supplied secret is never recorded; then removal can't restore it, and says so.
+        const secret = (lowered.bound?.secretValues ?? []).some(value => value !== '' && prior.value.includes(value));
+        hooks?.recordUndo(step, secret ? null : { argv: lowered.restore.argv.map(arg => arg === PRIOR ? prior.value : arg),
+          readback: { argv: [...lowered.readback.argv], expected: prior.value } });
+      }
       // A tool-command's argv follows its executable; the other kinds name the program first.
       const program = lowered.op === 'tool-command' ? lowered.argv : lowered.argv.slice(1);
       const outcome = await run(executable, program, false, signal);
@@ -106,6 +126,20 @@ export function commandEffect(lowered: LoweredProgram, root: string, pinned: Res
         { status: 'failed', reason: read.reason, effectsUncertain: true };
     }
   };
+}
+
+/**
+ * The value a `tool-command`'s readback shows before the command runs: its output trimmed, one line of at most 4096
+ * characters. A readback that fails or shows anything else gives no prior value (`prior-unreadable`).
+ */
+async function priorValue(executable: ResolvedExecutable, argv: string[], cwd: string, env: Record<string, string>, signal?: AbortSignal):
+    Promise<{ status: 'passed'; value: string } | { status: 'failed' | 'cancelled'; reason: string }> {
+  const outcome = await runApprovedProcess({ executable, args: argv, cwd, env, timeoutMs: 60_000, maxOutputBytes: OUTPUT_BYTES,
+    acceptedExitCodes: [0], capture: true, ...(signal ? { signal } : {}) });
+  if (outcome.status === 'cancelled') return { status: 'cancelled', reason: 'cancelled' };
+  const value = outcome.status === 'passed' ? outcome.stdout?.toString('utf8').trim() : undefined;
+  if (value === undefined || /[\r\n]/.test(value) || value.length > 4096) return { status: 'failed', reason: 'prior-unreadable' };
+  return { status: 'passed', value };
 }
 
 /** Runs one readback with the command's program and compares its output (D57). */

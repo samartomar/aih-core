@@ -10,7 +10,7 @@ import { createRegistryCertificates } from './fixtures/tls-registry.mjs';
 // The seam is the installed public package (C76): program steps through plan requests in a disposable project and home,
 // through the public API and the `aih` bin. Programs, artifacts, qualifications and the upstream repository are
 // Core-side fixtures (program-fixture.mjs, fake-tool.cjs); they prove no real tool, installer or setup.
-test('a packed consumer runs an acquired tool\'s input-bearing command and its MCP consumer, stops dependants on failure, reverses at removal and re-reviews a killed command', async () => {
+test('a packed consumer runs an acquired tool\'s input-bearing command and its MCP consumer, stops dependants on failure, restores the prior value at removal and re-reviews a killed command', async () => {
   assert.ok(process.env.npm_execpath, 'Run with npm test.');
   const source = fileURLToPath(new URL('../', import.meta.url));
   const parent = realpathSync.native(tmpdir());
@@ -33,7 +33,7 @@ test('a packed consumer runs an acquired tool\'s input-bearing command and its M
     const receipt = JSON.parse(run(['plan-program-consumer.mjs']).trim().split('\n').at(-1));
     assert.equal(receipt.status, 'passed');
     assert.deepEqual(receipt.checks, ['cli-acquired-tool-input-command-and-mcp', 'forced-failure-skips-item-and-mcp-consumer',
-      'removal-runs-saved-reverse-and-readback', 'killed-command-is-uncertain-and-reviewed-again', 'upstream-setup-clone-and-installer-unmanaged']);
+      'removal-runs-restore-with-prior-and-readback', 'killed-command-is-uncertain-and-reviewed-again', 'upstream-setup-clone-and-installer-unmanaged']);
   } finally {
     assert.equal(dirname(realpathSync.native(root)), parent);
     rmSync(root, { recursive: true, maxRetries: 3, retryDelay: 100 });
