@@ -772,9 +772,11 @@ A `plugin` step installs a framework through the CLI's own plugin commands at th
   doesn't fill, or a profile without a pinned (`pin: holds`), unattended install at the request's scope, is refused
   (`plugin-command-unresolved`); a missing profile, or a step whose `verify` differs from the profile's, is
   `profile-mismatch`; a CLI this host can't run is `program-unavailable`. All before any effect.
-- **Marketplace.** `marketplace` is a URL or repository, or `{ root, path }`: a marketplace folder the plan writes itself
-  (Claude Code and Copilot pin a plugin through a `.aihq/marketplaces/...` folder and the plan's `write` step of its
-  marketplace file), filled in as that folder's absolute path. The plan's `write` steps run before its plugin steps.
+- **Marketplace.** `marketplace` is an https URL or `owner/repo`, or `{ root, path }`: a marketplace folder the plan
+  writes itself (Claude Code and Copilot pin a plugin through a `.aihq/marketplaces/...` folder and the plan's `write`
+  step of its marketplace file), filled in as that folder's absolute path. The plan's `write` steps run before its plugin
+  steps. `repository` is an https URL of plain path segments. Either with credentials, a query, a fragment, another
+  scheme or anything a command could read as an option is invalid, as in Catalog's own address grammar.
 - **Pin.** A step Catalog marks `pin: "unverified"` (its install names no commit and the plan writes no marketplace)
   shows `pin: unverified` in the review and a "can't promise" line saying the CLI may install another commit; any other
   `pin` value is invalid.

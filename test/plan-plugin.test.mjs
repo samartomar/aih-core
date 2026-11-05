@@ -257,5 +257,23 @@ test('a plugin step Core cannot carry out exactly is refused before any effect',
     assert.deepEqual([result.status, result.code], ['refused', code], `${name}: ${JSON.stringify(result)}`);
     assert.equal(result.handle, undefined);
   }
+  // Catalog's one address grammar: a repository is an https URL of plain segments, a marketplace that or `owner/repo`;
+  // nothing an installer could read as an option, a local path, a remote helper or credentials.
+  const addresses = [
+    ['repository', 'git@github.com:obra/superpowers.git'], ['repository', 'http://github.com/obra/superpowers'],
+    ['repository', 'https://token@github.com/obra/superpowers'], ['repository', 'https://github.com/obra/superpowers?ref=x'],
+    ['repository', '--upload-pack=touch /tmp/x'], ['marketplace', '--config=x'], ['marketplace', 'file:///tmp/marketplace'],
+    ['marketplace', 'https://user:pass@github.com/obra/superpowers-marketplace'], ['marketplace', '../marketplace'],
+  ];
+  for (const [field, value] of addresses) {
+    const request = pluginRequest(PRESENCE);
+    request.plan.plan[0][field] = value;
+    const result = await prepare(request);
+    assert.equal(result.status, 'invalid', `${field} ${value}: ${JSON.stringify(result).slice(0, 400)}`);
+    assert.equal(result.handle, undefined);
+  }
+  const short = pluginRequest(PRESENCE);
+  short.plan.plan[0].marketplace = 'obra/superpowers-marketplace';
+  assert.equal((await prepare(short)).status, 'ready', 'a marketplace may be `owner/repo`');
   assert.deepEqual(fakeClientState(state, 'claude').calls, []);
 });
