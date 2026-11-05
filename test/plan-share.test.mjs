@@ -8,9 +8,9 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { apply, list, prepare, prepareRemoval } from '../dist/core/index.js';
+import { apply, list, prepare, prepareRemoval, prepareUpdate } from '../dist/core/index.js';
 import { validateFormat } from '../dist/core/contracts.js';
-import { linkRequest, mergeRequest } from './fixtures/plan-fixture.mjs';
+import { linkRequest, mergeRequest, ownRequest, profile, sha256 } from './fixtures/plan-fixture.mjs';
 
 const scratch = mkdtempSync(join(tmpdir(), 'aih-share-'));
 const previous = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
@@ -199,4 +199,61 @@ test('your own file at a link place is a conflict carrying its exact bytes and t
   assert.equal(conflict.observedSha256, createHash('sha256').update('my own notes\n').digest('hex'));
   assert.equal(validateFormat(blocked.review).status, 'ok');
   rmSync(join(home, '.claude'), { recursive: true });
+});
+
+// A shared plan step (C48, contract 5 "Shared copies"): its member is claimed by that step's items only. Identical bytes
+// another plan wrote for one item alone are that plan's file, never a shared copy.
+const NOTICE = 'MIT License\n';
+function noticeRequest(where, items, path, { sourceId = 'local-notices', extra = {} } = {}) {
+  const bytes = Buffer.from(NOTICE);
+  const files = [{ sourceId, sourcePath: 'LICENSE', sha256: sha256(bytes), bytes }];
+  const contentItems = items.map(id => ({ id, kind: 'skill', name: id.split('.').at(-1), description: `Fixture item ${id}`, files: [],
+    contentSha256: sha256(id), behaviourSha256: sha256(id) }));
+  const plan = [{ op: 'write', root: 'project', path, from: { sourceId, sourcePath: 'LICENSE', sha256: sha256(bytes) }, items, clis: ['claude-code'] }];
+  for (const [id, text] of Object.entries(extra)) {
+    const own = Buffer.from(text); const sourcePath = `${id.split('.').at(-1)}/SKILL.md`;
+    contentItems.find(item => item.id === id).files.push({ sourceId, sourcePath, sha256: sha256(own), bytes: own.length, executable: false, role: 'content' });
+    files.push({ sourceId, sourcePath, sha256: sha256(own), bytes: own });
+    plan.push({ op: 'write', item: id, root: 'project', path: `.claude/skills/${id.split('.').at(-1)}/SKILL.md`, from: { item: id, sourcePath }, clis: ['claude-code'] });
+  }
+  return { schema: 'urn:aihq:core:plan-request:0.1.0', scope: 'project', target: { project: where },
+    plan: { status: 'ok', data: null, plan, missing: [], unavailable: [], clashes: [], duplicates: [], references: [], warnings: [] },
+    contents: [{ schema: 'urn:aihq:catalog:content:0.1.0', framework: { id: 'local-notices', name: 'Notices' },
+      sources: [{ id: sourceId, kind: 'local', notices: [{ sourcePath: 'LICENSE', sha256: sha256(bytes) }] }], items: contentItems }],
+    profiles: [profile('claude-code')], files };
+}
+const OWN = name => `local-my-skills.skill.${name}`;
+
+test('a shared step never shares a file another plan wrote for one item alone: it is a conflict, and that item still updates', async () => {
+  const where = project();
+  const license = join(where, '.claude/skills/x/LICENSE');
+  await install(ownRequest(where, { x: { LICENSE: NOTICE } }, ['claude-code']));
+  const items = ['local-notices.skill.y', 'local-notices.skill.z'];
+  const blocked = await prepare(noticeRequest(where, items, '.claude/skills/x/LICENSE', { extra: { [items[0]]: 'Y\n' } }));
+  assert.equal(blocked.status, 'blocked', JSON.stringify(blocked.review?.steps ?? blocked));
+  const [conflict] = blocked.review.conflicts;
+  assert.equal(conflict.target, '.claude/skills/x/LICENSE');
+  assert.deepEqual([conflict.reason, conflict.choices], ['existing-content', ['adopt', 'skip']], 'identical bytes: adopting it is a choice the review offers');
+  const skipped = await prepare({ ...noticeRequest(where, items, '.claude/skills/x/LICENSE', { extra: { [items[0]]: 'Y\n' } }),
+    resolutions: [{ managementId: conflict.managementId, step: conflict.step, choice: 'skip', observedSha256: conflict.observedSha256 }] });
+  assert.equal(skipped.status, 'partial', JSON.stringify(skipped));
+  assert.equal((await apply(skipped.handle, { ...approve(skipped.review), allowPartial: true })).completion, 'complete');
+
+  const update = await prepareUpdate({ target: { project: where }, scope: 'project',
+    updates: [{ managementIds: [OWN('x')], request: ownRequest(where, { x: { LICENSE: 'MIT License, 2026\n' } }, ['claude-code']) }] });
+  assert.equal(update.status, 'ok', JSON.stringify(update));
+  assert.deepEqual(update.review.conflicts, [], 'the other plan holds no claim on it');
+  assert.equal((await apply(update.handle, approve(update.review))).completion, 'complete');
+  assert.equal(readFileSync(license, 'utf8'), 'MIT License, 2026\n');
+});
+
+test('another plan\'s shared step with the same source facts shares the member a shared step wrote', async () => {
+  const where = project();
+  const path = '.aihq/notices/local-notices/LICENSE';
+  await install(noticeRequest(where, ['local-notices.skill.y', 'local-notices.skill.z'], path));
+  const second = await install(noticeRequest(where, ['local-notices.skill.v', 'local-notices.skill.w'], path));
+  assert.deepEqual(second.run.steps.map(step => step.application), ['already-satisfied', 'already-satisfied']);
+  const listed = await list({ target: { project: where }, scope: 'project' });
+  assert.deepEqual(listed.entries.map(entry => entry.managementId).sort(),
+    ['local-notices.skill.v', 'local-notices.skill.w', 'local-notices.skill.y', 'local-notices.skill.z']);
 });

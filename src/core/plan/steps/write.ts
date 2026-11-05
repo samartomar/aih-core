@@ -51,7 +51,7 @@ export const write: StepHandler = {
       const supplied = context.bytesFor(facts); if ('refusal' in supplied) return supplied;
       return { lowered: { kind: 'write', managementIds: owner.ids, root: placed.root, path: placed.path, bytes: supplied.bytes,
         executable: facts.executable, sentence: `Writes \`${placed.path}\`, part of the \`${owner.review.framework}\` local plugin`, cantPromise: null,
-        review: { ...owner.review, clis: served.clis } } };
+        review: { ...owner.review, clis: served.clis }, source: { sourceId: facts.sourceId, sourcePath: facts.sourcePath, sha256: facts.sha256 } } };
     }
     // Catalog's `from` is `{ item?, sourceId, sourcePath, sha256 }`: an item's (or edition's) file, or, without `item`, a
     // file shared by the step's `items`: a source notice, or a file of the runtime `bundle` the step names.
@@ -69,6 +69,6 @@ export const write: StepHandler = {
     return { lowered: { kind: 'write', managementIds: owner.ids, root: placed.root, path: placed.path, bytes: bytes.bytes,
       executable: facts.executable, sentence: `Writes \`${placed.path}\``, cantPromise: null,
       review: { ...owner.review, clis: served.clis, ...(bytes.bound ? { inputs: bytes.bound.review } : {}) },
-      ...(bytes.bound ? { bound: bytes.bound } : {}) } };
+      ...(bytes.bound ? { bound: bytes.bound } : {}), source: { sourceId: facts.sourceId, sourcePath: facts.sourcePath, sha256: facts.sha256 } } };
   }
 };

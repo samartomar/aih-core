@@ -101,7 +101,19 @@ export interface PlanItemFacts {
   secretSlots?: { file: string; path: string[]; item: string; input: string; template: string }[];
   /** The Scan results the review showed for this management id: key, revision, signer (contract 5, 13). Never authority. */
   scans?: ScanFacts[];
+  /**
+   * The steps several items share (C48) that this claim was made by: the path and the step's source facts. Another plan's
+   * shared step with the same facts shares the member; a step for one item alone never does.
+   */
+  sharedSteps?: SharedStepFacts[];
 }
+/**
+ * One shared step's identity: where it writes and what it writes from (`sourceId`, `sourcePath`, `sha256` of a supplied
+ * source file), or, for a step with no source file (a merge entry, a render), `null` source ids and the planned bytes' sha256.
+ */
+export interface SharedStepFacts { path: string; sourceId: string | null; sourcePath: string | null; sha256: string }
+export const sameSharedStep = (a: SharedStepFacts, b: SharedStepFacts): boolean =>
+  a.path === b.path && a.sourceId === b.sourceId && a.sourcePath === b.sourcePath && a.sha256 === b.sha256;
 /** One placed folder link: a junction or symlink at `path` to `to` (both under the user root), or a copy of `to`. */
 export interface LinkFacts { step: number; path: string; to: string; linkType: 'junction' | 'symlink' | 'copy'; created: string[] }
 export interface CustodyItem extends ItemFacts {
@@ -296,7 +308,11 @@ function validAiSetupFacts(value: unknown): boolean {
     (interpreter === null || exact(interpreter, ['path', 'version']) && text(interpreter.path, 4096) && text(interpreter.version, 64));
 }
 export function validPlanFacts(value: unknown): boolean {
-  if (!exact(value, ['items', 'clis', 'data', 'origin', 'catalog', 'profiles', 'steps'], ['aiSetup', 'plugins', 'localPlugin', 'switchOff', 'inputs', 'managementId', 'cli', 'project', 'links', 'programs', 'secretSlots', 'kind', 'framework', 'scans'])) return false;
+  if (!exact(value, ['items', 'clis', 'data', 'origin', 'catalog', 'profiles', 'steps'], ['aiSetup', 'plugins', 'localPlugin', 'switchOff', 'inputs', 'managementId', 'cli', 'project', 'links', 'programs', 'secretSlots', 'kind', 'framework', 'scans', 'sharedSteps'])) return false;
+  if (value.sharedSteps !== undefined && !(Array.isArray(value.sharedSteps) && value.sharedSteps.length > 0 && value.sharedSteps.length <= 4096 &&
+      value.sharedSteps.every(step => exact(step, ['path', 'sourceId', 'sourcePath', 'sha256']) && text(step.path, 4096) &&
+        (step.sourceId === null ? step.sourcePath === null : text(step.sourceId, 512) && text(step.sourcePath, 4096)) &&
+        typeof step.sha256 === 'string' && /^[a-f0-9]{64}$/.test(step.sha256)))) return false;
   if (value.scans !== undefined && !(Array.isArray(value.scans) && value.scans.length > 0 && value.scans.length <= 64 && value.scans.every(validScanFacts))) return false;
   for (const fact of [value.kind, value.framework]) if (fact !== undefined && fact !== null && !(typeof fact === 'string' && PLAN_ID.test(fact))) return false;
   if (value.secretSlots !== undefined && !(Array.isArray(value.secretSlots) && value.secretSlots.length > 0 && value.secretSlots.length <= 256 &&

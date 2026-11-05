@@ -18,7 +18,7 @@ import { resolveExecutable, resolveProgram } from '../internal/approved-process.
 import { claimIdentity } from '../internal/recipe-lifecycle.js';
 import { claimKey, managementIdOf } from './claims.js';
 import { inspectLink, linkRecordBytes, linkRecordPath, missingParents, placeBytes, placeLink } from './links.js';
-import type { LinkFacts } from '../internal/custody-items.js';
+import type { LinkFacts, SharedStepFacts } from '../internal/custody-items.js';
 import type { LoweredPlugin, LoweredProgram } from './steps/types.js';
 import { cloneEffect, commandEffect, type Verifications } from './program/effect.js';
 import { SETUP_MARKER } from './steps/upstream-setup.js';
@@ -51,6 +51,16 @@ import { REVIEW, type PlanControls, type PlanPreparation, type Problem, type Rev
 
 export const FAILURE_RULE = 'A failed step stops the rest of its item and every item that depends on it; unrelated items continue.';
 const sha256 = (value: string | Buffer): string => createHash('sha256').update(value).digest('hex');
+/** A file or entry step several items share (C48). */
+const isShared = (step: CheckedStep): boolean => (step.lowered.kind === 'write' || step.lowered.kind === 'merge') && step.lowered.managementIds.length > 1;
+/** A shared step's identity (contract 5): its path and source facts, or the planned entry's digest when it has no source file. */
+function sharedFacts(step: CheckedStep): SharedStepFacts {
+  const lowered = step.lowered;
+  if (lowered.kind === 'write') return lowered.source ? { path: lowered.path, ...lowered.source } :
+    { path: lowered.path, sourceId: null, sourcePath: null, sha256: sha256(lowered.bytes) };
+  if (lowered.kind !== 'merge') throw new Error('not a shared step');
+  return { path: lowered.path, sourceId: null, sourcePath: null, sha256: sha256(canonicalJson({ key: lowered.key, entry: lowered.entry })) };
+}
 const RECIPE = 'urn:aihq:core:recipe:1.0.0';
 const POLICY = 'urn:aihq:core:execution-policy:1.0.0';
 
@@ -271,7 +281,7 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
   const operations = new Map<string, StepRef>();
   const merges = new Map<OperationKey, { format: 'json' | 'toml' | 'markdown'; segments: string[] }>();
   // Steps several items share (C48): each item's claim shares the one member.
-  const shared = new Set<OperationKey>();
+  const shared = new Map<OperationKey, SharedStepFacts>();
   const selections: ExecutionPolicy['selections'] = [];
   // Secret values the plan writes into files: the engine holds them as its own private inputs, so its review details
   // and history redact them (C59); Apply re-checks the caller's private inputs by digest.
@@ -295,7 +305,7 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
       }
       const id = `step-${step.index}`;
       operations.set(operationKey(group.selectionId, id), { step: step.index, managementId: group.managementId });
-      if (lowered.managementIds.length > 1) shared.add(operationKey(group.selectionId, id));
+      if (lowered.managementIds.length > 1) shared.set(operationKey(group.selectionId, id), sharedFacts(step));
       const target = { root: group.scope === 'project' ? 'project' as const : 'userHome' as const, segments: lowered.path.split('/').map(literal => ({ literal })) };
       const prior = group.steps[at - 1];
       // A failed step makes the rest of its item's steps not attempted (C60).
@@ -372,6 +382,7 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
       origin: before ? structuredClone(before.origin) : proven.origin === 'chosen' ? 'chosen' : structuredClone(proven.origin), catalog: controls.catalog?.version ?? null,
       profiles: profilesOf(checked.profiles, clis, group.steps),
       steps: [...new Set(group.steps.map(step => step.index))].sort((a, b) => a - b),
+      ...(group.steps.some(step => isShared(step)) ? { sharedSteps: group.steps.filter(isShared).map(sharedFacts) } : {}),
       kind: itemFacts.get(group.managementId)?.kind ?? null, framework: itemFacts.get(group.managementId)?.framework ?? (itemFacts.has(group.managementId) ? null : group.managementId),
       ...(group.scope === 'user' && recorded.has(group.managementId) && group.steps.some(step => step.lowered.acquire) ?
         { aiSetup: { ...recorded.get(group.managementId)! } } : {}),

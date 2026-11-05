@@ -47,6 +47,8 @@ export interface LoweredWrite {
   acquire?: AcquireSpec;
   /** For a rendered write: the tool profiles (id and version) the render records, checked against the request. */
   profiles?: { id: string; version: string | number }[];
+  /** The supplied source file the step writes from, when it names one. */
+  source?: { sourceId: string; sourcePath: string; sha256: string };
 }
 /**
  * One native plugin install (`plugin`): the CLI's own commands, filled from the profile's templates, run in order after

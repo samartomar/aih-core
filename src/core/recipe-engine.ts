@@ -23,7 +23,7 @@ import { captureRecipeReference, captureInlineMaterials, createMaterialCaptureBu
 import { gitProvenance } from './internal/material-descriptors.js';
 import { configMemberBytes, memberDigest, renderConfigEntries, renderConfigMember, renderTextBlock, removeCreatedTomlTable, restoreMemberBytes, tomlEntryPaths, tomlTableOf, type TomlTableCustody } from './internal/recipe-editors.js';
 import { parse as parseJsonc, type ParseError } from 'jsonc-parser';
-import { attemptItem, checkMember, completeItem, locateMember, memberPointer, preExistingFor, publicKind, redactedPathFor, releaseItem, settleItem, upsertItem, type ItemFacts, type MemberCheck, type PendingMember, type PlanItemFacts } from './internal/custody-items.js';
+import { attemptItem, checkMember, completeItem, locateMember, memberPointer, preExistingFor, publicKind, redactedPathFor, releaseItem, settleItem, upsertItem, type ItemFacts, type MemberCheck, type PendingMember, type PlanItemFacts, sameSharedStep, type SharedStepFacts } from './internal/custody-items.js';
 import { displacedFacts, displacedText, restoredText, spliceMember, type DisplacedValue, type SecretSlot } from './internal/displaced.js';
 import { claimIdentity, classifyStoredClaims, retainClaimDependencies, overlappingMembers, memberKey, memberBytes, subtractMember, type ByteMember, type MemberDescriptor, type Claim, type HookDescriptor } from './internal/recipe-lifecycle.js';
 import { decideHookCleanup, decideHookStep, type HookDecision, type HookStepInput, type RetainedHook } from './internal/hook-prepare.js';
@@ -200,7 +200,7 @@ export interface EngineExtension {
    * Plan steps that name several `items` (a notice, a runtime bundle file, the bundle-root rule; C48), by
    * `<selectionId>/<operationId>`: identical bytes another plan claim holds are one member each such claim shares.
    */
-  shared?: ReadonlySet<OperationKey>;
+  shared?: ReadonlyMap<OperationKey, SharedStepFacts>;
   /** Plan `merge` steps by `<selectionId>/<operationId>`: the one entry (TOML table) each adds. */
   merges?: ReadonlyMap<OperationKey, { format: 'json' | 'toml' | 'markdown'; segments: string[] }>;
   /** Receives each authored step as prepared: its effect, conflict reason, and the target bytes it compared and plans. */
@@ -932,9 +932,13 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
           // same Catalog item, with exactly these bytes and unchanged since it was recorded, gains this selection's claim:
           // every such selection owns it, and removal keeps it until the last one goes. Nothing is written; a person's own
           // file or value, another item's, or a tool's approval entry is never acquired.
-          // A plan step several items share (C48) shares the member with any other plan claim of the same bytes.
-          const sharedStep = !!myPlan && !!extension?.shared?.has(operationKey(selection.id, op.id));
-          const sharer = (claim: Claim) => sameItem(claim) || sharedStep && !!claimPlan(claim);
+          // A plan step several items share (C48) shares the member with that step's other items only: a claim of this
+          // plan request, or a recorded claim another plan's shared step made with the same path and source facts.
+          const sharedStep = myPlan ? extension?.shared?.get(operationKey(selection.id, op.id)) : undefined;
+          const sameStep = (claim: Claim) => !!sharedStep && (policy.selections.some(item => item.managementId === claim.managementId &&
+            item.scope === claim.scope && !!extension?.plans?.has(item.id)) ||
+            !!stored.value.items?.[claimIdentity(claim.scope, claim.managementId, project!)]?.plan?.sharedSteps?.some(facts => sameSharedStep(facts, sharedStep)));
+          const sharer = (claim: Claim) => sameItem(claim) || sameStep(claim);
           const sharedCopy = (op.kind === 'file.write' || op.kind === 'config.entries' && !approval || op.kind === 'text.block' && !!myPlan) && same && !managed && !resolution && !editConflict && !sharedChange && !overlap && !drift &&
             custody !== undefined && descriptors.length > 0 && descriptors.every(member => {
               const prior = projected.members[memberKey(member)]; const bytes = memberBytes(member, before!);
