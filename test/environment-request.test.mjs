@@ -2,10 +2,10 @@
 // session. Every case runs against a disposable home; nothing reads or writes the real user's trust or configuration.
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync, appendFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync, appendFileSync, copyFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { prepare, apply } from '../dist/core/index.js';
+import { delimiter, dirname, join } from 'node:path';
+import { prepare, apply, prepareRemoval } from '../dist/core/index.js';
 import { validateFormat, refusalCodes, schemas } from '../dist/core/contracts.js';
 
 const previous = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
@@ -208,4 +208,71 @@ test('the macOS session check answers the 0.1.0 request with the 0.1.0 result an
   // The bundled profiles (none admitted) read as the 0.1.0 profiles format.
   assert.equal(validateFormat({ ...macosSessionProfiles, schema: 'urn:aihq:core:macos-session-profiles:0.1.0' }).status, 'ok');
   assert.deepEqual(macosSessionProfiles.profiles, []);
+});
+
+// A pip config the repair had to create: its own entries are all it holds, so removing the repair takes the file away
+// again (the absent state), and Apply and removal both record each member they touched, checked on disk.
+const withTool = (name, body) => async () => {
+  const saved = { PATH: process.env.PATH, APPDATA: process.env.APPDATA, XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME };
+  const bin = join(scratch, 'bin'); mkdirSync(bin, { recursive: true });
+  if (process.platform === 'win32') copyFileSync(process.execPath, join(bin, `${name}.exe`));
+  else writeFileSync(join(bin, name), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  process.env.PATH = `${bin}${delimiter}${process.env.PATH}`;
+  delete process.env.XDG_CONFIG_HOME;
+  if (process.platform === 'win32') process.env.APPDATA = join(process.env.HOME, 'AppData', 'Roaming');
+  try { await body(); } finally { for (const [key, value] of Object.entries(saved)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; } }
+};
+const pipRepair = file => ({ schema: REPAIR, repair: 'user-tools-ca', targets: ['pip'], route: 'file', network: 'off',
+  sources: { os: false, supplied: [{ id: 'team', file }] } });
+const pipConfigOf = home => process.platform === 'win32' ? join(home, 'AppData', 'Roaming', 'pip', 'pip.ini') : join(home, '.config', 'pip', 'pip.conf');
+
+test('removing a pip repair whose config it created leaves no config behind, and both runs record their members', async () => {
+  const { home, file } = setup();
+  if (process.platform === 'win32') mkdirSync(join(home, 'AppData', 'Roaming'), { recursive: true });
+  await withTool('pip', async () => {
+    const config = pipConfigOf(home);
+    const preparation = await prepare(pipRepair(file), { logging: 'off' });
+    assert.equal(preparation.status, 'ready', JSON.stringify(preparation));
+    const run = await apply(preparation.handle, approve(preparation), { logging: 'off' });
+    assert.deepEqual(validateFormat(run), { status: 'ok', schema: 'urn:aihq:core:run:0.1.0' });
+    assert.ok(['complete', 'incomplete'].includes(run.completion), JSON.stringify(run));
+    assert.match(readFileSync(config, 'utf8'), /cert\s*=/);
+    // Every member the repair changed is recorded and checked on disk: the managed CA file and the pip `cert` entry.
+    const written = run.members.filter(member => member.intent === 'write');
+    assert.ok(written.some(member => member.kind === 'config-entry' && member.path.endsWith(process.platform === 'win32' ? 'pip.ini' : 'pip.conf') &&
+      member.pointer === '/global/cert' && member.check === 'present-matching'), JSON.stringify(run.members));
+    assert.ok(written.some(member => member.kind === 'file' && member.path.endsWith('trust.pem') && member.check === 'present-matching'), JSON.stringify(run.members));
+    assert.ok(written.every(member => member.managementId === 'user-tools-ca'));
+
+    const removal = await prepareRemoval({ target: { project: null }, scope: 'user', removals: [{ managementId: 'user-tools-ca' }] }, { logging: 'off' });
+    assert.equal(removal.status, 'ok', JSON.stringify(removal));
+    const removed = await apply(removal.handle, approve(removal), { logging: 'off' });
+    assert.equal(removed.completion, 'complete', JSON.stringify(removed));
+    assert.equal(existsSync(config), false, existsSync(config) ? JSON.stringify(readFileSync(config, 'utf8')) : '');
+    // The folder Core created for it goes too.
+    assert.equal(existsSync(dirname(config)), false);
+    // Removal is verified against the members it released, never left as "no supplied check".
+    assert.ok(removed.members.length > 0 && removed.members.every(member => member.intent === 'remove' && member.check === 'absent'), JSON.stringify(removed.members));
+    assert.ok(removed.steps.length > 0 && removed.steps.every(step => step.verification.status === 'passed'), JSON.stringify(removed.steps));
+  })();
+});
+
+test('a pip config you already had keeps its own settings, byte for byte, through repair and removal', async () => {
+  const { home, file } = setup();
+  if (process.platform === 'win32') mkdirSync(join(home, 'AppData', 'Roaming'), { recursive: true });
+  await withTool('pip', async () => {
+    const config = pipConfigOf(home);
+    mkdirSync(dirname(config), { recursive: true });
+    const original = '# mine\n[global]\ntimeout = 30\n';
+    writeFileSync(config, original);
+    const preparation = await prepare(pipRepair(file), { logging: 'off' });
+    assert.equal(preparation.status, 'ready', JSON.stringify(preparation));
+    await apply(preparation.handle, approve(preparation), { logging: 'off' });
+    const written = readFileSync(config, 'utf8');
+    assert.match(written, /timeout = 30/); assert.match(written, /cert\s*=/);
+    const removal = await prepareRemoval({ target: { project: null }, scope: 'user', removals: [{ managementId: 'user-tools-ca' }] }, { logging: 'off' });
+    const removed = await apply(removal.handle, approve(removal), { logging: 'off' });
+    assert.equal(removed.completion, 'complete', JSON.stringify(removed));
+    assert.equal(readFileSync(config, 'utf8'), original);
+  })();
 });

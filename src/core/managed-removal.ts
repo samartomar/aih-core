@@ -100,7 +100,15 @@ export async function prepareManagedRemoval(request: ManagedRemovalRequest | Man
   if (request && typeof request === 'object' && Object.hasOwn(request, 'removals')) return prepareRemovals(request as ManagedRemovalsRequest, controls, {});
   return prepareOne(request as ManagedRemovalRequest, controls);
 }
-async function prepareOne(request: ManagedRemovalRequest, controls: HostControls): Promise<ManagedRemovalPreparationResult> {
+/**
+ * A repair's removal for the 0.1.0 lifecycle (contract 7.4, 10): the retained single-id removal, whose run checks every
+ * member it releases on disk and is verified from those checks. Not a public entry.
+ */
+export function prepareRepairRemoval(request: ManagedRemovalRequest, controls: HostControls): Promise<ManagedRemovalPreparationResult> {
+  forgetProvenState();
+  return prepareOne(request, controls, true);
+}
+async function prepareOne(request: ManagedRemovalRequest, controls: HostControls, memberChecked = false): Promise<ManagedRemovalPreparationResult> {
   const { identity, valid: identityValid } = distributionIdentity();
   const base = { schema: SCHEMA, package: identity } as const;
   const done = (disposition: ManagedRemovalDisposition, fields: Partial<ManagedRemovalPreparationResult>, diagnostics: Diagnostic[] = []): ManagedRemovalPreparationResult =>
@@ -201,8 +209,9 @@ async function prepareOne(request: ManagedRemovalRequest, controls: HostControls
   }, effects) : undefined;
   if (sessionParticipant && !trustParticipant) return unavailable('session-custody-unavailable', 'Ordinary trust and session custody must agree.', 'STATE_CONFLICT');
   const participant = sessionParticipant ? joinSessionParticipant(trustParticipant!, sessionParticipant) : trustParticipant;
+  // A member-checked removal is carried out as plan work is: its run reports and checks each member it releases.
   let preparation = await preparePolicy({ useCase: 'policy', policy, target: { project } }, forwarded,
-  undefined, sameImage, participant);
+  undefined, sameImage, participant, undefined, undefined, memberChecked ? {} : undefined);
   if (sessionEntry) preparation = wrapMacosRemoval(preparation, sessionEntry, forwarded, effects);
   // A removal review holds only generated lifecycle cleanup; the embedded preparation keeps its published shape.
   const { operationSelections: _selections, ...embedded } = preparation; preparation = embedded;

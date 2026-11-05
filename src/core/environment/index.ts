@@ -9,6 +9,7 @@ import { readRegularFile } from '../internal/fsxn.js';
 import { repairIndex } from '../../harness/contracts.mjs';
 import { internalManagementId, publicManagementId } from '../../harness/public-ids.mjs';
 import { prepareRepair, applyRepair } from '../repair.js';
+import { takeRunMembers } from '../recipe-engine.js';
 import { prepareTrust, applyTrust, disposeTrustHandle } from '../trust.js';
 import { prepareMacosSession, applyMacosSession, disposeMacosSessionHandle, verifyMacosSession } from '../macos-session.js';
 import { forgetProvenState } from '../internal/state.js';
@@ -229,7 +230,8 @@ function runOf(result: RunResult, state: State): Run {
     return step < 0 ? [] : [{ step, managementId: state.refs[step]!.managementId, application: operation.application,
       verification: { status: operation.verification.status, reason: operation.verification.reason } }];
   });
-  const members: Run['members'] = (result.members ?? []).map(member => ({ managementId: publicManagementId(member.managementId), scope: member.scope,
+  // The retained repair and trust results publish no members; the engine keeps this run's member checks for the 0.1.0 run.
+  const members: Run['members'] = (result.members ?? takeRunMembers(result.runId) ?? []).map(member => ({ managementId: publicManagementId(member.managementId), scope: member.scope,
     kind: member.kind, path: member.path, ...(member.pointer === undefined ? {} : { pointer: member.pointer }),
     ...(member.blockId === undefined ? {} : { blockId: member.blockId }), intent: member.intent, outcome: member.outcome, check: member.check }));
   const history: Run['history'] = result.record.status === 'written' ? { status: 'recorded' } : result.record.status === 'disabled' ?

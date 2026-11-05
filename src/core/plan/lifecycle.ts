@@ -8,7 +8,7 @@ import { homedir } from 'node:os';
 import { isAbsolute, relative } from 'node:path';
 import { isProxy } from 'node:util/types';
 import { listManagedSelections } from '../managed-inventory.js';
-import { prepareManagedRemoval, prepareManagedRemovals } from '../managed-removal.js';
+import { prepareManagedRemovals, prepareRepairRemoval } from '../managed-removal.js';
 import type { RemovalMember as EngineRemovalMember } from '../removal-types.js';
 import { repairIndex } from '../../harness/contracts.mjs';
 import { deepFreezeStrictJsonV1 } from '../internal/strict-json.js';
@@ -320,7 +320,7 @@ export async function prepareRemoval(request: unknown, controls: unknown = {}): 
   const repairCustody = selectors.length === 1 && selectors[0]!.engineIds.length === 1 &&
     repairIndex.some(definition => definition.managementId === selectors[0]!.engineIds[0]) ? selectors[0]!.engineIds[0]! : undefined;
   const prepared = repairCustody !== undefined ? await (async () => {
-    const one = await prepareManagedRemoval({ target: { project: located.anchor }, managementId: repairCustody, scope, mode: 'vibe' }, engineControls(options));
+    const one = await prepareRepairRemoval({ target: { project: located.anchor }, managementId: repairCustody, scope, mode: 'vibe' }, engineControls(options));
     return { disposition: one.disposition, preparation: one.preparation, diagnostics: one.diagnostics,
       removals: ['cancelled', 'invalid'].includes(one.disposition) ? [] : [{ managementId: repairCustody,
         disposition: one.disposition as Exclude<typeof one.disposition, 'cancelled' | 'invalid'>,

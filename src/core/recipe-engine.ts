@@ -131,6 +131,20 @@ const RESULT_14 = 'urn:aihq:core:run-result:1.4.0' as const;
 const RESULT_15 = 'urn:aihq:core:run-result:1.5.0' as const;
 /** The run result 1.4.0 schema's bound on `members`. */
 const MEMBER_REPORT_LIMIT = 65536;
+/**
+ * Member checks of the latest runs whose published result has no `members` field (retained repair and trust results),
+ * by run id. A 0.1.0 run takes them once with `takeRunMembers`; only the most recent few are kept.
+ */
+const runMembers = new Map<string, RunMember[]>();
+function keepRunMembers(runId: string, members: RunMember[]): void {
+  runMembers.set(runId, members);
+  while (runMembers.size > 16) runMembers.delete(runMembers.keys().next().value!);
+}
+export function takeRunMembers(runId: string): RunMember[] | undefined {
+  const members = runMembers.get(runId);
+  runMembers.delete(runId);
+  return members;
+}
 /** A reviewed binding that no longer holds at Apply; prepared work 1.6.0 reports which one. */
 class ReviewStale extends Error {
   /** `detail` names what changed (a reviewed target, or a selection's name); run result 1.5.0 reports it. */
@@ -392,6 +406,14 @@ function hasJsonContent(bytes: Buffer): boolean {
   const empty = (item: Json | undefined): boolean => item === null || item === undefined ? true :
     Array.isArray(item) ? item.every(empty) : typeof item === 'object' ? Object.values(item as Record<string, Json | undefined>).every(empty) : false;
   return !empty(value);
+}
+
+/** Whether a config file holds anything beyond the empty structure an entry's removal leaves (containers, headers). */
+function hasConfigContent(format: string, bytes: Buffer): boolean {
+  if (format === 'json' || format === 'jsonc') return hasJsonContent(bytes);
+  const text = bytes.toString('utf8');
+  if (format === 'ini' || format === 'toml') return text.split(/\r?\n/).some(line => line.trim() !== '' && !/^\s*\[[^\]]*\]\s*$/.test(line));
+  return text.trim() !== '';
 }
 
 /** Where a replaced file's original bytes are kept, by digest, inside the protected recovery folder. */
@@ -787,8 +809,7 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             custodyFor = (written, tables) => Object.fromEntries(descriptors.map(member => {
               const key = memberKey(member); const bytes = memberBytes(member, written); const prior = projected.members[key];
               const tomlTable = tables && member.kind === 'entry' ? createdTableCustody(member, tables, prior, projected.members) : undefined;
-              const fileCreated = selection.item !== undefined &&
-                (initialBefore === null || Object.values(projected.members).some(owner => owner.descriptor?.path === path && owner.createdFile === true));
+              const fileCreated = initialBefore === null || Object.values(projected.members).some(owner => owner.descriptor?.path === path && owner.createdFile === true);
               return [key, bytes === null ? null : { managementId: selection.managementId, recipeIdentity, sha256: sha256(bytes), mode: mode!, descriptor: member, ...(tomlTable ? { tomlTable } : {}),
                 ...(approval ? { approval: { tool: approval.tool } } : {}), ...(member.kind === 'member' && (createdContainer || prior?.createdContainer) ? { createdContainer: true as const } : {}),
                 ...(fileCreated ? { createdFile: true as const } : {}),
@@ -1369,10 +1390,11 @@ export async function prepare(request: PolicyRequest, controls: HostControls = {
             // other text always survives byte for byte.
             if (shared && (after === null || /^[\r\n]*$/.test(after.toString('utf8'))))
               after = createdFiles.has(`${root}:${descriptor.path}`) ? null : after ?? Buffer.alloc(0);
-            // A JSON entry in a file Core created takes the file with it, as an owned hook group does, once only
-            // empty containers are left and no other Core member lives in that file.
-            if (after !== null && descriptor.kind === 'entry' && (descriptor.format === 'json' || descriptor.format === 'jsonc') &&
-              createdFiles.has(`${root}:${descriptor.path}`) && !hasJsonContent(after) && !Object.entries(projectedMembers(root)).some(([other, member]) =>
+            // A config entry in a file Core created takes the file with it, as an owned hook group does, once only
+            // empty containers (JSON) or empty section headers (INI, TOML) are left and no other Core member lives in
+            // that file: the file was absent before, so absent is what removal restores.
+            if (after !== null && descriptor.kind === 'entry' && createdFiles.has(`${root}:${descriptor.path}`) &&
+              !hasConfigContent(descriptor.format, after) && !Object.entries(projectedMembers(root)).some(([other, member]) =>
                 other !== key && member.descriptor !== undefined && samePath(member.descriptor.path, descriptor.path))) after = null;
           }
         }
@@ -2159,6 +2181,12 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
   // Run results 1.4 and 1.5 report the members a run touched. A removal under them is also verified from those
   // checks, and the same checks decide whether its recovery data may go; a failed, partial or kept removal keeps
   // that data for inspection. Older identities carry no member checks and keep their documented cleanup behaviour.
+  // Older result identities carry no members, but a 0.1.0 environment run still reports them (contract 7.4): the retained
+  // repair and trust wrappers keep their own published result, and the 0.1.0 run takes the members from here by run id.
+  if (state && result.schema !== RESULT_14 && result.schema !== RESULT_15) {
+    const members = memberReports(state, result);
+    if (members.length <= MEMBER_REPORT_LIMIT) keepRunMembers(runId, members);
+  }
   if (state && (result.schema === RESULT_14 || result.schema === RESULT_15)) {
     const members = memberReports(state, result);
     // A truncated list could support a false claim, so an oversized one is withheld entirely.
