@@ -46,8 +46,9 @@ const entryOf = async (target, id) => (await list({ target: { project: target },
 /** A Python setup with one source-built closure wheel whose prebuilt bytes no source has; dependencies come from the index. */
 function buildSetup(name, options = {}) {
   const setup = withBuild(server, pythonSetup(server, { name, fallbackBytes, ...(options.setup ?? {}) }), options.build ?? {});
-  pypiIndex(server, `${server.base}/pypi-index`, setup, {}, [setup.build.file],
-    setup.build.dependencies.map(dependency => ({ ...dependency, bytes: setup.files[dependency.file] })));
+  pypiIndex(server, `${server.base}/pypi-index`, setup, {}, options.indexDigest ? [] : [setup.build.file],
+    setup.build.dependencies.map(dependency => ({ ...dependency, bytes: setup.files[dependency.file] })),
+    options.indexDigest ? { [setup.build.file]: options.indexDigest } : {});
   return setup;
 }
 
@@ -114,6 +115,16 @@ test('a build that fails on the installed interpreter switches to the reviewed f
   const second = await prepare(setupRequest(project(), [broken]));
   const failed = await apply(second.handle, approve(second.review));
   assert.deepEqual([byId(failed, broken.id).application, byId(failed, broken.id).reason], ['failed', 'build-failed']);
+});
+
+test('an index entry for the qualified wheel with another sha256 is a mismatch, never a reason to build', async () => {
+  installedPython({ version: '3.13.1' });
+  const target = project();
+  const setup = buildSetup('b-index-other', { indexDigest: 'f'.repeat(64) });
+  const prepared = await prepare(setupRequest(target, [setup]));
+  const run = await apply(prepared.handle, approve(prepared.review));
+  assert.deepEqual([byId(run, setup.id).application, byId(run, setup.id).reason], ['failed', 'artifact-mismatch'], JSON.stringify(run));
+  assert.equal(existsSync(join(home, ...setup.folder.split('/'))), false, 'nothing was built or kept');
 });
 
 test('a changed source or dependency hash fails closed; a missing host build tool is a build failure, its hash only recorded', async () => {

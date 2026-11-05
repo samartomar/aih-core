@@ -128,6 +128,13 @@ test('an index answer whose file has other bytes fails closed; an index with no 
   const run = await apply(prepared.handle, approve(prepared.review));
   assert.deepEqual([byId(run, python.id).application, byId(run, python.id).reason], ['failed', 'artifact-mismatch']);
 
+  // The index lists the file under another sha256: those are other bytes, not a missing file.
+  const other = withoutUrls(pythonSetup(server, { name: 's-index-other', fallbackBytes }));
+  pypiIndex(server, `${server.base}/pypi-index`, other, {}, [], [], { 'networkx-3.4.2-py3-none-any.whl': 'f'.repeat(64) });
+  const listed = await prepare(setupRequest(project(), [other]));
+  const otherRun = await apply(listed.handle, approve(listed.review));
+  assert.deepEqual([byId(otherRun, other.id).application, byId(otherRun, other.id).reason], ['failed', 'artifact-mismatch']);
+
   const missing = withoutUrls(pythonSetup(server, { name: 's-index-missing', fallbackBytes }));
   pypiIndex(server, `${server.base}/pypi-index`, missing, {}, ['networkx-3.4.2-py3-none-any.whl']);
   const again = await prepare(setupRequest(project(), [missing]));

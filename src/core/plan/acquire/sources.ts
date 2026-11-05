@@ -78,9 +78,12 @@ export async function obtain(item: Download, source: Source, options: { signal?:
       if (source.index === 'python-build-standalone') url = pbsDownload(source, item.file);
       else {
         const answer = await fetchJson(pypiRelease(source), options) as { urls?: unknown } | null;
-        const entry = Array.isArray(answer?.urls) ? (answer.urls as { filename?: unknown; url?: unknown; digests?: { sha256?: unknown } }[])
-          .find(candidate => candidate && candidate.filename === item.file && candidate.digests?.sha256 === item.sha256 &&
-            typeof candidate.url === 'string' && candidate.url.startsWith('https://')) : undefined;
+        const listed = Array.isArray(answer?.urls) ? (answer.urls as { filename?: unknown; url?: unknown; digests?: { sha256?: unknown } }[])
+          .filter(candidate => candidate && candidate.filename === item.file) : [];
+        const entry = listed.find(candidate => candidate.digests?.sha256 === item.sha256 && typeof candidate.url === 'string' && candidate.url.startsWith('https://'));
+        // The index lists this file with other bytes: that is a mismatch, never a missing file (so never a reason to build).
+        if (!entry && listed.some(candidate => typeof candidate.digests?.sha256 === 'string' && candidate.digests.sha256 !== item.sha256))
+          throw new AcquireError('artifact-mismatch');
         if (!entry) throw new AcquireError('artifact-unavailable');
         url = new URL(entry.url as string).href;
       }

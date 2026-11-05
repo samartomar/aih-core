@@ -187,7 +187,7 @@ export function suppliedFolder(dir, files) {
  * `extra` `{ name, version, file, bytes }`). Each lists the file with its qualified sha256 and a download URL under
  * `/files/`; `served` replaces the bytes served there, and files named in `omit` are left out of the answer.
  */
-export function pypiIndex(server, index, setup, served = {}, omit = [], extra = []) {
+export function pypiIndex(server, index, setup, served = {}, omit = [], extra = [], digests = {}) {
   const path = new URL(index).pathname;
   const wheelFile = setup.step.distribution.file;
   const entries = [{ name: wheelFile.split('-')[0], version: setup.step.version, file: wheelFile, bytes: setup.files[wheelFile] },
@@ -197,7 +197,7 @@ export function pypiIndex(server, index, setup, served = {}, omit = [], extra = 
     server.serve(`/files/${entry.file}`, served[entry.file] ?? entry.bytes);
     const key = `${path}/pypi/${entry.name}/${entry.version}/json`;
     const answer = byRelease.get(key) ?? { info: { name: entry.name, version: entry.version }, urls: [] };
-    if (!omit.includes(entry.file)) answer.urls.push({ filename: entry.file, url: server.url(`/files/${entry.file}`), digests: { sha256: sha256(entry.bytes) } });
+    if (!omit.includes(entry.file)) answer.urls.push({ filename: entry.file, url: server.url(`/files/${entry.file}`), digests: { sha256: digests[entry.file] ?? sha256(entry.bytes) } });
     byRelease.set(key, answer);
   }
   for (const [key, answer] of byRelease) server.serve(key, Buffer.from(JSON.stringify(answer)));
