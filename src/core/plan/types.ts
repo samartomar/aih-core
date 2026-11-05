@@ -114,6 +114,8 @@ export interface ReviewStep {
   requires?: string[]; details?: Json;
   /** A plugin step or its removal: the indivisible framework install, the client and what it holds. */
   framework?: string; cli?: string; plugin?: string; commit?: string; contains?: string[];
+  /** A plugin step the plan marks `pin: "unverified"`: the CLI may install another commit, and nothing checks it. */
+  pin?: 'unverified';
   /** A step a local-plugin route lowers to (Catalog D120). */
   route?: 'local-plugin';
   /** The exact commands, each with the executable and sha256 Prepare pinned; only these run, in this order. */

@@ -1,19 +1,20 @@
 // Real Catalog plans through Core (samartomar/aih-core#163): plans, content, profiles and render bytes recorded from the
-// @aihq/catalog package built at samartomar/aih-catalog 32db997 (test/fixtures/catalog-32db997), prepared and applied
+// @aihq/catalog package built at samartomar/aih-catalog 767cd4e (test/fixtures/catalog-767cd4e), prepared and applied
 // through the built public entries in a disposable home and project, then removed. This is real producer output for that
 // unreleased candidate; it shows Core carries out its shapes, not that any client loads the result. The AI clients on PATH
 // are fakes (test/fixtures/fake-client.mjs and two version-printing scripts); no real client runs.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { apply, list, prepare, prepareRemoval } from '../dist/core/index.js';
 import { validateFormat } from '../dist/core/contracts.js';
 import { fakeClientEnv, fakeClientState, installFakeClient } from './fixtures/fake-client.mjs';
-import { BYO_SECRET, byoControls, byoRequest, catalog, cbmRequest, recipeRequest, recorded, rulesRequest } from './fixtures/catalog-32db997/replay.mjs';
+import { BYO_SECRET, byoControls, byoRequest, catalog, cbmRequest, recipeRequest, recorded, rulesRequest } from './fixtures/catalog-767cd4e/replay.mjs';
 
-const scratch = mkdtempSync(join(tmpdir(), 'aih-catalog-32db997-'));
+const scratch = mkdtempSync(join(tmpdir(), 'aih-catalog-767cd4e-'));
 const keys = ['HOME', 'USERPROFILE', 'PATH', 'NODE_OPTIONS', 'FAKE_CLIENT_STATE', 'FAKE_CLIENT_MODE'];
 const previous = Object.fromEntries(keys.map(key => [key, process.env[key]]));
 const bin = join(scratch, 'bin'), clients = join(scratch, 'clients');
@@ -195,33 +196,42 @@ test('an MCP entry naming an executable in a folder Core acquired gets its absol
   rmSync(join(home, '.aihq'), { recursive: true, force: true });
 });
 
-test('a real plugin-route recipe plan installs Superpowers on Claude Code and Codex by marketplace name, proven, and removes', async () => {
+test('a real plugin-route recipe plan installs Superpowers on Claude Code from its pinned local marketplace and on Codex by name, proven, and removes', async () => {
   const target = project();
-  const request = recipeRequest(target);
-  assert.deepEqual(request.plan.plan.filter(step => step.op === 'plugin').map(step => [step.cli, step.marketplace, step.marketplaceName]),
-    [['claude-code', 'https://github.com/obra/superpowers-marketplace', 'superpowers-marketplace'], ['codex', 'https://github.com/obra/superpowers', 'superpowers-dev']]);
+  const request = recipeRequest('superpowers', target);
+  const commit = request.plan.plan.find(step => step.op === 'plugin').commit;
+  // Catalog 767cd4e: Claude's marketplace is one the plan writes (pinned by commit), named `aihq-<framework>`.
+  assert.deepEqual(request.plan.plan.filter(step => step.op === 'plugin').map(step => [step.cli, step.marketplace, step.marketplaceName, step.pin]),
+    [['claude-code', { root: 'user', path: '.aihq/marketplaces/claude-code/superpowers' }, 'aihq-superpowers', undefined],
+      ['codex', 'https://github.com/obra/superpowers', 'superpowers-dev', undefined]]);
+  const marketplace = join(home, '.aihq', 'marketplaces', 'claude-code', 'superpowers');
   const prepared = await prepare(request, { catalog });
   assert.equal(prepared.status, 'ready', JSON.stringify(prepared).slice(0, 2000));
   conforms(prepared.review);
   const origin = { recipe: { ...request.plan.recipe }, data: { ...request.plan.data } };
   assert.deepEqual([prepared.review.origin, prepared.review.originNote], [origin, null]);
-  const commit = request.plan.plan.find(step => step.op === 'plugin').commit;
   assert.deepEqual(prepared.review.steps.filter(step => step.op === 'plugin').map(step => step.commands.map(command => command.argv)), [
-    [['claude', 'plugin', 'marketplace', 'add', 'https://github.com/obra/superpowers-marketplace', '--scope', 'user'],
-      ['claude', 'plugin', 'install', 'superpowers@superpowers-marketplace', '--scope', 'user']],
+    [['claude', 'plugin', 'marketplace', 'add', marketplace, '--scope', 'user'], ['claude', 'plugin', 'install', 'superpowers@aihq-superpowers', '--scope', 'user']],
     [['codex', 'plugin', 'marketplace', 'add', 'https://github.com/obra/superpowers', '--ref', commit], ['codex', 'plugin', 'add', 'superpowers@superpowers-dev']]]);
   assert.equal(conforms(await apply(prepared.handle, approve(prepared.review))).completion, 'complete');
   assert.deepEqual([fakeClientState(clients, 'claude').plugins, fakeClientState(clients, 'codex').plugins],
-    [['superpowers@superpowers-marketplace'], ['superpowers@superpowers-dev']]);
+    [['superpowers@aihq-superpowers'], ['superpowers@superpowers-dev']]);
+  // The marketplace file Catalog rendered was in place when Claude added the folder, and it pins the plugin's commit.
+  const added = JSON.parse(fakeClientState(clients, 'claude').marketplaceFiles[marketplace]);
+  assert.equal(added.name, 'aihq-superpowers');
+  assert.ok(JSON.stringify(added).includes(commit), JSON.stringify(added));
   placed(request.plan, JSON.parse(JSON.stringify(request.files.map(file => ({ ...file, text: file.bytes.toString('utf8') })))), { user: home, project: target });
   const listed = conforms(await list({ target: { project: target }, scope: 'user' }));
   assert.ok(listed.entries.length > 0 && listed.entries.every(entry => JSON.stringify(entry.origin) === JSON.stringify(origin)), JSON.stringify(listed.entries.map(entry => entry.origin)));
   // A plan that differs from what Catalog reproduces records `chosen`, never blocking.
-  const changed = recipeRequest(project());
+  const changed = recipeRequest('superpowers', project());
   changed.recipeProof.choices = { extra: [] };
   const unproven = await prepare(changed, { catalog });
   assert.deepEqual([unproven.status, unproven.review?.origin, unproven.review?.originNote], ['ready', 'chosen', 'origin not proven']);
   await removeAll(target, 'user');
+  // Codex removes a plugin only by its marketplace-qualified name.
+  assert.deepEqual(fakeClientState(clients, 'codex').calls.at(-1), ['plugin', 'remove', 'superpowers@superpowers-dev']);
+  assert.deepEqual(fakeClientState(clients, 'claude').calls.at(-1), ['plugin', 'uninstall', 'superpowers']);
   assert.deepEqual([fakeClientState(clients, 'claude').plugins, fakeClientState(clients, 'codex').plugins], [[], []]);
   gone(request.plan, { user: home, project: target });
 });
@@ -245,7 +255,7 @@ test('a rule placeholder is filled where the plan binds it: in its own file and 
   assert.equal(prepared.status, 'ready', JSON.stringify(prepared).slice(0, 2000));
   assert.equal(conforms(await apply(prepared.handle, approve(prepared.review), { catalog })).completion, 'complete');
   assert.equal(readFileSync(join(target, '.claude', 'rules', 'team.md'), 'utf8'), '# Team\n\nAsk platform before changing the style.\n');
-  // Catalog 32db997 binds the placeholder on Codex's `AGENTS.md` rule-block merge too.
+  // Catalog 767cd4e binds the placeholder on Codex's `AGENTS.md` rule-block merge too.
   const sharedTarget = project();
   const shared = rulesRequest('shared', sharedTarget);
   const block = shared.plan.plan.find(step => step.op === 'merge');
@@ -255,4 +265,123 @@ test('a rule placeholder is filled where the plan binds it: in its own file and 
   assert.equal(conforms(await apply(sharedPrepared.handle, approve(sharedPrepared.review), { catalog })).completion, 'complete');
   const agents = readFileSync(join(sharedTarget, 'AGENTS.md'), 'utf8');
   assert.ok(agents.includes('Ask platform before changing the style.') && !agents.includes('{{TEAM}}'), agents);
+});
+
+test('a plugin step whose pin Catalog marks unverified says so in the review: Core cannot check the installed commit', async () => {
+  // Core-side change of the real plan: no shipped profile leaves a pin unchecked now, so the Codex step is marked the way
+  // Catalog marks a step whose install names no commit and writes no marketplace.
+  const request = recipeRequest('superpowers', project());
+  const at = request.plan.plan.findIndex(step => step.op === 'plugin' && step.cli === 'codex');
+  request.plan.plan[at].pin = 'unverified';
+  const prepared = await prepare(request, { catalog });
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared).slice(0, 2000));
+  conforms(prepared.review);
+  const [claude, codex] = prepared.review.steps.filter(step => step.op === 'plugin');
+  assert.deepEqual([claude.pin, codex.pin], [undefined, 'unverified']);
+  assert.match(codex.cantPromise, /^The plan marks this pin unverified: the CLI may install another commit than 5bf4e78011075bcfc0dc295f0724994cd123ee71, and nothing checks the installed one\. /);
+  assert.equal(claude.cantPromise.includes('unverified:'), false);
+  // Any other pin value is not Catalog's shape.
+  const bad = recipeRequest('superpowers', project());
+  bad.plan.plan[at].pin = 'holds';
+  const refused = await prepare(bad, { catalog });
+  assert.deepEqual([refused.status, refused.problems?.map(problem => problem.path)], ['invalid', [`/plan/plan/${at}/pin`]]);
+});
+
+test('a settings command with no qualification (a recipe\'s replacement settings) is lowered and its review says no qualification ran it', async () => {
+  // Core-side change of the real linux-x64 plan, as in the test above, with each command's qualification dropped: the
+  // shape Catalog 767cd4e plans for a recipe's own settings.
+  const request = cbmRequest(project(), 'linux-x64');
+  request.plan.plan = request.plan.plan.filter(step => step.op === 'tool-command').map(({ qualification, ...step }) => process.platform === 'win32' ?
+    { ...step, executable: { ...step.executable, path: `${step.executable.path}.exe` } } : step);
+  const prepared = await prepare(request, { catalog });
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared).slice(0, 2000));
+  conforms(prepared.review);
+  for (const step of prepared.review.steps)
+    assert.match(step.cantPromise, /No qualification ran this command: it is the recipe's own setting\./, step.cantPromise);
+  // A qualification that is present is still checked.
+  const wrong = cbmRequest(project(), 'linux-x64');
+  wrong.plan.plan = wrong.plan.plan.filter(step => step.op === 'tool-command').map(step => ({ ...step, qualification: 'not-a-digest' }));
+  assert.equal((await prepare(wrong, { catalog })).status, 'invalid');
+});
+
+test('Catalog\'s real EGM recipe plan installs at project scope (local plugins, bundle, Codex items), proven, and removes', async () => {
+  const target = project();
+  const request = recipeRequest('egm', target);
+  assert.deepEqual([request.plan.status, request.plan.unavailable, request.plan.clashes], ['ok', [], []]);
+  const prepared = await prepare(request, { catalog });
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared).slice(0, 2000));
+  conforms(prepared.review);
+  assert.deepEqual([prepared.review.origin, prepared.review.originNote], [{ recipe: { ...request.plan.recipe }, data: { ...request.plan.data } }, null]);
+  const run = conforms(await apply(prepared.handle, approve(prepared.review), { catalog }));
+  assert.equal(run.completion, 'complete', JSON.stringify(run).slice(0, 2000));
+  const files = request.files.map(file => ({ ...file, text: file.bytes.toString('utf8') }));
+  placed(request.plan, files, { user: home, project: target });
+  // Claude reads the local plugin from the marketplace the settings register.
+  const settings = JSON.parse(readFileSync(join(target, '.claude', 'settings.json'), 'utf8'));
+  assert.deepEqual(Object.keys(settings).sort(), ['enabledPlugins', 'extraKnownMarketplaces']);
+  assert.ok(existsSync(join(target, '.aihq', 'plugins', 'egm', 'LICENSE')), 'the upstream LICENSE lands with the plugin');
+  await removeAll(target, 'project');
+  gone(request.plan, { user: home, project: target });
+});
+
+test('Catalog\'s real tool-trio plan for linux-x64: refused on another cell; its MCP entries and notices install over acquired folders', async t => {
+  const request = recipeRequest('trio', project());
+  assert.deepEqual(request.plan.plan.filter(step => step.op === 'acquire').map(step => step.aiSetup),
+    ['crg.ai-setup.code-review-graph', 'cbm.ai-setup.codebase-memory-mcp', 'serena.ai-setup.serena']);
+  if (`${process.platform}-${process.arch}` !== 'linux-x64') {
+    const refused = await prepare(request, { catalog });
+    assert.deepEqual([refused.status, refused.code], ['refused', 'cell-mismatch']);
+    // Each acquire step alone is that cell's well-formed step (its executable named as on linux-x64), refused only for the cell.
+    for (const step of request.plan.plan.filter(entry => entry.op === 'acquire')) {
+      const alone = recipeRequest('trio', project());
+      alone.plan.plan = [step];
+      const result = await prepare(alone, { catalog });
+      assert.deepEqual([result.status, result.code, result.step], ['refused', 'cell-mismatch', 0], JSON.stringify(result).slice(0, 600));
+    }
+  } else t.diagnostic('on linux-x64 the acquire steps would download: not run here');
+  // Core-side change: the acquire and settings steps dropped (they need the linux-x64 downloads), and FIXTURE stand-ins for
+  // an earlier install's acquired folders (Core's marker file in each).
+  const target = project();
+  const changed = recipeRequest('trio', target);
+  const acquires = changed.plan.plan.filter(step => step.op === 'acquire');
+  changed.plan.plan = changed.plan.plan.filter(step => step.op !== 'acquire' && step.op !== 'tool-command');
+  for (const step of acquires) {
+    const folder = join(home, ...step.into.replace(/\/$/, '').split('/'));
+    mkdirSync(folder, { recursive: true });
+    writeFileSync(join(folder, '.aih-acquired'), `Managed by AIH Core: ${step.aiSetup} ${step.version} ${step.cell}\n`);
+  }
+  const prepared = await prepare(changed, { catalog });
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared).slice(0, 2000));
+  conforms(prepared.review);
+  assert.deepEqual([prepared.review.origin, prepared.review.originNote], ['chosen', 'origin not proven']);
+  assert.equal(conforms(await apply(prepared.handle, approve(prepared.review), { catalog })).completion, 'complete');
+  const mcp = JSON.parse(readFileSync(join(target, '.mcp.json'), 'utf8')).mcpServers;
+  assert.deepEqual(Object.keys(mcp).sort(), ['code-review-graph', 'codebase-memory-mcp', 'serena']);
+  for (const step of changed.plan.plan.filter(entry => entry.op === 'merge' && entry.file === '.mcp.json'))
+    assert.equal(mcp[step.key.split('/').at(-1)].command, join(home, ...step.rootPaths[0].path.split('/')));
+  assert.ok(existsSync(join(target, '.aihq', 'notices', 'serena', 'LICENSES', 'MIT.txt')));
+  await removeAll(target, 'project');
+  gone(changed.plan, { user: home, project: target });
+  rmSync(join(home, '.aihq', 'ai-setup'), { recursive: true, force: true });
+});
+
+test('an AI setup settings file Catalog places under .aihq/ai-setup/<name>/settings/ installs and removes like any write', async () => {
+  // Core-side FIXTURE: Catalog's data names no settings file yet, so the real cbm content gains one AI-setup file and
+  // the plan one write step of the shape Catalog 767cd4e plans for it (`from.item` the AI setup, the user root).
+  const target = project();
+  const request = cbmRequest(target, 'linux-x64');
+  const text = '{ "watcher": false }\n';
+  const sha = createHash('sha256').update(text).digest('hex');
+  const setup = request.contents[0].items.find(item => item.kind === 'ai-setup');
+  setup.files = [{ sourceId: 'cbm', sourcePath: 'settings/config.json', sha256: sha, bytes: Buffer.byteLength(text), executable: false, role: 'content' }];
+  const path = `.aihq/ai-setup/${setup.name}/settings/config.json`;
+  request.plan.plan = [{ op: 'write', root: 'user', path, from: { item: setup.id, sourceId: 'cbm', sourcePath: 'settings/config.json', sha256: sha },
+    executable: false, item: setup.id, clis: ['claude-code', 'codex'] }];
+  request.files.push({ sourceId: 'cbm', sourcePath: 'settings/config.json', sha256: sha, bytes: Buffer.from(text) });
+  const prepared = await prepare(request, { catalog });
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared).slice(0, 2000));
+  assert.equal(conforms(await apply(prepared.handle, approve(prepared.review))).completion, 'complete');
+  assert.equal(readFileSync(join(home, ...path.split('/')), 'utf8'), text);
+  await removeAll(target, 'user');
+  assert.equal(existsSync(join(home, ...path.split('/'))), false);
 });

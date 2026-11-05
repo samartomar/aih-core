@@ -93,9 +93,9 @@ const RESERVED = new Set(['wheels', 'interpreter', 'build']);
  * be used. A native archive's is one of its qualified executable members. A Python tool's is a console script of its
  * environment: `env/bin/<script>` (Windows `env/Scripts/<script>.exe`) itself, or a path elsewhere in the folder that
  * Core links to it, named after the script (Catalog names `bin/<script>`; on Windows `Scripts/<script>.exe`, and a `.cmd`
- * there is Core's launcher). A Windows path without `.exe` or `.cmd` names no program Windows can start.
+ * there is Core's launcher), by the step's cell. A Windows path without `.exe` or `.cmd` names no program Windows can start.
  */
-function namedExecutable(value: unknown, into: string, python: boolean, members: ArchiveMember[]): AcquireSpec['executable'] | string {
+function namedExecutable(value: unknown, into: string, python: boolean, members: ArchiveMember[], cell: string): AcquireSpec['executable'] | string {
   if (value === undefined) return null;
   const prefix = `${into}/`;
   const outside = `An acquire step's \`executable\` names a program inside its folder \`${prefix}\`.`;
@@ -105,7 +105,8 @@ function namedExecutable(value: unknown, into: string, python: boolean, members:
   if (!segments.every(segment => SEGMENT.test(segment)) || RESERVED.has(segments[0]!) || path === MANIFEST || path === ACQUIRING) return outside;
   if (!python) return members.some(member => member.executable && member.path === path) ? { path, script: null } :
     'A native archive\'s `executable` is one of its qualified executable members.';
-  const windows = process.platform === 'win32';
+  // The form is the step's own cell's: a step for another cell is well formed there and refused only for the cell.
+  const windows = cell.startsWith('windows-');
   const base = segments.at(-1)!;
   const script = windows ? /^(.+)\.(exe|cmd)$/i.exec(base)?.[1] : base;
   if (!script) return 'On Windows a Python tool\'s `executable` is `Scripts/<name>.exe` (or a `.cmd`), as Catalog names it for a Windows cell.';
@@ -190,7 +191,7 @@ export const acquire: StepHandler = {
         return mismatch('fallback interpreter');
     }
     // The program the step names: inside its folder, a qualified executable member, or the environment's console script.
-    const executable = namedExecutable(step.executable, into, python, listed);
+    const executable = namedExecutable(step.executable, into, python, listed, step.cell);
     if (typeof executable === 'string') return shape('executable', executable);
     // Agreement is settled; only then is the host's own cell compared, since a qualification for another cell is still that cell's.
     if (step.cell !== hostCell()) return refusal('cell-mismatch', `Step ${index} acquires for \`${step.cell}\`; this host is \`${hostCell()}\`.`, index);

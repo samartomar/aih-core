@@ -771,6 +771,12 @@ A `plugin` step installs a framework through the CLI's own plugin commands at th
   doesn't fill, or a profile without a pinned (`pin: holds`), unattended install at the request's scope, is refused
   (`plugin-command-unresolved`); a missing profile, or a step whose `verify` differs from the profile's, is
   `profile-mismatch`; a CLI this host can't run is `program-unavailable`. All before any effect.
+- **Marketplace.** `marketplace` is a URL or repository, or `{ root, path }`: a marketplace folder the plan writes itself
+  (Claude Code and Copilot pin a plugin through a `.aihq/marketplaces/...` folder and the plan's `write` step of its
+  marketplace file), filled in as that folder's absolute path. The plan's `write` steps run before its plugin steps.
+- **Pin.** A step Catalog marks `pin: "unverified"` (its install names no commit and the plan writes no marketplace)
+  shows `pin: unverified` in the review and a "can't promise" line saying the CLI may install another commit; any other
+  `pin` value is invalid.
 - **The review** shows each exact command with the executable and sha256 Prepare pinned, the removal commands, the
   presence check, the items the plugin's recorded folder holds (`contains`) and a "can't promise" line: Core can't show
   or roll back what the CLI's own program changes. Prepare runs nothing.
@@ -788,7 +794,7 @@ A `plugin` step installs a framework through the CLI's own plugin commands at th
   command or a check that can't run fails the step and keeps the receipt for another try. Without a check it stays
   `unverified` (`no-presence-check`). `{ managementId, item }` for one item inside a plugin is never split: the entry is
   `unavailable` with `reason: plugin-indivisible`, lists `contains` and `offers` the whole plugin's removal.
-- **Not yet:** plugin routes whose step depends on a `render` (Copilot's local marketplace) and real-client evidence.
+- **Not yet:** real-client evidence.
   The tests use a controlled fake client; an unattended run of each real client's plugin commands is a pending live
   check.
 
@@ -940,6 +946,8 @@ the undo, and `cantRemove`, which says what Core can't remove around it.
 
 - **`tool-command`** runs `argv` with the AI setup's acquired `executable` (`{ root: "user", path }`, inside the AI setup
   folder; with the qualified member's sha256 when the qualification lists it), then its `readback` (`{ argv, expected }`).
+  A step without `qualification` (a recipe's replacement settings) is accepted: its review says no qualification ran it,
+  and the program's sha256 comes from the qualification of the AI setup's `acquire` step when one is supplied.
   The step passes only when one output line of the readback equals `expected` (an empty `expected` needs empty output):
   verification `readback-matched`; otherwise the step fails (`readback-mismatch`). Inputs bind at argv slots (`{NAME}`
   markers) or environment names (`inputs: [{ item, input, at: { argv } | { env } }]`); a secret comes only from

@@ -1,5 +1,5 @@
 // Plan requests made from REAL @aihq/catalog output recorded in `recorded.json` (samartomar/aih-catalog commit
-// 32db997, unreleased 0.1.0 candidate; see generate.mjs). The content, profiles, plans and render bytes are Catalog's
+// 767cd4e, unreleased candidate 0.0.0-dev.1; see generate.mjs). The content, profiles, plans and render bytes are Catalog's
 // own; only `renderStep` and `planRecipe` here replay the recorded results, so Core's tests need no Catalog install.
 // Nothing here shows a client loading the result, a released Catalog, or a qualified AI setup.
 import { readFileSync } from 'node:fs';
@@ -15,15 +15,15 @@ const renders = new Map(recorded.renders.map(entry => [entry.step, entry.result]
 
 /**
  * `controls.catalog`: Catalog's recorded `renderStep` results for exactly the recorded steps (else a refusal), and its
- * one recorded `planRecipe` plan for exactly the recorded inputs (else a refusal, so Core records `chosen`).
+ * recorded `planRecipe` plans for exactly the recorded inputs (else a refusal, so Core records `chosen`).
  */
 export const catalog = {
   version: recorded.producer.version,
   planRecipe(recipe, contents, recipeProfiles, choices, options) {
-    const { content, recipeJson, choices: recorded_, options: recordedOptions, profiles: ids, plan } = recorded.recipe;
-    const same = canonical([recipe, contents, recipeProfiles, choices, options]) ===
-      canonical([JSON.parse(recipeJson), [content], profiles.filter(profile => ids.includes(profile.id)), recorded_, recordedOptions]);
-    return same ? structuredClone(plan) : { status: 'refused', code: 'not-recorded', reason: 'these planRecipe inputs were not recorded from the real Catalog' };
+    const asked = canonical([recipe, contents, recipeProfiles, choices, options]);
+    const match = Object.values(recorded.recipes).find(({ contents: recordedContents, recipeJson, choices: recordedChoices, options: recordedOptions, profiles: ids }) =>
+      asked === canonical([JSON.parse(recipeJson), recordedContents, profiles.filter(profile => ids.includes(profile.id)), recordedChoices, recordedOptions]));
+    return match ? structuredClone(match.plan) : { status: 'refused', code: 'not-recorded', reason: 'these planRecipe inputs were not recorded from the real Catalog' };
   },
   renderStep(step) {
     const result = renders.get(canonical(step));
@@ -51,18 +51,24 @@ export function rulesRequest(name, project, team = 'platform') {
     inputs: { 'my-rules.rule.team': { TEAM: team } } };
 }
 
+const recipeFiles = () => JSON.parse(gunzipSync(readFileSync(new URL('./recipe-files.json.gz', import.meta.url))).toString('utf8'));
+const decoded = files => files.map(({ text, base64, ...entry }) => ({ ...entry, bytes: text === undefined ? Buffer.from(base64, 'base64') : Buffer.from(text, 'utf8') }));
+
 /**
- * Catalog's real `planRecipe` plan of a recipe (a Core-side FIXTURE document) over its Superpowers data at user scope:
- * the native plugin on Claude Code and Codex by marketplace name, and one skill as items on Kiro, with the bytes of the
- * files it copies at the pinned upstream commit and the recipe proof.
+ * Catalog's real `planRecipe` plan of a recorded recipe as a plan request, with the bytes of the files it copies and the
+ * recipe proof: `superpowers` (a Core-side FIXTURE recipe at user scope: the native plugin on Claude Code from the pinned
+ * local marketplace the plan writes, and on Codex by marketplace name; one skill as items on Kiro), `egm` (Catalog's
+ * draft `egm-base` at project scope) or `trio` (Catalog's `code-intelligence-trio` on linux-x64 at project scope, with
+ * the qualifications it names).
  */
-export function recipeRequest(project) {
-  const { content, plan, pluginJson, recipeJson, choices, profiles: ids } = recorded.recipe;
-  const files = JSON.parse(gunzipSync(readFileSync(new URL('./recipe-files.json.gz', import.meta.url))).toString('utf8'));
-  return { schema: PLAN_REQUEST, scope: 'user', target: { project }, plan: structuredClone(plan), contents: [structuredClone(content)],
-    profiles: structuredClone(profiles.filter(profile => ids.includes(profile.id))),
-    files: files.map(({ text, base64, ...entry }) => ({ ...entry, bytes: text === undefined ? Buffer.from(base64, 'base64') : Buffer.from(text, 'utf8') })),
-    recipeProof: { pluginJson, recipeJson, choices: structuredClone(choices) } };
+export function recipeRequest(name, project) {
+  const { contents, plan, pluginJson, recipeJson, choices, options, profiles: ids, files } = recorded.recipes[name];
+  const held = Array.isArray(files) ? files : recipeFiles()[name];
+  const { scope, source, qualifications, ...rest } = options;
+  return { schema: PLAN_REQUEST, scope, target: { project }, plan: structuredClone(plan), contents: structuredClone(contents),
+    profiles: structuredClone(profiles.filter(profile => ids.includes(profile.id))), files: decoded(held),
+    ...(qualifications ? { qualifications: structuredClone(qualifications) } : {}),
+    recipeProof: { pluginJson, recipeJson, choices: structuredClone(choices), ...(Object.keys(rest).length ? { options: structuredClone(rest) } : {}) } };
 }
 
 /** Catalog's real codebase-memory-mcp data plan on `cell` (`windows-x64` or `linux-x64`) at project scope. */

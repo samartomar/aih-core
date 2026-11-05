@@ -33,6 +33,10 @@ export const plugin: StepHandler = {
         typeof commit !== 'string' || !COMMIT.test(commit) || typeof scanKey !== 'string' || scanKey.length === 0 ||
         step.marketplaceName !== undefined && (typeof step.marketplaceName !== 'string' || !ID.test(step.marketplaceName)))
       return problem(index, '', 'plugin', 'A plugin step names its `cli`, `framework`, `plugin`, `repository`, exact `commit` and `scanKey`.');
+    // Catalog marks a step whose install can still land on another commit `pin: "unverified"`; nothing else is its shape.
+    if (step.pin !== undefined && step.pin !== 'unverified')
+      return problem(index, 'pin', 'pin', 'A plugin step\'s `pin` is absent or `"unverified"`.');
+    const unverifiedPin = step.pin === 'unverified';
     if (!knownCli(cli)) return refusal('tool-unknown', `Step ${index} names CLI \`${cli}\`, which has no registry tool.`, index, { tool: cli });
     // The marketplace is a URL or repository, or a marketplace the plan writes itself, resolved to its absolute folder.
     let marketplace: string | undefined;
@@ -87,9 +91,10 @@ export const plugin: StepHandler = {
     return { lowered: { kind: 'plugin', managementIds: [framework], root: request.scope, cli, plugin: name, commit, framework,
       contains: [...contains].sort(codeUnitCompare), ...(Object.keys(skills).length ? { skills } : {}), commands, undo, presenceCheck,
       sentence: `Runs \`${install}\`${before ? ` after ${before}` : ''}`,
-      cantPromise: 'Core can\'t show or promise what this command changes: it is the CLI\'s own program. ' +
+      cantPromise: (unverifiedPin ? `The plan marks this pin unverified: the CLI may install another commit than ${commit}, and nothing checks the installed one. ` : '') +
+        'Core can\'t show or promise what this command changes: it is the CLI\'s own program. ' +
         (presenceCheck === 'none' ? 'The profile gives no presence check, so the plugin stays unverified. ' : 'Core checks only that the plugin is listed. ') +
         (undo ? `Removal runs \`${undo.map(argv => argv.join(' ')).join('`, then `')}\`; nothing else is rolled back.` : 'Core has no removal command for this plugin.'),
-      review: { framework, clis: [cli] } } };
+      review: { framework, clis: [cli], ...(unverifiedPin ? { pin: 'unverified' as const } : {}) } } };
   }
 };

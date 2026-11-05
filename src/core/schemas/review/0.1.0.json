@@ -146,6 +146,7 @@
         "cli": { "type": "string" },
         "plugin": { "type": "string" },
         "commit": { "type": "string" },
+        "pin": { "const": "unverified", "description": "A plugin step the plan marks `pin: \"unverified\"`: the CLI may install another commit than `commit`, and nothing checks the installed one" },
         "contains": { "type": "array", "items": { "type": "string" } },
         "route": { "const": "local-plugin" },
         "commands": { "type": "array", "items": { "$ref": "#/$defs/command" } },

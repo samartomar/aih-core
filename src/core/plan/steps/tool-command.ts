@@ -39,19 +39,23 @@ export const toolCommand: StepHandler = {
     const placed = target(step.executable as never, index); if (!('root' in placed)) return placed;
     if (!placed.path.startsWith('.aihq/ai-setup/'))
       return refusal('path-escape', `Step ${index} runs \`${placed.path}\`, which is not inside an AI setup folder.`, index);
-    // The qualification the command was qualified with; the acquire step for the same AI setup gives its folder.
-    const sha = hexOf(step.qualification);
-    if (!sha) return shape('qualification', 'A tool-command names its qualification by sha256.');
-    const qualification = context.qualification(sha);
-    if (!qualification) return refusal('qualification-missing', `Step ${index} names qualification \`sha256:${sha}\`, which was not supplied.`, index);
-    if (!object(qualification.subject) || qualification.subject.aiSetup !== aiSetup)
-      return refusal('qualification-mismatch', `Step ${index}'s AI setup differs from qualification \`sha256:${sha}\`.`, index);
-    const acquire = request.plan.plan.find(other => other.op === 'acquire' && other.aiSetup === aiSetup && hexOf(other.qualification) === sha);
+    // The qualification the command was qualified with; the acquire step for the same AI setup gives its folder. A
+    // command from a recipe's replacement settings carries none (Catalog): no qualification ran it, so the acquire step
+    // for its AI setup, and that step's qualification of the artifact, give the folder and the program's sha256.
+    const qualified = step.qualification !== undefined;
+    const sha = qualified ? hexOf(step.qualification) : undefined;
+    if (qualified && !sha) return shape('qualification', 'A tool-command names its qualification by sha256, or none for a recipe\'s own settings.');
+    const acquire = request.plan.plan.find(other => other.op === 'acquire' && other.aiSetup === aiSetup && (!qualified || hexOf(other.qualification) === sha));
+    const named = sha ?? (acquire ? hexOf(acquire.qualification) : undefined);
+    const qualification = named ? context.qualification(named) : undefined;
+    if (qualified && !qualification) return refusal('qualification-missing', `Step ${index} names qualification \`sha256:${sha}\`, which was not supplied.`, index);
+    if (qualification && (!object(qualification.subject) || qualification.subject.aiSetup !== aiSetup))
+      return refusal('qualification-mismatch', `Step ${index}'s AI setup differs from qualification \`sha256:${named}\`.`, index);
     let sha256: string | null = null;
     if (acquire && typeof acquire.into === 'string') {
       const into = acquire.into.replace(/\/$/, '') + '/';
       if (!placed.path.startsWith(into)) return refusal('path-escape', `Step ${index} runs \`${placed.path}\`, outside its AI setup's folder \`${into}\`.`, index);
-      const members = object(qualification.observed) && Array.isArray(qualification.observed.members) ? qualification.observed.members : [];
+      const members = qualification && object(qualification.observed) && Array.isArray(qualification.observed.members) ? qualification.observed.members : [];
       const member = members.find(entry => object(entry) && entry.path === placed.path.slice(into.length));
       sha256 = object(member) ? hexOf(member.sha256) ?? null : null;
     }
@@ -68,7 +72,8 @@ export const toolCommand: StepHandler = {
         `Core can't undo \`${bound.shown.join(' ')}\`: the step names no restore command.`,
       sentence: restore ? `Runs \`${readback.argv.join(' ')}\` and keeps what it shows as the prior value, then runs \`~/${command}\`, then ${check}` :
         `Runs \`~/${command}\`, then ${check}`,
-      cantPromise: 'Core can\'t show or promise what this command changes; it checks only the readback. ' +
+      cantPromise: (qualified ? '' : 'No qualification ran this command: it is the recipe\'s own setting. ') +
+        'Core can\'t show or promise what this command changes; it checks only the readback. ' +
         (sha256 ? 'The program is the qualified member of the acquired artifact.' : 'The program is not byte-qualified; Core runs the one in the AI setup folder.'),
       review: { item: aiSetup, ...(bound.bound ? { inputs: bound.bound.review } : {}) }, ...(bound.bound ? { bound: bound.bound } : {}) } };
   }

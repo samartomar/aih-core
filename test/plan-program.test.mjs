@@ -13,7 +13,7 @@ import { apply, list, prepare, prepareRemoval } from '../dist/core/index.js';
 import { validateFormat } from '../dist/core/contracts.js';
 import { artifactServer } from './fixtures/acquire-fixture.mjs';
 import { fakeState, installFakePrograms, installerStep, programEnvironment, programRequest, seedToolSettings, toolSetup, upstreamRepository } from './fixtures/program-fixture.mjs';
-import { recorded } from './fixtures/catalog-32db997/replay.mjs';
+import { recorded } from './fixtures/catalog-767cd4e/replay.mjs';
 
 const scratch = mkdtempSync(join(tmpdir(), 'aih-program-'));
 const keys = ['HOME', 'USERPROFILE', 'PATH', 'NODE_OPTIONS', 'FAKE_TOOL_STATE', 'FAKE_TOOL_MODE'];

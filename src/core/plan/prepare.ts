@@ -578,7 +578,7 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
     steps.push({ step: step.index, op: step.op, managementId: lowered.framework, sentence: lowered.sentence,
       cantPromise: interrupted ? `${lowered.cantPromise} An earlier run of this install was interrupted, so its effects are uncertain; approving runs it again.` : lowered.cantPromise,
       effect: 'run-program', framework: lowered.framework, cli: lowered.cli, clis: [lowered.cli], plugin: lowered.plugin, commit: lowered.commit,
-      contains: lowered.contains, commands: lowered.commands.map((argv, at) => ({ argv, ...pinned[at]! })), undo: lowered.undo,
+      ...(lowered.review.pin ? { pin: lowered.review.pin } : {}), contains: lowered.contains, commands: lowered.commands.map((argv, at) => ({ argv, ...pinned[at]! })), undo: lowered.undo,
       presenceCheck: presence, ...(interrupted ? { previous: 'interrupted' as const } : {}) });
   }
   for (const step of checked.steps) {

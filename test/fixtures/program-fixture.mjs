@@ -1,7 +1,7 @@
 // Core-side producer and host FIXTURES for program steps (`tool-command`, `upstream-installer`, `upstream-setup`;
 // contract 8.1, 12). Step shapes follow Catalog's planner (`ToolCommandStep`, `UpstreamInstallerStep`, `SetupStep`); the
 // `tool-command` keys, `restore: { argv }` with `<prior>` included, are those of Catalog 32db997's real cbm plan
-// (test/plan-program.test.mjs compares them with test/fixtures/catalog-32db997). The programs are `fake-tool.cjs` fakes; the upstream repository is a local git repository reached through a disposable home's
+// (test/plan-program.test.mjs compares them with test/fixtures/catalog-767cd4e). The programs are `fake-tool.cjs` fakes; the upstream repository is a local git repository reached through a disposable home's
 // `url.<local>.insteadOf` rule. Nothing here proves a real tool, installer, setup or repository.
 import { execFileSync } from 'node:child_process';
 import { chmodSync, copyFileSync, linkSync, mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';

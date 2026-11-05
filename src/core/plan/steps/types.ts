@@ -71,7 +71,7 @@ export interface LoweredPlugin {
   presenceCheck: 'none' | { argv: string[]; expect: string };
   sentence: string;
   cantPromise: string;
-  review: { framework: string; clis: string[] };
+  review: { framework: string; clis: string[]; pin?: 'unverified' };
   /** Never an acquisition or a render, and binds no inputs. */
   profiles?: undefined;
   acquire?: undefined;

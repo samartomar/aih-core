@@ -7,14 +7,16 @@
 // executable is called `node`.
 //
 // Behaviour, per client name, recorded in `<FAKE_CLIENT_STATE>/<name>.json`:
-//   … marketplace add <m> …          records the marketplace
+//   … marketplace add <m> …          records the marketplace; an absolute folder must already hold a marketplace file
+//                                    (`.claude-plugin/marketplace.json` or `.github/plugin/marketplace.json`), whose
+//                                    text is recorded in `marketplaceFiles` (else exit 1, as a client that finds none)
 //   … plugin install|add <spec> …    records the plugin spec (`<plugin>@<marketplace>`)
-//   … plugin uninstall|remove <p>    forgets every spec whose plugin is <p>
+//   … plugin uninstall|remove <p>    forgets every spec whose plugin is <p>, or the spec <p> itself (`<plugin>@<marketplace>`)
 //   … plugin list                    prints each recorded spec on its own line
 // `FAKE_CLIENT_MODE` (comma-separated) changes that: `install-noop`, `uninstall-noop` (exit 0, change nothing),
 // `install-fail`, `uninstall-fail`, `list-fail` (exit 1), `install-hang` (never exits: for interruption tests).
 import { appendFileSync, chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { basename, isAbsolute, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const self = fileURLToPath(import.meta.url);
@@ -61,7 +63,15 @@ function run(name, args) {
   save();
   const [first, second, third] = args;
   if (first !== 'plugin') { process.stderr.write('unknown command\n'); process.exit(64); }
-  if (second === 'marketplace' && third === 'add') { state.marketplaces.push(args[3]); save(); process.exit(0); }
+  if (second === 'marketplace' && third === 'add') {
+    const at = args[3];
+    if (isAbsolute(at)) {
+      const found = ['.claude-plugin', '.github/plugin'].map(folder => join(at, folder, 'marketplace.json')).find(existsSync);
+      if (!found) { process.stderr.write(`no marketplace file in ${at}\n`); process.exit(1); }
+      state.marketplaceFiles = { ...(state.marketplaceFiles ?? {}), [at]: readFileSync(found, 'utf8') };
+    }
+    state.marketplaces.push(at); save(); process.exit(0);
+  }
   if (second === 'install' || second === 'add') {
     if (modes.has('install-hang')) { appendFileSync(join(dir, `${name}.started`), 'x'); return new Promise(() => setInterval(() => {}, 1000)); }
     if (modes.has('install-fail')) process.exit(1);
@@ -70,7 +80,7 @@ function run(name, args) {
   }
   if (second === 'uninstall' || second === 'remove') {
     if (modes.has('uninstall-fail')) process.exit(1);
-    if (!modes.has('uninstall-noop')) { state.plugins = state.plugins.filter(spec => spec.split('@')[0] !== args[2]); save(); }
+    if (!modes.has('uninstall-noop')) { state.plugins = state.plugins.filter(spec => spec !== args[2] && spec.split('@')[0] !== args[2]); save(); }
     process.exit(0);
   }
   if (second === 'list') {
