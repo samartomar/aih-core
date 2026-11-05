@@ -134,7 +134,8 @@ test('a required change is retained while its dependant stays installed', async 
   const both = await removed({ project: target }, 'project', ['guide', 'base-setting']);
   assert.equal(both.run.completion, 'complete', JSON.stringify(both.run));
   assert.equal(existsSync(join(target, 'GUIDE.md')), false);
-  assert.deepEqual(JSON.parse(readFileSync(join(target, '.team', 'settings.json'), 'utf8')), {});
+  // The settings file the change created goes with its last entry: absent before, absent after.
+  assert.equal(existsSync(join(target, '.team', 'settings.json')), false);
 });
 
 test('an exact approved command shows its executable, argv, folder, environment and exit codes, and a failure is reported as uncertain', async () => {

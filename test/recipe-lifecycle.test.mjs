@@ -179,8 +179,8 @@ test('disjoint entries share a destination and retained dependencies survive set
   reduced.managedSelections.push({ id: 'beta-set', scope: 'project', members: [] });
   const final = await prepare({ useCase: 'policy', policy: reduced, target: { project } }, { logging: 'off' });
   assert.equal((await apply(final.prepared, approve(final), { logging: 'off' })).completion, 'complete');
-  text = readFileSync(join(project, 'settings.jsonc'), 'utf8');
-  assert.doesNotMatch(text, /"beta"|"shared"/);
+  // The file the install created holds nothing else once its last entry goes, so it goes too.
+  assert.equal(existsSync(join(project, 'settings.jsonc')), false);
 });
 
 test('recipe updates subtract disappeared members and preserve matching unowned files until reviewed adoption', async () => {
