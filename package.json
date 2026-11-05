@@ -1,6 +1,6 @@
 {
   "name": "@aihq/core",
-  "version": "1.0.0-dev.57",
+  "version": "0.0.0-dev.1",
   "description": "Headless environment repair and explicit policy execution",
   "type": "module",
   "engines": {
@@ -70,7 +70,7 @@
     "pkijs": "3.4.1"
   },
   "peerDependencies": {
-    "@aihq/scan": ">=0.1.0 <0.2.0"
+    "@aihq/scan": ">=0.0.0-0 <0.2.0"
   },
   "peerDependenciesMeta": {
     "@aihq/scan": {

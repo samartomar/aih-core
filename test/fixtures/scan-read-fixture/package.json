@@ -1,6 +1,6 @@
 {
   "name": "@aihq/scan",
-  "version": "0.1.0",
+  "version": "0.0.0-dev.1",
   "private": true,
   "license": "Apache-2.0",
   "description": "Core-side test FIXTURE: @aihq/scan/read bundled from an unreleased Scan commit (see read.mjs), trusting only a private TEST-ONLY Sigstore universe. Not a published Scan artifact; proves no production trust.",

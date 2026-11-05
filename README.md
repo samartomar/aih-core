@@ -1032,7 +1032,7 @@ const prepared = await prepare({ ...planRequest, scans: [{ summary: summaryText,
 ```
 
 - **One dependency.** Core imports only `@aihq/scan/read` (`verifySummary`, `matchScan`), declared as an optional peer
-  (`@aihq/scan` 0.1.x). It is loaded only when `scans` are supplied. Without it each entry is `unavailable`
+  (`@aihq/scan` `>=0.0.0-0 <0.2.0`: the temporary prerelease 0.0.0-dev.1 and 0.1.x). It is loaded only when `scans` are supplied. Without it each entry is `unavailable`
   (`scan-unavailable`), and the install goes ahead as reviewed.
 - **Signers.** Core passes the allowed signers: the default `signerRecords` (`@aihq/core/harness`,
   `urn:aihq:core:signer-records:0.1.0`: AIHQ's Scan publishing workflow), replaced or extended by an Enterprise
