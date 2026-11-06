@@ -189,7 +189,10 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
   const progress = (event: Json) => { try { sink.onProgress?.(event); } catch { /* a caller's progress handler never stops the run */ } };
   // Interpreter facts an earlier install recorded, kept when the same AI setup is already in place.
   const recorded = new Map<string, NonNullable<PlanItemFacts['aiSetup']>>();
-  if (checked.steps.some(step => step.lowered.acquire)) for (const item of Object.values(readOwnership(home).value.items ?? {}))
+  // A run of the same claim with no acquire step (a tool-command alone: a recipe's replacement settings) keeps them too:
+  // the acquisition it ran against is still the one recorded.
+  if (checked.steps.some(step => step.lowered.acquire || step.lowered.kind === 'program' && step.lowered.op === 'tool-command'))
+    for (const item of Object.values(readOwnership(home).value.items ?? {}))
     if (item.scope === 'user' && item.plan?.aiSetup) recorded.set(item.plan.managementId ?? item.managementId, item.plan.aiSetup);
   // A prior value an earlier install of the same command (same management id and argv) read, complete or interrupted, is
   // kept as recorded, its undo `null` too when the value was withheld: it is never read again, since that would read the
@@ -423,7 +426,7 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
       steps: [...new Set(group.steps.map(step => step.index))].sort((a, b) => a - b),
       ...(group.steps.some(step => isShared(step)) ? { sharedSteps: group.steps.filter(isShared).map(sharedFacts) } : {}),
       kind: itemFacts.get(group.managementId)?.kind ?? null, framework: itemFacts.get(group.managementId)?.framework ?? (itemFacts.has(group.managementId) ? null : group.managementId),
-      ...(group.scope === 'user' && recorded.has(group.managementId) && group.steps.some(step => step.lowered.acquire) ?
+      ...(group.scope === 'user' && recorded.has(group.managementId) ?
         { aiSetup: { ...recorded.get(group.managementId)! } } : {}),
       ...pluginFacts(group.steps), ...programFacts(group.steps), ...localPluginFacts(group.steps),
       ...inputFacts(group.managementId, group.steps), ...slotFacts(group.steps),
@@ -749,7 +752,9 @@ function programReview(lowered: LoweredProgram, root: string, pinned: { executab
   const executable = lowered.executable.from === 'acquired' ? { executable: join(root, ...lowered.executable.path.split('/')), executableSha256: lowered.executable.sha256,
     from: 'acquired' as const } : lowered.executable.from === 'clone' ? { executable: join(root, ...lowered.cwd.split('/'), ...lowered.executable.path.split('/')),
     executableSha256: null, from: 'clone' as const } : { executable: pinned?.executable ?? lowered.executable.name, executableSha256: pinned?.executableSha256 ?? null, from: 'path' as const };
-  return { kind: lowered.op, argv: lowered.shown, ...executable, cwd: lowered.cwd ? join(root, ...lowered.cwd.split('/')) : root,
+  return { kind: lowered.op, argv: lowered.shown, ...executable,
+    ...(lowered.executable.from === 'acquired' && lowered.executable.tree ? { treeSha256: lowered.executable.tree } : {}),
+    cwd: lowered.cwd ? join(root, ...lowered.cwd.split('/')) : root,
     env: Object.keys(lowered.shownEnv).sort(codeUnitCompare).map(name => ({ name, value: lowered.shownEnv[name]! })), managed: lowered.managed,
     readback: lowered.readback ?? null, undo: lowered.undo ?? null,
     // The readback run before the command, unless an earlier install's prior value is kept (then `undo` shows it).

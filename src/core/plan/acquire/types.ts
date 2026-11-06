@@ -54,6 +54,8 @@ export interface AcquireFacts {
   downloads?: DownloadRecord[];
   /** Where the step's named executable is and how Core put it there. */
   executable?: import('../types.js').PlacedExecutable;
+  /** The sha256 of the folder's tree manifest (`.aih-tree.json`) as the acquisition recorded it. */
+  tree?: string;
 }
 /** The real failures that switch an installed interpreter to the reviewed fallback (D105); `build-failed` only with a build. */
 export const FALLBACK_REASONS = ['none-found', 'outside-range', 'wheel-install-failed', 'readback-failed', 'build-failed'] as const;

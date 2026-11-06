@@ -41,6 +41,7 @@
           "properties": { "runId": { "type": "string" }, "outcome": { "enum": ["failed", "not-attempted"] }, "reason": { "type": "string" } } },
         "aiSetup": { "type": "object", "additionalProperties": false, "required": ["branch", "interpreter", "fallback", "fallbackReason"],
           "properties": { "branch": { "enum": ["installed", "fallback", null] },
+            "tree": { "description": "The sha256 of the tree manifest the acquisition recorded in its folder.", "type": "string", "pattern": "^[a-f0-9]{64}$" },
             "interpreter": { "oneOf": [{ "type": "null" }, { "type": "object", "additionalProperties": false, "required": ["path", "version"],
               "properties": { "path": { "type": "string" }, "version": { "type": "string" } } }] },
             "fallback": { "type": "boolean" }, "fallbackReason": { "type": ["string", "null"] },

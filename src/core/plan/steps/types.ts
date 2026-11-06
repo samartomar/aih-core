@@ -117,7 +117,7 @@ export interface LoweredProgram {
    * The executable: a PATH program pinned at Prepare; the AI setup's acquired program (from the user root, with the
    * qualified sha256 when the qualification lists that member); or a program inside the clone, both resolved at Apply.
    */
-  executable: { from: 'path'; name: string } | { from: 'acquired'; path: string; sha256: string | null } | { from: 'clone'; path: string };
+  executable: { from: 'path'; name: string } | { from: 'acquired'; path: string; sha256: string | null; tree?: string } | { from: 'clone'; path: string };
   /** The folder the command runs in, relative to the root ('' is the root itself). */
   cwd: string;
   readback?: Readback;
