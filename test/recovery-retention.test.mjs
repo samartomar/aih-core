@@ -121,3 +121,25 @@ test('routine history keeps a bounded number of run records, dropping the oldest
   assert.ok(names.includes(`${run.runId}.json`));
   assert.equal(names.includes('00000000-0000-4000-8000-000000000000.json'), false, 'the oldest goes first');
 });
+
+test('removing an incomplete install deletes its snapshots right away', async () => {
+  const project = join(scratch, 'incomplete-removed'); mkdirSync(project);
+  writeFileSync(join(project, 'settings.json'), JSON.stringify({ token: MARKER, mode: 'a' }) + '\n');
+  const failing = { ...setMode, id: 'failing-removed', operations: [{ ...setMode.operations[0], checks: ['gate'] }],
+    checks: [{ id: 'gate', purpose: 'Gate', kind: 'process.exit', executable: { name: process.execPath }, args: [{ literal: '-e' }, { literal: 'process.exit(3)' }],
+      cwd: { root: 'project', segments: [] }, env: {}, acceptedExitCodes: [0], timeoutMs: 20000, maxOutputBytes: 1024 }] };
+  const request = changeRequest([{ managementId: 'failing-removed', change: failing }], { project });
+  const blocked = await prepare(request);
+  const resolutions = (blocked.review?.conflicts ?? []).map(c => ({ managementId: 'failing-removed', step: c.step, choice: 'replace', observedSha256: c.observedSha256 }));
+  const prepared = resolutions.length ? await prepare({ ...request, resolutions }) : blocked;
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared));
+  const run = await apply(prepared.handle, approve(prepared.review));
+  assert.notEqual(run.completion, 'complete', JSON.stringify(run));
+  const snapshots = join(home, '.aih', 'core', 'recovery', run.runId);
+  assert.equal(existsSync(snapshots), true);
+  const removal = await prepareRemoval({ target: { project }, scope: 'project', removals: [{ managementId: 'failing-removed' }] });
+  assert.equal(removal.status, 'ok', JSON.stringify(removal));
+  assert.equal((await apply(removal.handle, approve(removal.review))).completion, 'complete');
+  assert.equal(existsSync(snapshots), false, 'the removed install\'s snapshots go with it');
+});
+

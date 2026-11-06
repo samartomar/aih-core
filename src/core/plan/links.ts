@@ -67,6 +67,36 @@ export function linkState(home: string, link: LinkFacts): 'matching' | 'changed-
   }
   return found === 'ours' ? 'matching' : found === 'absent' ? 'missing' : 'changed-by-you';
 }
+/**
+ * Removes every `__pycache__` folder under `folder` (without following links): its regular files and links are unlinked,
+ * then the folder itself. A compiled module is regenerated from its recorded source, so none is ever trusted. Reports
+ * false when a cache folder holds anything else, or can't be cleared.
+ */
+export function clearCompiledCaches(folder: string): boolean {
+  const stack = [folder]; let seen = 0; let cleared = true;
+  while (stack.length) {
+    const current = stack.pop()!;
+    let names: string[];
+    try { names = readdirSync(current); } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue; return false; }
+    for (const name of names) {
+      if (++seen > FOLDER_ENTRY_LIMIT) return false;
+      const at = join(current, name);
+      let stats;
+      try { stats = lstatSync(at); } catch { return false; }
+      if (!stats.isDirectory()) continue;
+      if (name !== '__pycache__') { stack.push(at); continue; }
+      try {
+        for (const entry of readdirSync(at)) {
+          const inner = join(at, entry);
+          if (lstatSync(inner).isDirectory()) { cleared = false; continue; }
+          unlinkSync(inner);
+        }
+        rmdirSync(at);
+      } catch { cleared = false; }
+    }
+  }
+  return cleared;
+}
 /** Files an operating system's file browser leaves in any folder it shows. */
 const SYSTEM_LEFTOVERS = new Set(['.ds_store', 'thumbs.db', 'desktop.ini']);
 /** A compiled module's name in `__pycache__`: `<module>.cpython-<tag>.pyc` (optionally `.opt-<n>`). */
@@ -134,6 +164,8 @@ export function missingParents(home: string, path: string): string[] {
 export function placeLink(home: string, link: LinkFacts, from?: string, planned?: readonly string[]): { status: 'passed' | 'failed'; reason: string; effectsUncertain: boolean } {
   // The version folder still holds only what the plan writes and receipts record (re-listed now, as at Prepare).
   if (planned && folderExtras(home, link.to, planned).length) return { status: 'failed', reason: 'link-target-changed', effectsUncertain: false };
+  // Compiled caches are regenerable and never trusted: they go before the folder is linked (or linked again).
+  if (!clearCompiledCaches(join(home, ...link.to.split('/')))) return { status: 'failed', reason: 'link-target-changed', effectsUncertain: false };
   let found = inspectLink(home, link.path, link.to);
   if (found === 'ours') return { status: 'passed', reason: 'already-linked', effectsUncertain: false };
   if (from !== undefined && found === 'other' && inspectLink(home, link.path, from) === 'ours') {

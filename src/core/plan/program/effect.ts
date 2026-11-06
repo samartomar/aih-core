@@ -9,6 +9,7 @@ import { basename, dirname, join } from 'node:path';
 import { argumentsRunnable, resolveProgram, runApprovedProcess, type ResolvedExecutable } from '../../internal/approved-process.js';
 import { SETUP_MARKER } from '../steps/upstream-setup.js';
 import { recordTree, removeRecordedTree } from '../../internal/tree-manifest.js';
+import { clearCompiledCaches } from '../links.js';
 import { PRIOR } from '../steps/tool-command.js';
 import type { LoweredProgram, Readback } from '../steps/types.js';
 
@@ -106,6 +107,9 @@ export function commandEffect(lowered: LoweredProgram, root: string, pinned: Res
     async run(signal, hooks) {
       let executable = pinned;
       if (lowered.executable.from === 'acquired') {
+        // The AI setup folder's compiled caches are regenerable and never trusted: they go before its program runs.
+        const folder = lowered.executable.path.split('/').slice(0, 5);
+        if (folder.length === 5 && folder[0] === '.aihq' && folder[1] === 'ai-setup') clearCompiledCaches(join(root, ...folder));
         executable = resolveProgram(join(root, ...lowered.executable.path.split('/')));
         if (executable && lowered.executable.sha256 && executable.sha256 !== lowered.executable.sha256) executable = undefined;
       } else if (lowered.executable.from === 'clone') {

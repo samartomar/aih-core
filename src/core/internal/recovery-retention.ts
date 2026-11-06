@@ -38,6 +38,27 @@ export function originalDigests(value: unknown): string[] {
   return [...JSON.stringify(value ?? null).matchAll(/"originalFile":\{"sha256":"([a-f0-9]{64})"/g)].map(match => match[1]!);
 }
 
+/** The run ids a receipt value names as an interrupted install's last run: their snapshots are kept while it does. */
+export function namedRuns(value: unknown): string[] {
+  return [...JSON.stringify(value ?? null).matchAll(/"lastRun":\{"runId":"([a-f0-9-]{36})"/g)].map(match => match[1]!);
+}
+
+/**
+ * Removes the snapshot folders of runs the receipts named before this operation (`released`) that no record names any
+ * more, at once: a removal of an interrupted install takes that install's snapshots with it. Reports the run ids removed.
+ */
+export function releaseNamedRuns(released: Iterable<string>, ownRun?: string): string[] {
+  const runs = [...new Set(released)].filter(id => RUN_ID.test(id) && id !== ownRun && names('recovery').includes(id));
+  if (!runs.length) return [];
+  const records = recordsText(ownRun);
+  const removed: string[] = [];
+  for (const runId of runs) {
+    if (records.includes(runId)) continue;
+    try { releaseRunRecovery(runId); removed.push(runId); } catch { /* kept for the sweep */ }
+  }
+  return removed;
+}
+
 /** Refreshes a reused original's age, so an unused-original sweep never takes one a run just relied on. */
 export function touchOriginal(relative: string): void {
   const now = new Date();
