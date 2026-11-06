@@ -56,12 +56,21 @@ export function placeBytes(home: string, path: string): Buffer | null {
     return read ? Buffer.from(read.contents) : null;
   } catch { return null; }
 }
-export function linkState(home: string, link: LinkFacts): 'matching' | 'changed-by-you' | 'missing' {
+export function linkState(home: string, link: LinkFacts): 'matching' | 'changed-by-you' | 'missing' | 'generated' {
   const found = inspectLink(home, link.path, link.to);
-  // A version folder holding a file no claim recorded is not what Core placed there.
-  if (found === 'ours' && folderExtras(home, link.to).length) return 'changed-by-you';
+  if (found === 'ours') {
+    // A version folder holding a file no claim recorded is not what Core placed there; one holding only files a system
+    // or a runtime generates beside them (`.DS_Store`, a recorded module's compiled `.pyc`) is `generated`.
+    const contents = folderContents(home, link.to);
+    if (contents.extras.length) return 'changed-by-you';
+    if (contents.generated.length) return 'generated';
+  }
   return found === 'ours' ? 'matching' : found === 'absent' ? 'missing' : 'changed-by-you';
 }
+/** Files an operating system's file browser leaves in any folder it shows. */
+const SYSTEM_LEFTOVERS = new Set(['.ds_store', 'thumbs.db', 'desktop.ini']);
+/** A compiled module's name in `__pycache__`: `<module>.cpython-<tag>.pyc` (optionally `.opt-<n>`). */
+const COMPILED = /^(.+)\.cpython-[0-9a-z_]+(?:\.opt-[0-9]+)?\.pyc$/i;
 /** A version folder is listed only up to this many entries; a larger one counts as holding unrecorded files. */
 const FOLDER_ENTRY_LIMIT = 10_000;
 /**
@@ -69,28 +78,43 @@ const FOLDER_ENTRY_LIMIT = 10_000;
  * (home-relative paths this plan writes) nor a member any receipt in the home records. Empty when the folder is absent.
  */
 export function folderExtras(home: string, to: string, planned: Iterable<string> = []): string[] {
+  return folderContents(home, to, planned).extras;
+}
+/**
+ * `folderExtras`, and apart from them the files it ignores as `generated`: an OS file-browser leftover, or a compiled
+ * `__pycache__/<module>.cpython-*.pyc` whose `<module>.py` is recorded or planned in the folder above.
+ */
+export function folderContents(home: string, to: string, planned: Iterable<string> = []): { extras: string[]; generated: string[] } {
   const root = join(home, ...to.split('/'));
-  try { if (!lstatSync(root).isDirectory()) return ['.']; } catch (error) { return (error as NodeJS.ErrnoException).code === 'ENOENT' ? [] : ['.']; }
+  try { if (!lstatSync(root).isDirectory()) return { extras: ['.'], generated: [] }; }
+  catch (error) { return { extras: (error as NodeJS.ErrnoException).code === 'ENOENT' ? [] : ['.'], generated: [] }; }
   const allowed = new Set([...planned].map(fold));
   try {
     for (const [key, owner] of Object.entries(readOwnership(home, false).value.members ?? {}))
       allowed.add(fold((owner as { descriptor?: { path?: string } }).descriptor?.path ?? key));
   } catch { /* no receipt: only the planned writes are known */ }
-  const extras: string[] = []; const stack = ['']; let seen = 0;
+  const extras: string[] = []; const generated: string[] = []; const stack = ['']; let seen = 0;
+  const compiledFor = (path: string): boolean => {
+    const parts = path.split('/'); const name = parts.pop()!; const cache = parts.pop();
+    const module = COMPILED.exec(name)?.[1];
+    return cache === '__pycache__' && !!module && allowed.has(fold(`${to}/${[...parts, `${module}.py`].join('/')}`));
+  };
   while (stack.length) {
     const relative = stack.pop()!;
     let names: string[];
-    try { names = readdirSync(relative ? join(root, ...relative.split('/')) : root); } catch { return ['.']; }
+    try { names = readdirSync(relative ? join(root, ...relative.split('/')) : root); } catch { return { extras: ['.'], generated }; }
     for (const name of names) {
-      if (++seen > FOLDER_ENTRY_LIMIT) return [...extras, '…'];
+      if (++seen > FOLDER_ENTRY_LIMIT) return { extras: [...extras, '…'], generated };
       const path = relative ? `${relative}/${name}` : name;
       let stats;
       try { stats = lstatSync(join(root, ...path.split('/'))); } catch { extras.push(path); continue; }
       if (stats.isDirectory()) { stack.push(path); continue; }
-      if (!allowed.has(fold(`${to}/${path}`))) extras.push(path);
+      if (allowed.has(fold(`${to}/${path}`))) continue;
+      if (stats.isFile() && (SYSTEM_LEFTOVERS.has(name.toLowerCase()) || compiledFor(path))) generated.push(path);
+      else extras.push(path);
     }
   }
-  return extras.sort();
+  return { extras: extras.sort(), generated: generated.sort() };
 }
 /** The link's parent folders that don't exist yet, outermost first: the ones Core creates and removes again. */
 export function missingParents(home: string, path: string): string[] {

@@ -77,7 +77,7 @@
             "kind": { "type": "string" }, "path": { "type": "string" }, "pointer": { "type": "string" }, "blockId": { "type": "string" },
             "linkType": { "enum": ["junction", "symlink", "copy"] },
             "clis": { "type": "array", "items": { "type": "string" }, "description": "The CLIs whose claims hold this member" },
-            "state": { "enum": ["matching", "changed-by-you", "missing", "unchecked", "displaced-by"] },
+            "state": { "enum": ["matching", "changed-by-you", "missing", "unchecked", "displaced-by", "generated"] },
             "displacedBy": { "type": "array", "items": { "type": "string" }, "description": "displaced-by (C61): the installs whose value is there now; this claim holds nothing on disk until they go" }
           } } },
         "scans": { "type": "array", "description": "The last Scan results seen, as the receipts recorded them", "items": {"type":"object","additionalProperties":false,"required":["scanKey","revision","signer","label","coverage","withdrawn","match"],"properties":{"scanKey":{"type":"string"},"revision":{"type":"integer","minimum":1},"signer":{"type":"object","additionalProperties":false,"required":["identity","trusted","issuer","subject"],"properties":{"identity":{"type":"string"},"trusted":{"type":"boolean"},"issuer":{"type":"string"},"subject":{"type":"string"}}},"label":{"type":"string"},"coverage":{"enum":["complete","partial"]},"withdrawn":{"type":"boolean"},"match":{"enum":["matches","differs","refused","not-checked"]}}} },
