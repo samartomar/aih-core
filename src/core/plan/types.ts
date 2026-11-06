@@ -360,7 +360,7 @@ export interface InventoryMember { kind: string; path: string; pointer?: string;
   linkType?: 'junction' | 'symlink' | 'copy';
   /** The CLIs whose claims hold this member (contract 5); a claim that recorded none counts for every CLI of its plan. */
   clis?: string[];
-  state: 'matching' | 'changed-by-you' | 'missing' | 'unchecked' | 'displaced-by';
+  state: 'matching' | 'changed-by-you' | 'missing' | 'unchecked' | 'displaced-by' | 'generated';
   /** `displaced-by` (C61): the installs whose value is there now; this claim holds nothing on disk until they go. */
   displacedBy?: string[] }
 export interface InventoryEntry {

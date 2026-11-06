@@ -1752,6 +1752,8 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
     for (const root of [...new Set([...mutatingRoots, ...(state.trustParticipant ? [state.trustParticipant.lockRoot] : [])])].sort()) unlocks.push(await waitLockTarget(root, controls.signal));
     // A bounded sweep of run folders earlier completed runs left behind, under this run's locks.
     if (mutatingRoots.length) try { sweepOrphanRecovery(); } catch { /* kept for a later run */ }
+    // The originals the receipts name before this run: those this run releases are deleted at its end, at once.
+    const priorOriginals = [...state.ownership.values()].flatMap(tracked => originalDigests(tracked.value));
     await state.trustParticipant?.recheck();
     for (const root of mutatingRoots) {
       for (const step of state.steps.filter(item => item.root === root)) assertStep(step, true);
@@ -2166,7 +2168,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
     if (result.completion === 'complete' && mutatingRoots.length && !state.trustParticipant) {
       try {
         if (result.recovery && !(state.request.policy.removals?.length) && !state.steps.some(step => step.lifecycle || step.review.effects === 'remove-file')) { releaseRunRecovery(runId); delete result.recovery; }
-        releaseOriginals([...state.ownership.values()].flatMap(tracked => originalDigests(tracked.value)));
+        releaseOriginals(priorOriginals, runId);
       } catch { result.diagnostics.push(diagnostic('EXECUTION_FAILED', 'recovery-cleanup', 'The run succeeded but its recovery data could not be removed.')); }
     }
     state.trustParticipant?.finish(result);

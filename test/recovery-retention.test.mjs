@@ -3,7 +3,7 @@
 // Core's state. Through the built public entries in a disposable home and project.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { apply, prepare, prepareRemoval } from '../dist/core/engine-api.js';
@@ -61,15 +61,54 @@ test('an incomplete install keeps its recovery data', async () => {
   const run = await apply(prepared.handle, approve(prepared.review));
   assert.notEqual(run.completion, 'complete', JSON.stringify(run));
   assert.equal(existsSync(join(home, '.aih', 'core', 'recovery', run.runId)), true);
+
+  // A week later: the interrupted run, which its receipt still names, keeps its snapshot; a failed run nothing names any
+  // more, and one with no history at all, are swept by the next run.
+  const recovery = join(home, '.aih', 'core', 'recovery');
+  const unnamed = ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222'];
+  mkdirSync(join(home, '.aih', 'core', 'runs'), { recursive: true, mode: 0o700 });
+  for (const id of unnamed) {
+    mkdirSync(join(recovery, id), { mode: 0o700 }); writeFileSync(join(recovery, id, '0.bin'), MARKER, { mode: 0o600 });
+  }
+  writeFileSync(join(home, '.aih', 'core', 'runs', `${unnamed[0]}.json`), JSON.stringify({ completion: 'incomplete' }), { mode: 0o600 });
+  const weekAgo = new Date(Date.now() - 8 * 86_400_000);
+  for (const id of [run.runId, ...unnamed]) utimesSync(join(recovery, id), weekAgo, weekAgo);
+  const later = join(scratch, 'later'); mkdirSync(later); writeFileSync(join(later, 'settings.json'), '{}\n');
+  const next = await prepare(changeRequest([{ managementId: 'mode', change: setMode }], { project: later }));
+  assert.equal((await apply(next.handle, approve(next.review))).completion, 'complete');
+  assert.equal(existsSync(join(recovery, run.runId)), true, 'the interrupted run keeps its snapshot');
+  for (const id of unnamed) assert.equal(existsSync(join(recovery, id)), false, `${id} is swept`);
+});
+
+test('a whole-file replace keeps your original only until the removal that restores it', async () => {
+  const project = join(scratch, 'whole'); mkdirSync(project);
+  const mine = JSON.stringify({ token: MARKER, mode: 'a' }) + '\n';
+  writeFileSync(join(project, 'settings.json'), mine);
+  const whole = { ...setMode, id: 'whole', operations: [{ id: 'w', purpose: 'Write', kind: 'file.write', scope: 'project',
+    target: { root: 'project', segments: [{ literal: 'settings.json' }] }, content: { literal: '{"mode":"b"}\n' }, requires: [], checks: [] }] };
+  const request = changeRequest([{ managementId: 'whole', change: whole }], { project });
+  const blocked = await prepare(request);
+  assert.equal(blocked.status, 'blocked', JSON.stringify(blocked));
+  const resolutions = blocked.review.conflicts.map(c => ({ managementId: 'whole', step: c.step, choice: 'replace', observedSha256: c.observedSha256 }));
+  const prepared = await prepare({ ...request, resolutions });
+  assert.equal((await apply(prepared.handle, approve(prepared.review))).completion, 'complete');
+  const originals = join(home, '.aih', 'core', 'recovery', 'originals');
+  assert.ok(files(originals).some(file => readFileSync(file, 'latin1').includes(MARKER)), 'the original is kept while installed');
+  const removal = await prepareRemoval({ target: { project }, scope: 'project', removals: [{ managementId: 'whole' }] });
+  assert.equal((await apply(removal.handle, approve(removal.review))).completion, 'complete');
+  assert.equal(readFileSync(join(project, 'settings.json'), 'utf8'), mine);
+  assert.deepEqual(files(originals).filter(file => readFileSync(file, 'latin1').includes(MARKER)), [], 'the removal that restores it deletes it');
 });
 
 test('routine history keeps a bounded number of run records, dropping the oldest', async () => {
   const runs = join(home, '.aih', 'core', 'runs');
-  mkdirSync(runs, { recursive: true });
+  mkdirSync(runs, { recursive: true, mode: 0o700 });
   const old = new Date(Date.now() - 86_400_000);
+  // Records as Core writes them (owner-only), except the oldest, which another tool left readable by others: one record
+  // like that must not stop the rotation of the rest.
   for (let at = 0; at < 1000; at++) {
     const name = join(runs, `00000000-0000-4000-8000-${String(at).padStart(12, '0')}.json`);
-    writeFileSync(name, '{}'); utimesSync(name, old, old);
+    writeFileSync(name, '{}', { mode: at === 0 ? 0o644 : 0o600 }); chmodSync(name, at === 0 ? 0o644 : 0o600); utimesSync(name, old, old);
   }
   const project = join(scratch, 'history'); mkdirSync(project);
   writeFileSync(join(project, 'settings.json'), '{}\n');
