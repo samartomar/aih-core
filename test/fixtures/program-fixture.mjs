@@ -103,9 +103,11 @@ export function toolSetup(server, { name = 'code-graph', version = '1.4.0', sett
   const item = { id, kind: 'ai-setup', name, files: [], aiSetup: { version, mcpItem, settings: { commands, files: [] } },
     ...(token || stateInput ? { requirements: { inputs: { ...(token ? { TOOL_TOKEN: { isRequired: true, isSecret: true } } : {}),
       ...(stateInput ? { TOOL_STATE: { isRequired: true, isSecret: false } } : {}) } } } : {}) };
-  const mcp = { id: mcpItem, kind: 'mcp', name: `${name}-mcp`, description: 'Fixture MCP item', files: [] };
+  const mcp = { id: mcpItem, kind: 'mcp', name, description: 'Fixture MCP item', files: [] };
   const merge = { op: 'merge', item: mcpItem, root: 'project', file: '.mcp.json', format: 'json', key: `/mcpServers/${name}`,
-    entry: { command: join(process.env.HOME ?? '', ...`${into}${program}`.split('/')), args: ['serve'] }, clis: ['claude-code'] };
+    entry: { command: `${into}${program}`, args: ['serve'] }, clis: ['claude-code'],
+    // As Catalog lowers an AI setup's entry: the acquired program by its path from the user root.
+    rootPaths: [{ pointer: '/command', root: 'user', path: `${into}${program}` }] };
   return { id, mcpItem, acquire, toolCommands, item, mcp, merge, qualification, folder: into.slice(0, -1), program: `${into}${program}` };
 }
 
