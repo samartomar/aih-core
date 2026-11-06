@@ -369,6 +369,7 @@ test('a project-scope upstream installer is listed and removed in that project, 
   const removal = await prepareRemoval({ target: { project }, scope: 'project', removals: [{ managementId: setup.id }] });
   assert.equal(removal.status, 'ok', JSON.stringify(removal));
   assert.match(removal.review.steps.find(item => item.op === 'upstream-installer').cantPromise, /can't remove/);
+  assert.equal(removal.review.steps.find(item => item.op === 'upstream-installer').program.cwd, project, 'the folder it ran in, as recorded');
   const removed = conforms(await apply(removal.handle, approve(removal.review)));
   assert.equal(removed.completion, 'complete', JSON.stringify(removed));
   assert.deepEqual(removed.members.filter(member => member.intent === 'remove'), [], 'only the receipt is released');
@@ -506,4 +507,132 @@ test('a prior value holding a secret bound anywhere in the plan is withheld, and
   assert.equal(conforms(await apply(again.handle, approve(again.review), controls)).completion, 'complete');
   assert.deepEqual(fakeState(state, 'fake-tool').calls.filter(call => call.argv[2] === 'index_n').map(call => call.argv[1]), ['set', 'get']);
   assert.deepEqual([(await program()).undo, (await program()).prior], [null, 'withheld']);
+});
+
+test('a prior value that would read as an option is never passed back: the step fails before the command runs', async () => {
+  const project = fresh();
+  seedToolSettings(state, { auto_index: '--danger' });
+  const setup = toolSetup(server, { name: 'graph-dash' });
+  const prepared = await prepare(programRequest(project, { setups: [setup] }));
+  const run = conforms(await apply(prepared.handle, approve(prepared.review)));
+  assert.deepEqual([byStep(run, 2).application, byStep(run, 2).reason, byStep(run, 2).effectsUncertain ?? false], ['failed', 'prior-unrestorable', false]);
+  assert.deepEqual(fakeState(state, 'fake-tool').calls.map(call => call.argv[1]), ['get'], 'the command never ran');
+});
+
+test('a prior value read by a secret-named readback, or holding a host secret, is withheld from the receipt and the review', async () => {
+  const project = fresh();
+  const hostSecret = 'host-secret-value-0123456789';
+  const saved = process.env.FIXTURE_API_TOKEN;
+  process.env.FIXTURE_API_TOKEN = hostSecret;
+  try {
+    seedToolSettings(state, { apiKey: 'user-own-key-value', auto_index: hostSecret });
+    const named = toolSetup(server, { name: 'graph-key', settings: [['apiKey', 'x']] });
+    const valued = toolSetup(server, { name: 'graph-host', settings: [['auto_index', 'false']] });
+    assert.equal((await apply(...await approved(programRequest(project, { setups: [named, valued] })))).completion, 'complete');
+    const entries = (await list({ target: { project }, scope: 'user' })).entries;
+    for (const setup of [named, valued]) {
+      const program = entries.find(entry => entry.managementId === setup.id).programs[0];
+      assert.deepEqual([program.undo, program.prior], [null, 'withheld'], setup.id);
+    }
+    for (const value of ['user-own-key-value', hostSecret]) assert.ok(!treeHas(join(home, '.aih', 'core'), value), 'no receipt or history holds the value');
+  } finally { if (saved === undefined) delete process.env.FIXTURE_API_TOKEN; else process.env.FIXTURE_API_TOKEN = saved; }
+});
+
+test('removal restores and reads back with the environment the install ran the command with', async () => {
+  const project = fresh();
+  const elsewhere = join(scratch, `state-elsewhere-${counter}`);
+  seedToolSettings(elsewhere, { auto_index: 'true' });
+  seedToolSettings(state, { auto_index: 'default' });
+  const setup = toolSetup(server, { name: 'graph-env', stateInput: true });
+  const request = { ...programRequest(project, { setups: [setup] }), inputs: { [setup.id]: { TOOL_STATE: elsewhere } } };
+  const prepared = await prepare(request);
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared).slice(0, 2000));
+  assert.equal((await apply(prepared.handle, approve(prepared.review))).completion, 'complete');
+  assert.deepEqual(fakeState(elsewhere, 'fake-tool').settings, { auto_index: 'false' });
+  const removal = await (await setupRemoval(project, setup))();
+  conforms(removal.review);
+  const restore = removal.review.steps.find(step => step.op === 'tool-command');
+  assert.deepEqual(restore.program.env, [{ name: 'FAKE_TOOL_STATE', value: elsewhere }]);
+  const run = conforms(await apply(removal.handle, approve(removal.review)));
+  assert.equal(run.completion, 'complete', JSON.stringify(run));
+  assert.deepEqual(fakeState(elsewhere, 'fake-tool').settings, { auto_index: 'true' }, 'the setting the install changed is restored');
+  assert.deepEqual(fakeState(state, 'fake-tool').settings, { auto_index: 'default' }, 'the default place is untouched');
+});
+
+test('a command environment binding never sets a loader or search variable, in any case', async () => {
+  const project = fresh();
+  for (const name of ['NODE_OPTIONS', 'ld_preload', 'Path', 'PYTHONPATH', 'DYLD_INSERT_LIBRARIES', 'NoDefaultCurrentDirectoryInExePath']) {
+    const setup = toolSetup(server, { name: `graph-env-${name.toLowerCase().replaceAll('_', '-')}`, stateInput: true });
+    setup.toolCommands[0].inputs[0].at = { env: name };
+    const request = { ...programRequest(project, { setups: [setup] }), inputs: { [setup.id]: { TOOL_STATE: 'x' } } };
+    const prepared = await prepare(request);
+    assert.equal(prepared.status, 'invalid', `${name}: ${JSON.stringify(prepared).slice(0, 400)}`);
+    assert.ok(prepared.problems.some(problem => problem.reason === 'input-binding' && problem.message.includes(name)), JSON.stringify(prepared.problems));
+  }
+  assert.equal(fakeState(state, 'fake-tool').calls.length, 0, 'nothing ran');
+});
+
+test('only an acquire step places programs in an AI setup folder: a write there is refused, and a tool-command needs its folder placed', async () => {
+  const project = fresh();
+  const setup = toolSetup(server, { name: 'graph-place' });
+  // A plan that writes its own program into an AI setup folder.
+  const writing = programRequest(project, { skills: [{ name: 'planted', text: '@echo planted\r\n' }] });
+  Object.assign(writing.plan.plan[0], { root: 'user', path: `${setup.folder}/bin/planted.cmd` });
+  const refused = await prepare(writing);
+  assert.deepEqual([refused.status, refused.code], ['refused', 'path-escape'], JSON.stringify(refused).slice(0, 400));
+
+  // A tool-command whose AI setup folder neither this plan nor an earlier acquisition placed.
+  const alone = programRequest(project, { setups: [setup] });
+  alone.plan.plan = setup.toolCommands;
+  const unplaced = await prepare(alone);
+  assert.equal(unplaced.status, 'invalid', JSON.stringify(unplaced).slice(0, 400));
+  assert.ok(unplaced.problems.some(problem => problem.reason === 'root-path-unplaced'), JSON.stringify(unplaced.problems));
+
+  // Once Core acquired the folder (its marker present), the command and an MCP entry naming the program prepare alone.
+  const acquiring = programRequest(project, { setups: [setup], scope: 'user' });
+  acquiring.plan.plan = [setup.acquire];
+  assert.equal((await apply(...await approved(acquiring))).completion, 'complete');
+  const later = programRequest(project, { setups: [setup] });
+  later.plan.plan = [{ ...setup.merge, entry: { ...setup.merge.entry, command: setup.program },
+    rootPaths: [{ pointer: '/command', root: 'user', path: setup.program }] }, ...setup.toolCommands];
+  const ready = await prepare(later);
+  assert.equal(ready.status, 'ready', JSON.stringify(ready).slice(0, 2000));
+});
+
+test('the review marks every step that makes a client start a program, with the program and its arguments or the written bytes', async () => {
+  const project = fresh();
+  const setup = toolSetup(server, { name: 'graph-label' });
+  const hooks = '{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"node .claude/check.js --strict"}]}]}}\n';
+  const request = programRequest(project, { setups: [setup], skills: [{ name: 'runner', text: '#!/bin/sh\necho run\n' }, { name: 'settings', text: hooks },
+    { name: 'plain', text: 'plain text\n' }] });
+  const runner = request.contents[0].items.find(item => item.name === 'runner');
+  runner.files[0].executable = true;
+  const settingsStep = request.plan.plan.find(step => step.op === 'write' && step.path.includes('/settings/'));
+  settingsStep.path = '.claude/settings.json';
+  const prepared = await prepare(request);
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared).slice(0, 2000));
+  conforms(prepared.review);
+  const label = op => prepared.review.steps.find(op)?.executableConfiguration;
+  assert.deepEqual(label(step => step.op === 'merge'), { label: 'executable-configuration', kind: 'mcp-server', launches: [{ command: setup.merge.entry.command, args: ['serve'] }] });
+  const sha = text => createHash('sha256').update(text).digest('hex');
+  assert.deepEqual(label(step => step.path === '.claude/skills/runner/SKILL.md'),
+    { label: 'executable-configuration', kind: 'executable-file', launches: [], sha256: sha('#!/bin/sh\necho run\n'), executable: true });
+  assert.deepEqual(label(step => step.path === '.claude/settings.json'),
+    { label: 'executable-configuration', kind: 'hook', launches: [{ command: 'node .claude/check.js --strict', args: [] }], sha256: sha(hooks), executable: false });
+  assert.equal(label(step => step.path === '.claude/skills/plain/SKILL.md'), undefined);
+});
+
+test('an upstream setup clones with none of the host\'s git overrides: a GIT_DIR set by a calling hook never redirects it', async () => {
+  const project = fresh();
+  const upstream = upstreamRepository(scratch, home);
+  const prepared = await prepare(programRequest(project, { upstream: [upstream] }));
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared));
+  const saved = { GIT_DIR: process.env.GIT_DIR, GIT_WORK_TREE: process.env.GIT_WORK_TREE };
+  Object.assign(process.env, { GIT_DIR: join(scratch, `elsewhere-${counter}.git`), GIT_WORK_TREE: join(scratch, `elsewhere-${counter}`) });
+  try {
+    const run = conforms(await apply(prepared.handle, approve(prepared.review)));
+    assert.equal(run.completion, 'complete', JSON.stringify(run));
+    assert.ok(existsSync(join(home, '.claude', 'skills', 'gstack', 'README.md')));
+    assert.equal(existsSync(process.env.GIT_DIR), false, 'nothing was written where the host pointed git');
+  } finally { for (const [key, value] of Object.entries(saved)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; } }
 });

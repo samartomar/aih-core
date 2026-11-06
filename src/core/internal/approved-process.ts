@@ -238,6 +238,8 @@ export async function runApprovedProcess(request: {
   executable: ResolvedExecutable; args: string[]; cwd: string; env: Record<string, string>;
   stdin?: string; timeoutMs: number; maxOutputBytes: number; acceptedExitCodes: number[];
   signal?: AbortSignal; capture?: boolean;
+  /** Prefixes of inherited host variables the child never receives (the request's own `env` still does). */
+  clearInherited?: string[];
 }): Promise<ProcessResult> {
   if (request.signal?.aborted) return { status: 'cancelled', reason: 'cancelled', effectsUncertain: false, terminationUnconfirmed: false };
   const live = executableIdentityMatches(request.executable) ?
@@ -275,7 +277,9 @@ export async function runApprovedProcess(request: {
       // The launcher still resolves to the reviewed, byte-pinned executable.
       // A command shim runs through the system's command processor with the pinned shim and its quoted arguments.
       // An npm shim's pinned node runs its pinned JS entry directly, with no command processor.
-      const env = childEnvironment(process.env, request.env);
+      const inherited = request.clearInherited?.length ? Object.fromEntries(Object.entries(process.env)
+        .filter(([key]) => !request.clearInherited!.some(prefix => key.toUpperCase().startsWith(prefix.toUpperCase())))) : process.env;
+      const env = childEnvironment(inherited, request.env);
       child = launcher ? spawn(launcher.node.launchPath, [launcher.script.path, ...request.args], { shell: false, windowsHide: true,
         cwd: request.cwd, env, stdio: ['pipe', 'pipe', 'pipe'], ...treeSpawnOptions() }) :
         shim ? spawn(system32('cmd.exe'), ['/d', '/v:off', '/s', '/c', line!], { shell: false,

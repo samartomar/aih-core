@@ -172,7 +172,7 @@ export async function checkPresence(run: Run, programs: ReadonlyMap<number, Prog
     if (!check) { step.verification = { status: 'unverified', reason: 'no-presence-check' }; continue; }
     if (controls.signal?.aborted) { run.completion = 'cancelled'; break; }
     controls.onProgress?.({ step: step.step, managementId: step.managementId, operation: readback ? 'readback' : 'presence-check', phase: 'start' });
-    const outcome = await runApprovedProcess({ executable: check.executable, args: check.argv.slice(1), cwd: check.cwd, env: {},
+    const outcome = await runApprovedProcess({ executable: check.executable, args: check.argv.slice(1), cwd: check.cwd, env: check.env ?? {},
       timeoutMs: 60_000, maxOutputBytes: 1_048_576, acceptedExitCodes: [0], capture: true, ...(controls.signal ? { signal: controls.signal } : {}) });
     let found: 'present' | 'absent' | undefined;
     if (outcome.status === 'passed' && outcome.stdout)

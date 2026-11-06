@@ -140,6 +140,8 @@ export interface ReviewStep {
   inputs?: ReviewInput[];
   /** A program step (`tool-command`, `upstream-installer`, `upstream-setup`): the exact command and what Core can and can't check or undo. */
   program?: ReviewProgram;
+  /** Marks a step that writes executable configuration (see `ExecutableConfiguration`). */
+  executableConfiguration?: ExecutableConfiguration;
 }
 /** Where Apply obtains one acquired file (C78): the supplied folder, the recorded URL, the index by exact identity, or nothing. */
 export type DownloadSource = { kind: 'supplied'; folder: string } | { kind: 'url'; url: string } |
@@ -196,8 +198,23 @@ export interface ReviewProgram {
   /** An upstream setup's clone, with the git Prepare pinned. */
   clone?: { repository: string; commit: string; into: string; git: string; gitSha256: string };
   needs?: string[];
+  /** A PATH program that is an npm command shim: the pinned node and JS entry Core starts for it. */
+  launcher?: ReviewLauncher;
 }
-export interface ReviewCommand { argv: string[]; executable: string; executableSha256: string }
+/** An npm command shim's pinned `node` and JS entry: what Core starts for the shim, each by its sha256 (never through `cmd.exe`). */
+export interface ReviewLauncher { node: string; nodeSha256: string; script: string; scriptSha256: string }
+export interface ReviewCommand { argv: string[]; executable: string; executableSha256: string; launcher?: ReviewLauncher }
+/**
+ * A step that makes a client start a program later (an MCP server it launches, a hook, a settings key that runs a
+ * command) or writes an executable file: the programs and arguments it configures, or the written bytes' sha256 and
+ * whether the file is made executable.
+ */
+export interface ExecutableConfiguration {
+  label: 'executable-configuration';
+  kind: 'mcp-server' | 'hook' | 'settings-command' | 'executable-file';
+  launches: { command: string; args: string[] }[];
+  sha256?: string; executable?: boolean;
+}
 export interface ReviewConflict {
   code: 'STATE_CONFLICT'; reason: 'existing-content' | 'managed-content-changed' | 'second-displacement'; managementId: string; step: number | string;
   /** Several updates in one review: the index of the update this conflict belongs to. */
@@ -448,7 +465,15 @@ export interface ProgramFacts {
   /** A restore's prior value: read before the command (`undo` restores it) or `withheld` (it held a secret; `undo` is null). */
   prior?: 'read' | 'withheld';
   clone?: { repository: string; commit: string; into: string };
+  /** Where the command ran: its root and the folder under it (`''` is the root itself). */
+  root?: 'project' | 'user'; cwd?: string;
+  /**
+   * The environment the command ran with, which its restore and readback run with again: an ordinary value as it was,
+   * a secret only by the input that gave it (removal asks for it again, C64).
+   */
+  env?: ProgramEnv[];
 }
+export type ProgramEnv = { name: string; value: string } | { name: string; input: { item: string; input: string } };
 /** One native plugin install's receipt facts; argv lists are filled, never templates. */
 export interface PluginFacts {
   step: number; cli: string; plugin: string; commit: string;

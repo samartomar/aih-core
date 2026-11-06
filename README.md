@@ -879,7 +879,10 @@ qualification documents the plan's acquire steps name in `qualifications`.
 - **Python tools** (`pypi-wheel`): Prepare looks for `python` / `python3` on `PATH` whose version is inside the step's
   `interpreter.range`. The review step's `interpreter` shows that installed interpreter (`in range, not qualified`), the
   qualified fallback with its sha256, and the failures that switch to it (`none-found`, `outside-range`,
-  `wheel-install-failed`, `readback-failed`, and `build-failed` when the closure records a build); approval covers both. Apply downloads the byte-checked closure and wheel,
+  `wheel-install-failed`, `readback-failed`, and `build-failed` when the closure records a build); approval covers both.
+  Apply runs the installed interpreter only while its real path and sha256 are those Prepare found; another file at that
+  path, whatever its version, is `none-found` and the fallback runs. Core's helper runs with no host `PYTHON*` variable
+  (only `PYTHONNOUSERSITE`, `PYTHONSAFEPATH` and `PYTHONUTF8`, as `-I` would isolate it) and its pip with `-I`. Apply downloads the byte-checked closure and wheel,
   makes a dedicated environment (`env/`) in the folder, installs offline (`--no-index --no-deps --only-binary=:all:`)
   and reads the tool's version back. Only after a real failure does it download the fallback interpreter, unpack it into
   `interpreter/` and repeat; the fallback's own failure fails the step. An installed interpreter is never byte-qualified.
@@ -901,9 +904,11 @@ qualification documents the plan's acquire steps name in `qualifications`.
   folder's `build/`, installs only those wheels offline and builds with `pip wheel --no-index --no-deps
   --no-build-isolation`, with pip configuration, user site and index variables neutralised. The build frontend is the
   pinned pip when the dependencies list one, otherwise the pip of that build environment; pip need not be pinned. The
-  build's `HOME`, `USERPROFILE` (and `APPDATA` on Windows) and temporary folders are inside `build/`, and the host's
-  `CC`, `CXX`, `LDSHARED`, `LDCXXSHARED`, `CFLAGS`, `CXXFLAGS`, `CPPFLAGS`, `LDFLAGS`, `SETUPTOOLS_*` and `DISTUTILS_*`
-  never reach it. When the build record's `tools` name a C compiler (`gcc`, `clang` or `cc`), the build uses it rather
+  build's `HOME`, `USERPROFILE` (and `APPDATA` on Windows) and temporary folders are inside `build/`. The build's
+  environment is an allowlist: only the host variables that find programs and describe the machine and locale, plus
+  Node's own `NODE_OPTIONS` and certificates, reach it; compiler and linker flags (`CC`, `CFLAGS`, MSVC's `CL`,
+  `INCLUDE`, `LIB`, `RUSTFLAGS`), `CARGO_*`, `SETUPTOOLS_*`, `DISTUTILS_*`, package settings and proxies never do. Core
+  sets `PIP_NO_INDEX=1` and `CARGO_NET_OFFLINE=true`. When the build record's `tools` name a C compiler (`gcc`, `clang` or `cc`), the build uses it rather
   than the interpreter's recorded default (python-build-standalone's is `clang`): `CC` is that tool as found on PATH,
   `CXX` the same family's driver (`g++`, `clang++`, `c++`) when listed or found beside it, and on Linux `LDSHARED` is
   `<CC> -shared`. The variables Core set are recorded with the built wheel as `built.env`. The
@@ -961,13 +966,18 @@ the undo, and `cantRemove`, which says what Core can't remove around it.
   receipt's undo, kept before the command starts, is the restore with `<prior>` replaced by that value and the readback
   expecting it. A readback that fails, or shows a line break or any other control character, fails the step before the
   command runs (`prior-unreadable`); so does, on Windows, a prior value a `.cmd`/`.bat` command shim could not be given
-  back (`"`, `%`: `prior-unrestorable`), so no change is made that removal can't undo. A prior value holding any secret
-  value the plan binds (on any step) is never recorded: the receipt says `prior: "withheld"` with undo `null`, the command
-  still runs, and removal says Core can't undo it. This is the recorded choice; Core does not ask again for the value.
+  back (`"`, `%`: `prior-unrestorable`), so no change is made that removal can't undo. A prior value starting with `-`
+  (which the tool would read as an option) is `prior-unrestorable` too, unless the restore puts `--` before `<prior>`.
+  A prior value that may be a secret is never recorded: one holding any secret value the plan binds (on any step) or the
+  value of a host variable named like a secret, or one read by a readback naming a secret (`config get apiKey`). The
+  receipt says `prior: "withheld"` with undo `null`, the command still runs, and removal says Core can't undo it. This is the recorded choice; Core does not ask again for the value.
   Installing the same command again (same management id and argv, after an interrupted or complete install) keeps the
   first install's record, withheld included, and never reads the value Core set; a record whose prior value was never
   read (the install stopped before the command) is read again. `list` shows `prior` (`read` or `withheld`). The install review shows `program.prior` (the readback run first) and `program.restore`
-  (the planned argv with `<prior>`); the removal review shows the filled restore command and its readback. Removal runs
+  (the planned argv with `<prior>`); the removal review shows the filled restore command and its readback. The receipt
+  records where the command ran (`root`, `cwd`) and the environment it ran with (`env`: an ordinary value as it was, a
+  secret only by the input that gave it); removal runs the restore and its readback in that folder with that
+  environment, and refuses (`input-missing`) until such a secret is passed again. Removal runs
   it before the AI setup folder goes; a failed restore or a readback that doesn't show the prior value fails that step and
   keeps the receipt. Without `restore`, the review and the removal say Core can't undo the command.
 - **`upstream-installer`** (`managed: false`) runs the AI setup's own installer argv, whose program is found on `PATH` and
@@ -987,9 +997,28 @@ the undo, and `cantRemove`, which says what Core can't remove around it.
   installer not on `PATH`, or on Windows a program that is not an `.exe`, `.com`, `.cmd` or `.bat`) is
   `program-unavailable`. On Windows a client, installer or tool command installed as a `.cmd`/`.bat` command shim (as
   npm installs `claude.cmd`) is found in each `PATH` folder in the system's order and pinned like any program: the review
-  names the exact shim path and its sha256, and Apply runs that shim through `cmd.exe /d /v:off /s /c` with every
-  argument quoted. An argument the command processor would still read inside quotes (`"`, `%`, a line break) is not run
-  (`shim-argument-unsafe`).
+  names the exact shim path and its sha256. npm's own shim form (it starts `node` with a JS entry beside it) is never run
+  through `cmd.exe`: Core starts the `node.exe` beside the shim, or the one on `PATH`, with the shim's JS entry, and the
+  review's `launcher` names both with their sha256, checked again at Apply. Any other shim runs through `cmd.exe /d
+  /v:off /s /c` (by its absolute path) with every argument quoted; an argument the command processor would still read
+  inside quotes (`"`, `%`, a line break) is refused at Prepare (`program-unavailable`), before any command runs. Every
+  program Core starts gets `NoDefaultCurrentDirectoryInExePath=1`, so a program a shim or tool names is never found in
+  its working folder; cancel and deadline stop it with everything it started (`taskkill /T` on Windows, its process
+  group on POSIX). A plugin name that starts with `-` or holds `"`, `%` or a control character is invalid.
+- **Environment bindings** never set a variable that changes which program or code runs or where programs find their
+  configuration (`NODE_OPTIONS`, `PATH`, `PATHEXT`, `LD_*`, `DYLD_*`, `PYTHON*`, `GIT_*`, `HOME` and the like, compared
+  without case; Catalog's list for MCP server environments): such a binding is a plan problem (`input-binding`).
+- **AI setup folders** (`~/.aihq/ai-setup/`) are filled only by acquire steps: a write, merge or link there is
+  `path-escape`. A `tool-command`, like an MCP entry's `rootPaths`, runs a program there only when an acquire step of
+  the plan, or an acquisition Core recorded (its marker present), places it (`root-path-unplaced` otherwise).
+- **Executable configuration.** The review marks each merge or write that makes a client start a program later with
+  `executableConfiguration: { label: "executable-configuration", kind, launches }`: `mcp-server` (an MCP entry with a
+  `command`), `hook`, `settings-command` (`apiKeyHelper` and similar keys) or `executable-file`, with each program and
+  its arguments, and for a write the bytes' `sha256` and `executable` flag.
+- **MCP entries and `server.json`.** When the plan supplies an MCP item's `server.json`, the merge entry must start
+  exactly what it declares (the registry's runner `npx` or `uvx`, its flags, `identifier@version` or
+  `identifier==version`, the package's arguments) or name its remote's URL; anything else is `source-mismatch`. An AI
+  setup's MCP item starts the acquired program instead and is bound by its acquire step.
 - **Order and outcomes (D92, C60).** Apply runs every step of the plan in the plan's order across all items: the fixed
   phases (fetch and acquire, write, link, merge, plugin, upstream setup and installer, tool-command), then root and
   path. A failed step makes the not-yet-run steps of its item and of every item that depends on it `not-attempted`

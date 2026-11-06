@@ -277,3 +277,24 @@ test('a plugin step Core cannot carry out exactly is refused before any effect',
   assert.equal((await prepare(short)).status, 'ready', 'a marketplace may be `owner/repo`');
   assert.deepEqual(fakeClientState(state, 'claude').calls, []);
 });
+
+test('plugin arguments that would read as options, or that a command shim could not pass back, are refused at Prepare', async () => {
+  fresh();
+  for (const plugin of ['-rf', 'a%b', 'say"hi', 'bell\u0007']) {
+    const request = pluginRequest(PRESENCE);
+    request.plan.plan[0].plugin = plugin;
+    const refused = await prepare(request);
+    assert.equal(refused.status, 'invalid', `${plugin}: ${JSON.stringify(refused).slice(0, 300)}`);
+  }
+  assert.deepEqual(fakeClientState(state, 'claude').calls, [], 'nothing ran');
+  if (process.platform !== 'win32') return;
+  // The CLI is a command shim run by cmd.exe: a `%` in a profile's command could never reach it as written.
+  const shims = join(scratch, `shims-percent-${counter}`);
+  installFakeCommandShim(shims, 'claude');
+  process.env.PATH = `${shims};${join(process.execPath, '..')}`;
+  const request = pluginRequest(PRESENCE);
+  request.profiles[0].plugins.install[1].push('--note=100%');
+  const refused = await prepare(request);
+  assert.deepEqual([refused.status, refused.code], ['refused', 'program-unavailable'], JSON.stringify(refused).slice(0, 400));
+  assert.deepEqual(fakeClientState(state, 'claude').calls, [], 'the first command never ran either');
+});
