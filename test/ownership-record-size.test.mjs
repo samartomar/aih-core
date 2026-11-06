@@ -234,7 +234,9 @@ test('only the one stored form of a record is admitted, and its digests stay exa
   const admitted = admit(tampered);
   const key = Object.keys(tampered.members)[1];
   assert.equal(admitted.members[key].sha256, sha('other bytes'));
-  assert.ok(Object.values(admitted.items).some(item => item.members.some(member => member.path === key && member.sha256 === sha('other bytes'))));
+  // The member key folds case on Windows; an item lists the member by its own path.
+  const { path } = admitted.members[key].descriptor;
+  assert.ok(Object.values(admitted.items).some(item => item.members.some(member => member.path === path && member.sha256 === sha('other bytes'))));
 });
 
 test('a record over the ownership bound blocks Prepare before any effect', async () => {
