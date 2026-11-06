@@ -11,7 +11,7 @@ import { blockMemberBytes, configMemberBytes, tomlEntryPaths, tomlEntryText } fr
 import { canonicalJson, codeUnitCompare } from '../internal/canonical.js';
 import { deepFreezeStrictJsonV1 } from '../internal/strict-json.js';
 import { projectRoot } from '../internal/host-files.js';
-import { forgetProvenState, ownershipInventory, readOwnership } from '../internal/state.js';
+import { forgetProvenState, ownershipInventory, readOwnership, useStateSignal } from '../internal/state.js';
 import { checkPlanRequest, type CheckedStep } from './request.js';
 import { register, type HandleState, type ProgramCheck, type StepRef } from './handles.js';
 import { resolveExecutable, resolveProgram } from '../internal/approved-process.js';
@@ -116,6 +116,7 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
   forgetProvenState();
   const controls = planControls(rawControls);
   if (!controls) return { status: 'invalid', problems: [{ path: '', reason: 'controls', message: 'The plan controls are not valid.' }] };
+  useStateSignal(controls.signal);
   if (controls.signal?.aborted) return { status: 'refused', code: 'cancelled', reason: 'Preparation was cancelled.' };
   const admitted = await checkPlanRequest(input, controls);
   if ('status' in admitted) return admitted;

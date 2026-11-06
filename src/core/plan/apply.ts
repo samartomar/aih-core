@@ -2,7 +2,7 @@
 // from, then let the engine re-check and carry out its reviewed steps. Never throws for a stale or lost handle.
 import { randomUUID } from 'node:crypto';
 import { apply as applyEngine } from '../recipe-engine.js';
-import { forgetProvenState, ownershipInventory, readOwnership } from '../internal/state.js';
+import { forgetProvenState, ownershipInventory, readOwnership, useStateSignal } from '../internal/state.js';
 import { take, takeComposite, type CompositeState, type HandleState, type ProgramCheck } from './handles.js';
 import { runApprovedProcess } from '../internal/approved-process.js';
 import { homedir } from 'node:os';
@@ -37,6 +37,7 @@ export async function applyPlan(handle: unknown, approval: unknown, rawControls?
   forgetProvenState();
   // A change request's own controls (material roots) are accepted too; Apply reads only cancellation and logging.
   const controls = planControls(rawControls) ?? changeControls(rawControls);
+  useStateSignal(controls?.signal);
   const composite = takeComposite(handle);
   if (composite) return applyComposite(composite, approval, rawControls, !!controls);
   const state = take(handle);

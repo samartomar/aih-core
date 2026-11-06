@@ -7,6 +7,7 @@ import { assertStrictJsonValueV1, assertWellFormedNfcV1, parseStrictJsonObjectV1
 import { fileTransaction, pathPins, pinsMatch, sha256, userHomeRoot, validSegment } from './host-files.js';
 import { validCreatedDirectories, type CreatedDirectory } from './created-directories.js';
 import { containedPath } from './contained-path.js';
+import { windowsDirectory, windowsPowerShell } from './system-root.js';
 import { claimIdentity, validClaim, memberKey, validDescriptor, type MemberDescriptor, type Claim } from './recipe-lifecycle.js';
 import { tomlTableCustody, tomlTableOf, type TomlTableCustody } from './recipe-editors.js';
 import { sharedBlockRole } from './shared-blocks.js';
@@ -71,34 +72,86 @@ export function stateFiles(maxFileBytes = STATE_FILE_BYTES): OwnedFileTransactio
   });
 }
 
-// No policy-supplied script or path interpolation. The fixed script receives
-// the state path as an argument and validates the actual Windows ACL.
+// No policy-supplied script or path interpolation. The fixed script receives the state path as an argument and the
+// paths to check on standard input (one base64 UTF-8 path per line), reads access rules by SID so no name lookup can
+// reach a domain controller, and ends with one verdict token: `ok`, `refused` for an access list that admits someone
+// else, or `error` when it could not decide.
 const aclScript = `param([string]$StatePath,[string]$Create)
 $ErrorActionPreference='Stop'
-$user=[System.Security.Principal.WindowsIdentity]::GetCurrent().User
-$allowed=@($user.Value,'S-1-5-18','S-1-5-32-544')
-if($Create -eq 'yes') {
-  $acl=New-Object System.Security.AccessControl.DirectorySecurity
-  # Preserve the filesystem-assigned owner; validate it against the allowed owners below.
-  $acl.SetAccessRuleProtection($true,$false)
-  foreach($sid in $allowed) {
-    $identity=New-Object System.Security.Principal.SecurityIdentifier($sid)
-    $rule=New-Object System.Security.AccessControl.FileSystemAccessRule($identity,'FullControl','ContainerInherit,ObjectInherit','None','Allow')
-    $acl.AddAccessRule($rule)
+try {
+  $user=[System.Security.Principal.WindowsIdentity]::GetCurrent().User
+  $allowed=@($user.Value,'S-1-5-18','S-1-5-32-544')
+  $sidType=[System.Security.Principal.SecurityIdentifier]
+  if($Create -eq 'yes') {
+    $acl=New-Object System.Security.AccessControl.DirectorySecurity
+    # Preserve the filesystem-assigned owner; validate it against the allowed owners below.
+    $acl.SetAccessRuleProtection($true,$false)
+    foreach($sid in $allowed) {
+      $identity=New-Object System.Security.Principal.SecurityIdentifier($sid)
+      $rule=New-Object System.Security.AccessControl.FileSystemAccessRule($identity,'FullControl','ContainerInherit,ObjectInherit','None','Allow')
+      $acl.AddAccessRule($rule)
+    }
+    [System.IO.Directory]::SetAccessControl($StatePath,$acl)
   }
-  [System.IO.Directory]::SetAccessControl($StatePath,$acl)
+  foreach($line in ([Console]::In.ReadToEnd() -split '\\r?\\n')) {
+    if(-not $line) { continue }
+    $path=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($line))
+    try {
+      if([System.IO.Directory]::Exists($path)) { $actual=[System.IO.Directory]::GetAccessControl($path) }
+      else { $actual=[System.IO.File]::GetAccessControl($path) }
+    } catch { [Console]::Out.Write('aihq-state:refused'); exit 0 }
+    # Elevated Windows creates children owned by Administrators, already trusted with FullControl.
+    if($allowed -notcontains $actual.GetOwner($sidType).Value) { [Console]::Out.Write('aihq-state:refused'); exit 0 }
+    foreach($rule in $actual.GetAccessRules($true,$true,$sidType)) {
+      if($rule.AccessControlType -eq 'Allow' -and $allowed -notcontains $rule.IdentityReference.Value) { [Console]::Out.Write('aihq-state:refused'); exit 0 }
+    }
+  }
+  [Console]::Out.Write('aihq-state:ok')
+} catch { [Console]::Out.Write('aihq-state:error'); exit 1 }`;
+
+/** The verdict of one Windows access-list check: `unverified` means it could not decide (a timeout, a launch failure). */
+export type StateProtectionVerdict = 'ok' | 'refused' | 'unverified';
+/** Classify one check's process result. Only the exact `ok` token with exit 0 admits; an explicit refusal always refuses. */
+export function classifyStateProtection(result: { error?: unknown; status: number | null; stdout?: string | Uint8Array | null }): StateProtectionVerdict {
+  if (result.error) return 'unverified';
+  const out = (typeof result.stdout === 'string' ? result.stdout : result.stdout ? new TextDecoder().decode(result.stdout) : '').trim();
+  if (out === 'aihq-state:refused') return 'refused';
+  return result.status === 0 && out === 'aihq-state:ok' ? 'ok' : 'unverified';
 }
-foreach($path in ($env:AIHQ_STATE_CHECK -split '\\n')) {
-  if([System.IO.Directory]::Exists($path)) { $actual=[System.IO.Directory]::GetAccessControl($path) }
-  else { $actual=[System.IO.File]::GetAccessControl($path) }
-  # Elevated Windows creates children owned by Administrators, already trusted with FullControl.
-  $owner=$actual.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
-  if($allowed -notcontains $owner) { throw 'state-owner' }
-  foreach($rule in $actual.Access) {
-    $sid=$rule.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value
-    if($rule.AccessControlType -eq 'Allow' -and $allowed -notcontains $sid) { throw 'state-protection' }
+/** How long one check may take: a first attempt and, after a timeout or launch failure, one longer retry. */
+export const STATE_PROTECTION_BUDGETS: readonly number[] = Object.freeze([10_000, 60_000]);
+/**
+ * Run the fixed access-list check over `paths`, retrying once when it could not decide. The operation's signal, when
+ * aborted, stops before the retry (`cancelled`). `program` and `programArgs` are a test seam; Core runs the Windows
+ * PowerShell named by the kernel's `\SystemRoot` link, never one found through `%SystemRoot%` or `PATH`.
+ */
+export function checkStateAcl(root: string, created: boolean, paths: readonly string[], options: { program?: string; programArgs?: readonly string[];
+  budgets?: readonly number[]; signal?: AbortSignal } = {}): StateProtectionVerdict {
+  let program: string;
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  try {
+    program = options.program ?? windowsPowerShell();
+    // PowerShell itself starts from `%SystemRoot%`, so the child gets the folder the kernel link names.
+    if (process.platform === 'win32') {
+      for (const key of Object.keys(env)) if (key.toLowerCase() === 'systemroot') delete env[key];
+      env.SystemRoot = windowsDirectory();
+    }
+  } catch { return 'unverified'; }
+  const args = [...(options.programArgs ?? []), '-NoLogo', '-NoProfile', '-NonInteractive', '-Command', `& { ${aclScript} } $env:AIHQ_STATE_PATH $env:AIHQ_STATE_CREATE`];
+  const input = paths.map(path => Buffer.from(path, 'utf8').toString('base64')).join('\n') + '\n';
+  let verdict: StateProtectionVerdict = 'unverified';
+  for (const budget of options.budgets ?? STATE_PROTECTION_BUDGETS) {
+    if (options.signal?.aborted) throw new Error('cancelled');
+    stateProtectionCounts.aclChecks += 1;
+    verdict = classifyStateProtection(spawnSync(program, args, { windowsHide: true, timeout: budget, maxBuffer: 4096, input,
+      env: { ...env, AIHQ_STATE_PATH: root, AIHQ_STATE_CREATE: created ? 'yes' : 'no' } }));
+    if (verdict !== 'unverified') return verdict;
   }
-}`;
+  return verdict;
+}
+let operationSignal: AbortSignal | undefined;
+/** The current operation's cancellation signal, consulted between state protection attempts. */
+export function useStateSignal(signal: AbortSignal | undefined): void { operationSignal = signal; }
 
 /** How often this process ran state protection, and how many Windows ACL checks (PowerShell processes) that started. */
 export const stateProtectionCounts = { calls: 0, aclChecks: 0 };
@@ -125,7 +178,7 @@ let proven: { root: string; paths: Map<string, string> } | undefined;
  * operation rather than trusting one proven earlier. Steps inside one operation, such as Apply's review recheck, keep
  * what the operation proved.
  */
-export function forgetProvenState(): void { proven = undefined; }
+export function forgetProvenState(): void { proven = undefined; operationSignal = undefined; }
 /**
  * The identity a path is proven under: its pin (`dev:ino:mode`) and, for a file, its change time. A folder's change time
  * moves whenever an entry is added inside it, so a folder keeps its pin alone; its own access list cannot change
@@ -159,15 +212,12 @@ export function protectState(relativePaths: string[] = []): void {
     const known = proven.paths;
     const unproven = [...protectedPaths].filter(([path, identity]) => known.get(path) !== identity);
     if (unproven.length === 0) return;
-    // -Command uses fixed source; variable values are passed through the environment,
-    // never concatenated into executable PowerShell text.
-    stateProtectionCounts.aclChecks += 1;
-    const result = spawnSync(join(process.env.SystemRoot ?? 'C:\\Windows', 'System32/WindowsPowerShell/v1.0/powershell.exe'), ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command',
-      `& { ${aclScript} } $env:AIHQ_STATE_PATH $env:AIHQ_STATE_CREATE`], {
-      windowsHide: true, timeout: 10_000, maxBuffer: 4096,
-      env: { ...process.env, AIHQ_STATE_PATH: root, AIHQ_STATE_CREATE: created ? 'yes' : 'no', AIHQ_STATE_CHECK: unproven.map(([path]) => path).join('\n') }
-    });
-    if (result.error || result.status !== 0) throw new Error('state-protection');
+    // -Command uses fixed source; the state path is passed through the environment and the paths on standard input,
+    // never concatenated into executable PowerShell text. A check that could not decide stays a refusal, but a
+    // retryable one (`state-protection-unverified`); an access list that admits someone else is `state-protection`.
+    const verdict = checkStateAcl(root, created, unproven.map(([path]) => path), { ...(operationSignal ? { signal: operationSignal } : {}) });
+    if (verdict === 'refused') throw new Error('state-protection');
+    if (verdict !== 'ok') throw new Error('state-protection-unverified');
     // Remember a path only if it is still the object that was checked, unchanged: anything replaced or changed meanwhile
     // (a swap and swap back moves the file's change time) is checked next time.
     for (const [path, identity] of unproven) {
@@ -305,9 +355,8 @@ export function readOwnershipBatch(targets: readonly string[]): Map<string, { va
     for (const target of unique) result.set(target, { value: { schema: RECEIPT, target, members: {} }, digest: null, bytes: 0 });
     return result;
   }
-  // Keep both process launch count and Windows environment size bounded.
-  for (let offset = 0; offset < unique.length; offset += 32)
-    protectState(unique.slice(offset, offset + 32).map(ownershipPath));
+  // One check for the whole batch: the paths go on standard input, so their number doesn't bound the environment.
+  protectState(unique.map(ownershipPath));
   for (const target of unique) {
     const bytes = ownershipBytes(ownershipPath(target));
     if (!bytes) {

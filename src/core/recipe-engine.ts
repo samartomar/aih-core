@@ -2166,7 +2166,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
     const code = reason === 'cancelled' ? 'CANCELLED' : ['review-stale', 'handle-unavailable', 'digest-mismatch'].includes(reason) ? 'REVIEW_STALE' :
       reason === 'certificate-invalid' ? 'INPUT_INVALID' :
       reason === 'approval-required' || reason === 'partial-approval-required' || reason === 'request-object' || reason === 'request-field' ? 'APPROVAL_REQUIRED' :
-      reason === 'state-unwritable' || reason === 'state-protection' || reason === 'recovery-unavailable' ? 'PREREQUISITE_UNAVAILABLE' :
+      reason === 'state-unwritable' || reason === 'state-protection' || reason === 'state-protection-unverified' || reason === 'recovery-unavailable' ? 'PREREQUISITE_UNAVAILABLE' :
       started ? 'EXECUTION_FAILED' : 'PREREQUISITE_UNAVAILABLE';
     result.diagnostics.push(authority ? authority.detail : reportsChangedBinding && error instanceof ReviewStale ?
       { ...diagnostic(code, 'binding-changed', 'A reviewed binding changed after preparation.'),
