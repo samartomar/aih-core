@@ -3,10 +3,8 @@
 // Source bytes are read with `readLocalSource` from the Catalog installed beside this CLI; without it, `--source` is
 // refused `catalog-required`. Its `/reader` (`renderStep`, `planRecipe`) is passed as `controls.catalog` for render
 // steps and recipe proofs. The project is never taken from the working folder.
-import { dirname, isAbsolute, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { readRegularFile } from '../internal/fsxn.js';
-import { parseStrictJsonObjectV1 } from '../internal/strict-json.js';
+import { isAbsolute, resolve } from 'node:path';
+import { loadPeer } from '../internal/peer.js';
 import { prepare } from '../index.js';
 import { ARTIFACTS_OPTION, ARTIFACTS_USAGE, artifactsControl, applyReviewed, emit, enterpriseOptions, ORGANIZATION_OPTIONS, ORGANIZATION_USAGE, parseCommand, PRIVATE_INPUT_OPTION, privateInputsOption, progressLine,
   readDocument, readResolutions, refusal, RESOLUTIONS_OPTION, RESOLUTIONS_UNREADABLE, usageRefusal } from './common.js';
@@ -16,36 +14,23 @@ const USAGE = `aih install <plan-request.json> [--project <path>] [--source <sou
 interface LocalSource { status: string; files?: { path: string; bytes?: Uint8Array }[] }
 
 export async function catalogNode(): Promise<{ readLocalSource(path: string): Promise<LocalSource> | LocalSource } | undefined> {
-  try {
-    const specifier = '@aihq/catalog/node';
-    const module = await import(specifier) as { readLocalSource?: unknown };
-    return typeof module.readLocalSource === 'function' ? module as never : undefined;
-  } catch { return undefined; }
+  const peer = await loadPeer('@aihq/catalog/node');
+  return peer.status === 'loaded' && typeof peer.module.readLocalSource === 'function' ? peer.module as never : undefined;
 }
 
 /**
  * The Catalog reader installed beside this CLI, as `controls.catalog` (C51): its `renderStep` and `planRecipe`, and the
- * version from that package's own `package.json`. Absent, unreadable or without a version, none is passed, and a plan
- * that needs one is refused `catalog-required` by Prepare.
+ * version from that package's own `package.json`. Absent, found outside Core's install folder, unreadable or without a
+ * version, none is passed, and a plan that needs one is refused `catalog-required` by Prepare.
  */
 export async function catalogReader(): Promise<CatalogControls | undefined> {
-  try {
-    const specifier = '@aihq/catalog/reader';
-    const module = await import(specifier) as { renderStep?: unknown; planRecipe?: unknown };
-    if (typeof module.renderStep !== 'function' && typeof module.planRecipe !== 'function') return undefined;
-    let folder = dirname(fileURLToPath(import.meta.resolve(specifier)));
-    for (let depth = 0; depth < 16; depth += 1, folder = dirname(folder)) {
-      const bytes = readRegularFile(join(folder, 'package.json'), { maxBytes: 1_000_000 });
-      if (!bytes) { if (dirname(folder) === folder) break; continue; }
-      const manifest = parseStrictJsonObjectV1(new TextDecoder('utf-8', { fatal: true }).decode(bytes), 'package.json');
-      if (manifest.name !== '@aihq/catalog') { if (dirname(folder) === folder) break; continue; }
-      if (typeof manifest.version !== 'string' || !manifest.version || manifest.version.length > 64) return undefined;
-      return { version: manifest.version,
-        ...(typeof module.renderStep === 'function' ? { renderStep: module.renderStep as CatalogControls['renderStep'] } : {}),
-        ...(typeof module.planRecipe === 'function' ? { planRecipe: module.planRecipe as CatalogControls['planRecipe'] } : {}) };
-    }
-    return undefined;
-  } catch { return undefined; }
+  const peer = await loadPeer('@aihq/catalog/reader');
+  if (peer.status !== 'loaded' || !peer.version) return undefined;
+  const module = peer.module as { renderStep?: unknown; planRecipe?: unknown };
+  if (typeof module.renderStep !== 'function' && typeof module.planRecipe !== 'function') return undefined;
+  return { version: peer.version,
+    ...(typeof module.renderStep === 'function' ? { renderStep: module.renderStep as CatalogControls['renderStep'] } : {}),
+    ...(typeof module.planRecipe === 'function' ? { planRecipe: module.planRecipe as CatalogControls['planRecipe'] } : {}) };
 }
 
 export async function run(args: string[], signal: AbortSignal): Promise<void> {
