@@ -3,7 +3,7 @@
 // Core's state. Through the built public entries in a disposable home and project.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { apply, prepare, prepareRemoval } from '../dist/core/engine-api.js';
@@ -65,11 +65,13 @@ test('an incomplete install keeps its recovery data', async () => {
 
 test('routine history keeps a bounded number of run records, dropping the oldest', async () => {
   const runs = join(home, '.aih', 'core', 'runs');
-  mkdirSync(runs, { recursive: true });
+  mkdirSync(runs, { recursive: true, mode: 0o700 });
   const old = new Date(Date.now() - 86_400_000);
+  // Records as Core writes them (owner-only), except the oldest, which another tool left readable by others: one record
+  // like that must not stop the rotation of the rest.
   for (let at = 0; at < 1000; at++) {
     const name = join(runs, `00000000-0000-4000-8000-${String(at).padStart(12, '0')}.json`);
-    writeFileSync(name, '{}'); utimesSync(name, old, old);
+    writeFileSync(name, '{}', { mode: at === 0 ? 0o644 : 0o600 }); chmodSync(name, at === 0 ? 0o644 : 0o600); utimesSync(name, old, old);
   }
   const project = join(scratch, 'history'); mkdirSync(project);
   writeFileSync(join(project, 'settings.json'), '{}\n');

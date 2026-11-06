@@ -560,15 +560,16 @@ export function writeHistory(runId: string, result: unknown, logging: 'on' | 'of
 export const HISTORY_LIMIT = 1000;
 function rotateHistory(keep: string): void {
   try {
+    // The folder is checked once; each old record is only unlinked (a link entry, never its target), so a record whose
+    // own protection can't be shown is rotated like any other instead of stopping the rotation.
+    protectState(['runs']);
     const folder = join(stateRoot(), 'runs');
     const names = readdirSync(folder).filter(name => /^[a-f0-9-]{36}\.json$/.test(name) && `runs/${name}` !== keep);
     if (names.length < HISTORY_LIMIT) return;
     const aged = names.map(name => { try { return { name, at: lstatSync(join(folder, name)).mtimeMs }; } catch { return { name, at: 0 }; } })
       .sort((a, b) => a.at - b.at || (a.name < b.name ? -1 : 1));
-    for (const { name } of aged.slice(0, names.length - HISTORY_LIMIT + 1)) {
-      protectState([`runs/${name}`]);
+    for (const { name } of aged.slice(0, names.length - HISTORY_LIMIT + 1))
       try { unlinkSync(join(folder, name)); } catch { /* left for the next run */ }
-    }
   } catch { /* history rotation never fails a run */ }
 }
 const LOCK_HOLDER = 'holder.json';
