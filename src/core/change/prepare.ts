@@ -8,6 +8,7 @@ import { isAbsolute, relative, sep } from 'node:path';
 import { isProxy } from 'node:util/types';
 import { prepare as prepareEngine } from '../recipe-engine.js';
 import { canonicalJson } from '../internal/canonical.js';
+import { blockMemberBytes, configMemberBytes } from '../internal/recipe-editors.js';
 import { cloneJsonValueStructureV1, deepFreezeStrictJsonV1 } from '../internal/strict-json.js';
 import { projectRoot } from '../internal/host-files.js';
 import { forgetProvenState } from '../internal/state.js';
@@ -241,7 +242,8 @@ export async function prepareChange(input: unknown, rawControls?: unknown, updat
       const hint = hints.get(operation.id);
       const replaceable = !!hint && hint.availableChoices.length > 0;
       const before = authored?.selectionId ? observed.get(`${authored.selectionId}/${authored.operationId}`) ?? null : null;
-      const shown = presentFile(before, operation.details.format, secretSlots(request.changes.find(entry => entry.managementId === managementId), acquired, step),
+      const entry = request.changes.find(candidate => candidate.managementId === managementId);
+      const shown = presentChangeExisting(authoredOperation(entry, acquired, step), before, operation.details.format, secretSlots(entry, acquired, step),
         privateValues(controls, managementId));
       conflicts.push({ code: 'STATE_CONFLICT', reason: replaceable ? 'existing-content' : 'managed-content-changed', managementId, step,
         target: where.path ?? '', observedSha256: hint?.observedSha256 ?? null, ...shown, choices: replaceable ? [...hint!.availableChoices, 'skip'] : [] });
@@ -276,6 +278,49 @@ function secretSlots(entry: ChangeRequest['changes'][number] | undefined, acquir
   if (!change || op?.kind !== 'config.entries') return [];
   const inputs = change.inputs as Record<string, { sensitive?: boolean }>;
   return (op.set ?? []).filter(item => item.input !== undefined && inputs[item.input]?.sensitive === true).map(item => [...item.path]);
+}
+function authoredOperation(entry: ChangeRequest['changes'][number] | undefined, acquired: Map<string, Change>, operationId: string): AuthoredOperation | undefined {
+  const change = entry?.change ?? (entry ? acquired.get(entry.managementId) : undefined);
+  return change?.operations.find(candidate => candidate.id === operationId) as AuthoredOperation | undefined;
+}
+interface AuthoredOperation { kind: string; set?: { path: string[] }[]; remove?: { path: string[] }[]; container?: string[];
+  blockId?: string; startMarker?: string; endMarker?: string }
+const pointerOf = (segments: string[]): string => segments.map(segment => '/' + segment.replaceAll('~', '~0').replaceAll('/', '~1')).join('');
+/**
+ * A change conflict's existing bytes: for a config entry or member, only the entries the operation touches (as the plan
+ * path presents them); for a text block, only that block; otherwise the whole file. Known secret slots and supplied
+ * secret values read `[REDACTED]`; the observed digest still binds the whole file.
+ */
+function presentChangeExisting(op: AuthoredOperation | undefined, before: Buffer | null, format: string | undefined, secrets: string[][],
+    values: string[]): { existing: string | null; redacted: string[] } {
+  const entries = op?.kind === 'config.entries' ? [...(op.set ?? []), ...(op.remove ?? [])].map(item => item.path) :
+    op?.kind === 'config.member' && op.container ? [op.container] : undefined;
+  if (op?.kind === 'text.block' && op.blockId && op.startMarker && op.endMarker) {
+    if (before === null) return { existing: null, redacted: [] };
+    try {
+      const block = blockMemberBytes(before, { blockId: op.blockId, startMarker: op.startMarker, endMarker: op.endMarker, action: 'remove' });
+      return block ? presentFile(block, undefined, [], values) : { existing: null, redacted: [] };
+    } catch { return { existing: null, redacted: [] }; }
+  }
+  if (!entries || !format || !['json', 'jsonc', 'toml', 'ini', 'yaml', 'properties'].includes(format)) return presentFile(before, format, secrets, values);
+  if (before === null || before.length > 1_048_576) return { existing: null, redacted: [] };
+  const shown: string[] = []; const redacted: string[] = [];
+  for (const path of entries) {
+    let member: Buffer | null;
+    try { member = configMemberBytes(format as 'json', before, path); } catch { member = null; }
+    if (member === null) continue;
+    const own = secrets.filter(secret => secret.length >= path.length && path.every((segment, at) => secret[at] === segment));
+    let text: string;
+    if (own.some(secret => secret.length === path.length) || (own.length && format !== 'json' && format !== 'jsonc')) {
+      text = JSON.stringify('[REDACTED]'); redacted.push(pointerOf(path));
+    } else {
+      const presented = presentFile(member, format, own.map(secret => secret.slice(path.length)), values);
+      if (presented.existing === null) continue;
+      text = presented.existing; redacted.push(...presented.redacted.map(pointer => pointerOf(path) + pointer));
+    }
+    shown.push(entries.length === 1 ? text : `${pointerOf(path)}: ${text}`);
+  }
+  return shown.length ? { existing: shown.join('\n'), redacted: [...new Set(redacted)].sort() } : { existing: null, redacted: [] };
 }
 /** The secret values supplied for one change: never shown in a conflict's existing bytes. */
 const privateValues = (controls: ChangeControls, managementId: string): string[] =>

@@ -194,9 +194,23 @@ test('a change conflict shows your existing settings with the secret slots it wo
   assert.equal(blocked.status, 'blocked', JSON.stringify(blocked));
   const [conflict] = conforms(blocked.review).conflicts;
   assert.deepEqual(conflict.redacted, ['/token']);
-  assert.equal(conflict.existing, '{\n  "token": "[REDACTED]",\n  "other": "kept"\n}\n');
+  // Only the entry the change sets is shown, never the rest of your file.
+  assert.equal(conflict.existing, '"[REDACTED]"');
   assert.equal(conflict.observedSha256, createHash('sha256').update(mine).digest('hex'));
   assert.equal(JSON.stringify(blocked.review).includes('my-own-token'), false);
+});
+
+test('a change conflict on one key shows only that entry, not the other values in your file', async () => {
+  const target = project();
+  mkdirSync(join(target, '.team'));
+  const mine = '{\n  "token": "SECRET-TOKEN-123",\n  "mode": "a"\n}\n';
+  writeFileSync(join(target, '.team', 'settings.json'), mine);
+  const blocked = await prepare(changeRequest([{ managementId: 'mode', change: projectSetting('mode', 'mode', 'b') }], { project: target }));
+  assert.equal(blocked.status, 'blocked', JSON.stringify(blocked));
+  const [conflict] = conforms(blocked.review).conflicts;
+  assert.equal(conflict.existing, '"a"');
+  assert.equal(conflict.observedSha256, createHash('sha256').update(mine).digest('hex'));
+  assert.equal(JSON.stringify(blocked.review).includes('SECRET-TOKEN-123'), false);
 });
 
 test('one-server approval and its server land together, and the request a review was made from cannot change before Apply', async () => {
