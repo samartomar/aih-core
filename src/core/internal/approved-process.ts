@@ -1,4 +1,5 @@
-import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
+import { system32 } from './system-root.js';
 import { accessSync, constants, existsSync, lstatSync, readlinkSync, realpathSync } from 'node:fs';
 import { delimiter, dirname, isAbsolute, join, parse, relative, resolve } from 'node:path';
 import { sha256 } from './host-files.js';
@@ -21,16 +22,6 @@ export interface ProcessResult {
   stdout?: Buffer;
 }
 const WINDOWS_SUFFIX = process.platform === 'win32' ? ['.exe', '.com'] : [''];
-let windowsFolder: string | undefined;
-/** The Windows folder as the kernel's `\SystemRoot` link names it; the inherited `%SystemRoot%` only when that can't be read. */
-function windowsDirectory(): string {
-  if (windowsFolder === undefined) {
-    try { windowsFolder = realpathSync.native('\\\\?\\GLOBALROOT\\SystemRoot'); }
-    catch { windowsFolder = process.env.SystemRoot ?? 'C:\\Windows'; }
-  }
-  return windowsFolder;
-}
-const system32 = (name: string): string => join(windowsDirectory(), 'System32', name);
 /**
  * The environment every child Core starts receives: the host's, the request's, and
  * `NoDefaultCurrentDirectoryInExePath=1`, so on Windows a program found by bare name is never one in the working folder.
@@ -41,30 +32,48 @@ export function childEnvironment(base: Record<string, string | undefined>, extra
   env.NoDefaultCurrentDirectoryInExePath = '1';
   return env;
 }
+/** Spawn options that let `stopTree` reach every process a child starts: its own process group on POSIX. */
+export const treeSpawnOptions = (): { detached?: true } => process.platform === 'win32' ? {} : { detached: true };
+
 /**
- * Spawn options for a child `stopTree` can stop: none. A child stays in its parent's process group, so a terminal's
- * Ctrl-C still reaches it; `stopTree` finds its descendants instead.
+ * The process groups of Core's live POSIX children. While any runs, a SIGINT, SIGTERM or SIGHUP Core receives is passed
+ * on to every group (a terminal's Ctrl-C reaches only Core's own group), and Core's exit kills every group. When Core has
+ * no other handler for the signal, it then ends on it as it would have without these handlers.
  */
-export const treeSpawnOptions = (): Record<string, never> => ({});
-/** Every live descendant of `pid` on POSIX, from `ps` by absolute path; empty when it can't be read. */
-function descendants(pid: number): number[] {
-  const ps = ['/bin/ps', '/usr/bin/ps'].find(path => existsSync(path));
-  if (!ps) return [];
-  const listed = spawnSync(ps, ['-A', '-o', 'pid=,ppid='], { encoding: 'utf8', timeout: 5_000, maxBuffer: 4 * 1_048_576, env: { PATH: '/usr/bin:/bin' } });
-  if (listed.status !== 0 || typeof listed.stdout !== 'string') return [];
-  const children = new Map<number, number[]>();
-  for (const line of listed.stdout.split('\n')) {
-    const [child, parent] = line.trim().split(/\s+/).map(Number);
-    if (!Number.isSafeInteger(child) || !Number.isSafeInteger(parent)) continue;
-    children.set(parent!, [...children.get(parent!) ?? [], child!]);
+const groups = new Set<number>();
+const FORWARDED = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const;
+const forward = (signal: NodeJS.Signals) => {
+  for (const group of groups) try { process.kill(-group, signal); } catch { /* already gone */ }
+  if (process.listenerCount(signal) === 1) {
+    unwatch();
+    process.kill(process.pid, signal);
   }
-  const found: number[] = []; const queue = [pid];
-  while (queue.length && found.length < 4096) for (const next of children.get(queue.shift()!) ?? []) { found.push(next); queue.push(next); }
-  return found;
+};
+const handlers = new Map(FORWARDED.map(signal => [signal, () => forward(signal)]));
+const killAll = () => { for (const group of groups) try { process.kill(-group, 'SIGKILL'); } catch { /* already gone */ } };
+let watching = false;
+function watch(): void {
+  if (watching) return;
+  watching = true;
+  for (const [signal, handler] of handlers) process.on(signal, handler);
+  process.on('exit', killAll);
+}
+function unwatch(): void {
+  if (!watching) return;
+  watching = false;
+  for (const [signal, handler] of handlers) process.removeListener(signal, handler);
+  process.removeListener('exit', killAll);
+}
+/** Tracks a POSIX child's process group until it closes; see `groups`. */
+export function trackTree(child: ChildProcess): void {
+  if (process.platform === 'win32' || child.pid === undefined) return;
+  const group = child.pid;
+  groups.add(group); watch();
+  child.once('close', () => { groups.delete(group); if (!groups.size) unwatch(); });
 }
 /**
- * Stops a child and everything it started: `taskkill /T /F` on Windows (by absolute path); on POSIX the child's
- * descendants, found before any is signalled (`SIGTERM`, then `SIGKILL` with `force`). The child itself is killed too.
+ * Stops a child and everything it started: `taskkill /T /F` on Windows (by absolute path under the kernel's
+ * `\SystemRoot`); on POSIX the child's process group (`SIGTERM`, then `SIGKILL` with `force`). The child itself is killed too.
  */
 export function stopTree(child: ChildProcess, force = false): void {
   const direct = () => { try { child.kill(force ? 'SIGKILL' : 'SIGTERM'); } catch { /* Close or the cleanup deadline determines uncertainty. */ } };
@@ -80,7 +89,7 @@ export function stopTree(child: ChildProcess, force = false): void {
     killer.once('error', done); killer.once('close', done);
     return;
   }
-  for (const descendant of descendants(pid)) try { process.kill(descendant, force ? 'SIGKILL' : 'SIGTERM'); } catch { /* already gone */ }
+  try { process.kill(-pid, force ? 'SIGKILL' : 'SIGTERM'); } catch { /* not a group leader, or already gone */ }
   direct();
 }
 
@@ -306,6 +315,7 @@ export async function runApprovedProcess(request: {
         spawn(request.executable.launchPath, request.args, { shell: false, windowsHide: true, cwd: request.cwd,
           env, stdio: ['pipe', 'pipe', 'pipe'], ...treeSpawnOptions() });
     } catch { finish('unavailable', 'spawn-failed'); return; }
+    trackTree(child);
     const observe = (chunk: Buffer) => { byteCount += chunk.byteLength; if (byteCount > request.maxOutputBytes) stop('output-bytes'); };
     child.stdout?.on('data', (chunk: Buffer) => { if (request.capture) captured.push(chunk); observe(chunk); });
     child.stderr?.on('data', observe);

@@ -143,3 +143,52 @@ test('a terminal Ctrl-C (SIGINT to the foreground process group) still stops a r
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+/** A host process running one approved program whose own child also runs; returns both pids and the host. */
+async function hostedTree(root, hostTail = '') {
+  const pids = join(root, 'pids');
+  const grandchild = join(root, 'grandchild.js');
+  writeFileSync(grandchild, `require('fs').appendFileSync(${JSON.stringify(pids)}, process.pid + '\\n'); setTimeout(() => {}, 30000);\n`);
+  const child = join(root, 'child.js');
+  writeFileSync(child, `require('fs').appendFileSync(${JSON.stringify(pids)}, process.pid + '\\n');\n` +
+    `require('child_process').spawn(process.execPath, [${JSON.stringify(grandchild)}], { stdio: 'ignore' }); setTimeout(() => {}, 30000);\n`);
+  const host = join(root, 'host.mjs');
+  const module = new URL('../dist/core/internal/approved-process.js', import.meta.url).href;
+  writeFileSync(host, `const { resolveExecutable, runApprovedProcess } = await import(${JSON.stringify(module)});\n` +
+    `const running = runApprovedProcess({ executable: resolveExecutable(process.execPath), args: [${JSON.stringify(child)}], cwd: ${JSON.stringify(root)}, env: {},` +
+    ` timeoutMs: 60000, maxOutputBytes: 100000, acceptedExitCodes: [0] });\n${hostTail}\nawait running;\n`);
+  const { spawn } = await import('node:child_process');
+  const parent = spawn(process.execPath, [host], { detached: true, stdio: 'ignore' });
+  const listed = () => existsSync(pids) ? readFileSync(pids, 'utf8').split('\n').filter(Boolean).map(Number) : [];
+  for (let waited = 0; listed().length < 2 && waited < 100; waited++) await sleep(100);
+  return { parent, pids: listed() };
+}
+const alive = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };
+
+for (const [signal, toGroup] of [['SIGTERM', false], ['SIGHUP', false], ['SIGINT', false]]) {
+  test(`a ${signal} sent to Core alone stops the approved program and everything it started`, { skip: windows }, async () => {
+    const root = mkdtempSync(join(tmpdir(), 'aih-forward-'));
+    try {
+      const { parent, pids } = await hostedTree(root);
+      assert.equal(pids.length, 2, 'the program and its child are running');
+      process.kill(toGroup ? -parent.pid : parent.pid, signal);
+      await sleep(2500);
+      const left = pids.filter(alive);
+      for (const pid of left) process.kill(pid, 'SIGKILL');
+      assert.deepEqual(left, [], 'nothing outlived Core');
+      assert.equal(alive(parent.pid), false, 'Core itself still ends on the signal');
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+}
+
+test('an approved program and everything it started stop when Core exits', { skip: windows }, async () => {
+  const root = mkdtempSync(join(tmpdir(), 'aih-exit-'));
+  try {
+    const { pids } = await hostedTree(root, `setTimeout(() => process.exit(3), 1500);`);
+    await sleep(3500);
+    const left = pids.filter(alive);
+    for (const pid of left) process.kill(pid, 'SIGKILL');
+    assert.equal(pids.length, 2);
+    assert.deepEqual(left, [], 'nothing outlived Core');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

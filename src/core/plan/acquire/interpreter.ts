@@ -5,7 +5,7 @@ import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { devNull, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { childEnvironment, resolveExecutable, stopTree, treeSpawnOptions } from '../../internal/approved-process.js';
+import { childEnvironment, resolveExecutable, stopTree, trackTree, treeSpawnOptions } from '../../internal/approved-process.js';
 import { inRange } from './range.js';
 import type { InstalledInterpreter } from './types.js';
 
@@ -71,7 +71,7 @@ const LOG_TAIL_BYTES = 65_536;
  * Node's own options and certificates. Everything else, such as compiler and linker flags (`CL`, `INCLUDE`, `LIB`,
  * `RUSTFLAGS`, `CARGO_*`), package settings and proxies, never reaches a build; Core sets the rest itself.
  */
-const BUILD_KEPT = /^(PATH|PATHEXT|SYSTEMROOT|SYSTEMDRIVE|WINDIR|COMSPEC|OS|NUMBER_OF_PROCESSORS|PROCESSOR_(ARCHITECTURE|IDENTIFIER|LEVEL|REVISION)|PROGRAMFILES|PROGRAMFILES(X86)|PROGRAMW6432|PROGRAMDATA|COMMONPROGRAMFILES|COMMONPROGRAMFILES(X86)|COMMONPROGRAMW6432|LOCALAPPDATA|USERNAME|USERDOMAIN|COMPUTERNAME|USER|LOGNAME|SHELL|TERM|LANG|LANGUAGE|LC_[A-Z]+|TZ|NODE_OPTIONS|NODE_EXTRA_CA_CERTS|SSL_CERT_FILE|SSL_CERT_DIR)$/i;
+const BUILD_KEPT = /^(PATH|PATHEXT|SYSTEMROOT|SYSTEMDRIVE|WINDIR|COMSPEC|OS|NUMBER_OF_PROCESSORS|PROCESSOR_(ARCHITECTURE|IDENTIFIER|LEVEL|REVISION)|PROGRAMFILES|PROGRAMFILES\(X86\)|PROGRAMW6432|PROGRAMDATA|COMMONPROGRAMFILES|COMMONPROGRAMFILES\(X86\)|COMMONPROGRAMW6432|LOCALAPPDATA|USERNAME|USERDOMAIN|COMPUTERNAME|USER|LOGNAME|SHELL|TERM|LANG|LANGUAGE|LC_[A-Z]+|TZ|NODE_OPTIONS|NODE_EXTRA_CA_CERTS|SSL_CERT_FILE|SSL_CERT_DIR)$/i;
 /** What Core sets for every source build: offline package tools. */
 const BUILD_SET = { PIP_NO_INDEX: '1', CARGO_NET_OFFLINE: 'true' };
 export async function runHelper(executable: string, args: string[], options: { signal?: AbortSignal; timeoutMs: number; cwd: string; env?: Record<string, string>; build?: boolean }): Promise<PythonResult> {
@@ -105,6 +105,7 @@ export async function runHelper(executable: string, args: string[], options: { s
       try { child = spawn(resolved.launchPath, [helper, ...args], { shell: false, windowsHide: true, cwd: options.cwd, env: childEnvironment(env),
         stdio: ['ignore', 'pipe', 'pipe'], ...treeSpawnOptions() }); }
       catch { done({ ok: false, output: null, reason: 'interpreter-unavailable' }); return; }
+      trackTree(child);
       options.signal?.addEventListener('abort', stop, { once: true });
       child.stdout?.on('data', (chunk: Buffer) => { size += chunk.length; if (size > 1_048_576) stop(); else out.push(chunk); });
       child.stderr?.on('data', (chunk: Buffer) => {
