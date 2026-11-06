@@ -472,7 +472,9 @@ export class OwnedFileTransaction {
     }
     this.assertSafeParents(path);
     const directory = this.prepareDirectory(path);
-    const target = join(this.root, ...path.split("/"));
+    // The final name is placed in the canonical folder just checked, never re-resolved from the root by path.
+    const pinned = this.directoryIdentity(directory, path);
+    const target = join(directory, path.split("/").at(-1) as string);
     if (lstatOrAbsent(target, this.policy.label)?.isSymbolicLink() === true) {
       throw new Error(
         `refusing to write through a symlinked ${this.policy.label} destination: ${safeText(path)}`,
@@ -483,6 +485,10 @@ export class OwnedFileTransaction {
       writeFileSync(temporary, snapshot, { flag: "wx", mode });
       chmodSync(temporary, mode);
       if (staged) staged(fileIdentity(temporary)!);
+      // The folder must still be the one checked: same identity, same canonical place, inside the root.
+      if (this.directoryIdentity(directory, path) !== pinned) {
+        throw new Error(`${this.policy.label} destination parent changed before commit: ${safeText(path)}`);
+      }
       // A newly reviewed file must not replace a file created by another process
       // after assertExpected. Linking the same-volume staging file is exclusive.
       if (exclusive) retryTransient(() => linkSync(temporary, target));
@@ -490,6 +496,16 @@ export class OwnedFileTransaction {
     } finally {
       rmSync(temporary, { force: true });
     }
+  }
+
+  /** A checked folder's identity (device, inode and canonical place); throws when it is no longer a contained real folder. */
+  private directoryIdentity(directory: string, path: string): string {
+    const stats = lstatOrAbsent(directory, this.policy.label);
+    if (stats === undefined || stats.isSymbolicLink() || !stats.isDirectory() || typeof nativeRealpath !== "function" ||
+        nativeRealpath(directory) !== directory || !containedPath(this.root, directory)) {
+      throw new Error(`${this.policy.label} destination parent changed before commit: ${safeText(path)}`);
+    }
+    return `${stats.dev}:${stats.ino}:${directory}`;
   }
 
   remove(path: string): void {
