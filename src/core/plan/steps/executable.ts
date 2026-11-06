@@ -51,6 +51,27 @@ function enablesMcp(value: Json | undefined, depth = 0): boolean {
   if (Array.isArray(value)) return value.some(item => enablesMcp(item, depth + 1));
   return plain(value) && Object.entries(value).some(([key, child]) => MCP_ENABLE.has(key.toLowerCase()) || enablesMcp(child, depth + 1));
 }
+/**
+ * The plugins a value loads or enables, which run their own code, hooks and MCP servers: OpenCode's `plugin` npm list
+ * (installed and loaded at startup), Claude Code's `enabledPlugins` (those not switched off) and `extraKnownMarketplaces`.
+ */
+function pluginsIn(value: Json | undefined, depth = 0, found: string[] = []): string[] {
+  if (depth > 32) return found;
+  if (Array.isArray(value)) { for (const item of value) pluginsIn(item, depth + 1, found); return found; }
+  if (!plain(value)) return found;
+  for (const [key, child] of Object.entries(value)) {
+    const name = key.toLowerCase();
+    if (name === 'plugin' || name === 'plugins') {
+      const list = typeof child === 'string' ? [child] : Array.isArray(child) ? child : plain(child) ? Object.values(child) : [];
+      const named = list.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0);
+      if (named.length) { found.push(...named); continue; }
+    } else if (name === 'enabledplugins' && plain(child)) {
+      found.push(...Object.entries(child).filter(([, on]) => on !== false && on !== null).map(([id]) => id)); continue;
+    } else if (name === 'extraknownmarketplaces' && plain(child)) { found.push(...Object.keys(child)); continue; }
+    pluginsIn(child, depth + 1, found);
+  }
+  return found;
+}
 /** The remote URLs a value's MCP server entries connect to, under any client's name for the URL. */
 const URL_KEYS = new Set(['url', 'serverurl', 'httpurl']);
 function remotesIn(value: Json | undefined, depth = 0, found: string[] = []): string[] {
@@ -102,9 +123,10 @@ export function mergeConfiguration(segments: string[], entry: Json, hide: (text:
   const enabling = enablesMcp(whole);
   const mcp = segments.some(segment => /^(mcpservers|mcp_servers|mcp|servers|context_servers)$/i.test(segment));
   const connects = mcp ? remotesIn(whole).map(hide) : [];
-  if (!launches.length && !hooks && !loader && !enabling && !connects.length) return undefined;
-  const kind = hooks ? 'hook' : mcp ? 'mcp-server' : enabling ? 'mcp-enable' : 'settings-command';
-  return { label: 'executable-configuration', kind, launches, ...(connects.length ? { connects } : {}) };
+  const plugins = pluginsIn(whole).map(hide);
+  if (!launches.length && !hooks && !loader && !enabling && !connects.length && !plugins.length) return undefined;
+  const kind = hooks ? 'hook' : mcp ? 'mcp-server' : enabling ? 'mcp-enable' : plugins.length ? 'plugin' : 'settings-command';
+  return { label: 'executable-configuration', kind, launches, ...(connects.length ? { connects } : {}), ...(plugins.length ? { plugins } : {}) };
 }
 const quoted = (value: string): string[] => [...value.matchAll(/"((?:[^"\\]|\\.)*)"|'([^']*)'/g)].map(match => match[1] !== undefined ? match[1].replace(/\\(.)/g, '$1') : match[2]!);
 const commandKey = (key: string): boolean => key.toLowerCase() === 'command' || COMMAND_KEYS.has(key.toLowerCase());
@@ -163,7 +185,7 @@ const COMPLEX_YAML = /[{}]|^\s*\?\s|<<\s*:|(?:^|\s)[&*!][^\s]|:\s*[|>][-+]?\s*$|
  * YAML; when it uses a form those scans don't read, or a value they can't resolve, it is `unparsed`: it is labelled all the
  * same, never left out. Markdown is read only in its front matter.
  */
-function textLaunches(path: string, bytes: Buffer): { launches: Launch[]; hooks: boolean; loader?: boolean; enabling?: boolean; connects?: string[]; unparsed?: 'unparsed' | 'unparsed-yaml' } {
+function textLaunches(path: string, bytes: Buffer): { launches: Launch[]; hooks: boolean; loader?: boolean; enabling?: boolean; connects?: string[]; plugins?: string[]; unparsed?: 'unparsed' | 'unparsed-yaml' } {
   const none = { launches: [], hooks: false };
   let text: string;
   // UTF-8, or UTF-16 with its byte order mark (a client may refuse it, but the review still reads it).
@@ -171,7 +193,7 @@ function textLaunches(path: string, bytes: Buffer): { launches: Launch[]; hooks:
   try { text = new TextDecoder(encoding, { fatal: true }).decode(bytes).replace(/^\uFEFF/, ''); } catch { return none; }
   const errors: ParseError[] = [];
   const parsed = parseJsonc(text, errors, { allowTrailingComma: true, disallowComments: false }) as Json;
-  if (!errors.length && parsed !== null && typeof parsed === 'object') return { launches: launchesIn(parsed), hooks: mentionsHooks([], parsed), loader: setsLoader(parsed), enabling: enablesMcp(parsed), connects: remotesIn(parsed) };
+  if (!errors.length && parsed !== null && typeof parsed === 'object') return { launches: launchesIn(parsed), hooks: mentionsHooks([], parsed), loader: setsLoader(parsed), enabling: enablesMcp(parsed), connects: remotesIn(parsed), plugins: pluginsIn(parsed) };
   if (/\.(md|mdc|markdown)$/i.test(path)) {
     const front = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text);
     if (!front) return none;
@@ -195,7 +217,8 @@ export function writeConfiguration(path: string, bytes: Buffer, executable: bool
   const read = textLaunches(path, bytes);
   const launches = shown(read.launches, hide); const hooks = read.hooks;
   const connects = (read.connects ?? []).map(hide);
-  if (!executable && !launches.length && !read.unparsed && !hooks && !read.loader && !read.enabling && !connects.length) return undefined;
-  return { label: 'executable-configuration', kind: executable ? 'executable-file' : read.unparsed ?? (hooks ? 'hook' : read.enabling ? 'mcp-enable' : 'settings-command'),
-    launches, ...(connects.length ? { connects } : {}), sha256: createHash('sha256').update(bytes).digest('hex'), executable };
+  const plugins = (read.plugins ?? []).map(hide);
+  if (!executable && !launches.length && !read.unparsed && !hooks && !read.loader && !read.enabling && !connects.length && !plugins.length) return undefined;
+  return { label: 'executable-configuration', kind: executable ? 'executable-file' : read.unparsed ?? (hooks ? 'hook' : read.enabling ? 'mcp-enable' : plugins.length ? 'plugin' : 'settings-command'),
+    launches, ...(connects.length ? { connects } : {}), ...(plugins.length ? { plugins } : {}), sha256: createHash('sha256').update(bytes).digest('hex'), executable };
 }

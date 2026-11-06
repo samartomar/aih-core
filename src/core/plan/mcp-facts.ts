@@ -141,6 +141,8 @@ export const MCP_FACTS: Readonly<Record<string, { places: Record<string, Json>; 
         }
       }
     },
+    // dsh keeps no MCP servers (Catalog 26df4c0 gives it no MCP place or entry shape): Core's fixed names only.
+    "dsh": { "places": {}, "mcpFile": {} },
     "cursor": {
       "places": {
         "project": {
