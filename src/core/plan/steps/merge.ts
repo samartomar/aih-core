@@ -11,6 +11,7 @@ import { homedir } from 'node:os';
 import { projectRoot } from '../../internal/host-files.js';
 import { clis, owners, problem, refusal, target } from './common.js';
 import { renderWrite } from './render.js';
+import { holdsCoreMarker } from '../../internal/recipe-editors.js';
 import { bindEntry, bindText, parseBindings, unfilledPlaceholder, type BoundInputs, type SlotTemplate } from '../inputs.js';
 import type { Json } from '../../types.js';
 import type { PlanStep } from '../types.js';
@@ -163,6 +164,8 @@ export const merge: StepHandler = {
         if (!('text' in done)) return done;
         entry = done.text; bound = done.bound;
       }
+      if (holdsCoreMarker(entry as string))
+        return problem(index, 'entry', 'entry', "A Markdown merge `entry` never holds a Core block marker, its own or another block's.");
       const unfilled = unfilledPlaceholder(step, index, entry, owner.ids, inputs); if (unfilled) return unfilled;
     }
     const name = basename(placed.path);

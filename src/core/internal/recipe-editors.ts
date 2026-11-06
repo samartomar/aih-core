@@ -100,6 +100,10 @@ export function renderConfigEntries(format: 'json' | 'jsonc' | 'toml' | 'ini' | 
 
 export interface TextBlockEdit { blockId: string; startMarker: string; endMarker: string; action: 'set' | 'remove'; content?: string }
 /** Replaces exactly one bounded marker pair, preserving every byte outside that pair. */
+/** A line that is, or opens like, any Core block marker: `<!-- aih:begin x -->`, `<!-- aih:end x -->`, `<!-- BEGIN aih:shared -->`. */
+const CORE_MARKER = /^\s*<!--\s*(?:(?:BEGIN|END)\s+)?aih:/imu;
+/** Whether block text holds a Core block marker line, which would make this or another block ambiguous. */
+export const holdsCoreMarker = (text: string): boolean => CORE_MARKER.test(text);
 export function renderTextBlock(before: Buffer | null, edit: TextBlockEdit): Buffer | null {
   if (!edit || typeof edit.blockId !== 'string' || !edit.blockId || edit.blockId.length > 256 ||
       typeof edit.startMarker !== 'string' || !edit.startMarker || edit.startMarker.length > 256 ||
@@ -130,7 +134,8 @@ export function renderTextBlock(before: Buffer | null, edit: TextBlockEdit): Buf
     return output ? Buffer.from(output, 'utf8') : null;
   }
   const content = edit.content!;
-  if (content.includes(edit.startMarker) || content.includes(edit.endMarker)) fail('ambiguous-text-block');
+  if (content.includes(edit.startMarker) || content.includes(edit.endMarker) ||
+      (/^\s*<!--/u.test(edit.startMarker) && holdsCoreMarker(content))) fail('ambiguous-text-block');
   const body = `${edit.startMarker}${eol}${content}${content.endsWith(eol) || !content ? '' : eol}${edit.endMarker}`;
   if (starts.length) return Buffer.from(text.slice(0, starts[0]!.start) + body + text.slice(ends[0]!.start + edit.endMarker.length), 'utf8');
   const separator = text && !/[\r\n]$/u.test(text) ? eol : '';

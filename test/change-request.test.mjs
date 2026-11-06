@@ -213,6 +213,18 @@ test('a change conflict on one key shows only that entry, not the other values i
   assert.equal(JSON.stringify(blocked.review).includes('SECRET-TOKEN-123'), false);
 });
 
+test('a text block whose body holds another Core block marker is not admitted and writes nothing', async () => {
+  const target = project();
+  const change = { schema: 'urn:aihq:core:change:0.1.0', id: 'guide', description: 'Guide', inputs: {}, materials: [], targets: ['project'], prerequisites: [],
+    operations: [{ id: 'block', purpose: 'Point at the rules', kind: 'text.block', scope: 'project', target: { root: 'project', segments: [{ literal: 'AGENTS.md' }] },
+      blockId: 'guide', startMarker: '<!-- aih:begin guide -->', endMarker: '<!-- aih:end guide -->', action: 'set',
+      content: { literal: 'See RULES.md.\n<!-- aih:end other -->\n' }, requires: [], checks: [] }], checks: [] };
+  const prepared = await prepare(changeRequest([{ managementId: 'guide', change }], { project: target }));
+  assert.notEqual(prepared.status, 'ready', JSON.stringify(prepared));
+  assert.equal(prepared.handle, undefined);
+  assert.equal(existsSync(join(target, 'AGENTS.md')), false);
+});
+
 test('one-server approval and its server land together, and the request a review was made from cannot change before Apply', async () => {
   const target = project();
   const { prepared } = await applied(changeRequest([{ managementId: 'docs-server', change: approvalChange() }], { project: target }));
