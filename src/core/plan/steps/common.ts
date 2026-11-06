@@ -1,11 +1,12 @@
 // Checks every placement step shares: what it belongs to, where it lands, and which CLIs it serves.
-import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { projectRoot } from '../../internal/host-files.js';
+import { projectRoot, sha256 } from '../../internal/host-files.js';
+import { readRegularFile } from '../../internal/fsxn.js';
+import { readOwnership } from '../../internal/state.js';
 import { stateLocation } from '../../state-location.js';
 import { knownCli } from '../tools.js';
-import { ACQUIRED_MARKER_PREFIX, AI_SETUP_ROOT, MANIFEST } from '../acquire/types.js';
+import { ACQUIRED_MARKER_PREFIX, ACQUIRING, AI_SETUP_ROOT, MANIFEST } from '../acquire/types.js';
 import type { PlanStep, Problem, Refusal } from '../types.js';
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
@@ -37,30 +38,41 @@ export function owners(step: PlanStep, index: number): { ids: string[]; review: 
   return problem(index, 'item', 'owner', 'A placement step names exactly one `item` or a non-empty list of `items`.');
 }
 
+const foldName = (value: string) => process.platform === 'win32' || process.platform === 'darwin' ? value.toLowerCase() : value;
 /**
- * Whether a user-root path lies inside an AI setup folder (`.aihq/ai-setup/<name>/<version>/<cell>/`) Core acquired: its
- * marker file is present and is Core's.
+ * Whether a user-root path lies inside an AI setup folder (`.aihq/ai-setup/<name>/<version>/<cell>/`) Core acquired: a
+ * receipt in the user state records that acquisition (an AI setup install holding the folder's marker file), and the
+ * marker there now is a regular file (no link is followed) with the bytes that receipt recorded. A marker file alone,
+ * which any writer could make, is never proof.
  */
 export function acquiredByCore(path: string): boolean {
   const folder = /^(\.aihq\/ai-setup\/[^/]+\/[^/]+\/[^/]+)\//.exec(path)?.[1];
   if (!folder) return false;
   try {
-    const marker = join(projectRoot(homedir()), ...folder.split('/'), MANIFEST);
-    return existsSync(marker) && readFileSync(marker, 'utf8').startsWith(ACQUIRED_MARKER_PREFIX);
+    const home = projectRoot(homedir());
+    const markerPath = `${folder}/${MANIFEST}`;
+    const recorded = Object.values(readOwnership(home).value.items ?? {}).filter(item => item.scope === 'user' && item.plan?.aiSetup)
+      .flatMap(item => item.members).flatMap(member => member.kind === 'file' && foldName(member.path) === foldName(markerPath) ? [member.sha256] : []);
+    if (!recorded.length) return false;
+    const bytes = readRegularFile(join(home, ...markerPath.split('/')), { maxBytes: 64 * 1024 });
+    return !!bytes && bytes.toString('utf8').startsWith(ACQUIRED_MARKER_PREFIX) && recorded.includes(sha256(bytes));
   } catch { return false; }
 }
 /**
- * Only an acquire step places anything in an AI setup's version folders (`.aihq/ai-setup/<name>/<version>/…`): a write,
- * merge or link there is refused (`path-escape`), so no plan supplies a program a tool-command or MCP entry then starts as
- * an AI setup's. The setup's own `settings/` folder, which Catalog places settings files in, stays a plain target.
+ * Only an acquire step places anything in an AI setup's folders (`.aihq/ai-setup/<name>/…`): a write, merge or link there
+ * is refused (`path-escape`), so no plan supplies a program a tool-command or MCP entry then starts as an AI setup's. The
+ * one exception is a non-executable file directly in the setup's own `settings/` folder, where Catalog places settings
+ * files. A file named like Core's acquisition marker is refused anywhere.
  */
-export function aiSetupReserved(root: 'project' | 'user', path: string, index: number): { refusal: Refusal } | undefined {
+export function aiSetupReserved(root: 'project' | 'user', path: string, index: number, executable = false): { refusal: Refusal } | undefined {
   // Case-folded where names are; on Windows a segment's trailing dots and spaces name the same folder.
   const fold = (value: string) => process.platform === 'win32' ? value.toLowerCase().split('/').map(part => part.replace(/[. ]+$/, '')).join('/') :
     process.platform === 'darwin' ? value.toLowerCase() : value;
   const segments = fold(path).split('/');
+  if (segments.at(-1) === fold(MANIFEST) || segments.at(-1) === fold(ACQUIRING))
+    return refusal('path-escape', `Step ${index} places \`${path}\`, named like Core's acquisition marker.`, index);
   const under = `${segments[0]}/${segments[1]}` === AI_SETUP_ROOT;
-  if (root !== 'user' || !under || segments.length >= 4 && segments[3] === 'settings' && segments.length > 4) return undefined;
+  if (root !== 'user' || !under || segments.length === 5 && segments[3] === 'settings' && !executable) return undefined;
   return refusal('path-escape', `Step ${index} places \`${path}\` inside an AI setup folder, which only an acquire step fills.`, index);
 }
 
