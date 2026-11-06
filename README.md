@@ -608,6 +608,12 @@ const removal = await prepareRemoval({ target: { project: '/work/app' }, scope: 
   removals: [{ managementId: 'local-my-skills.skill.notes' }] });      // then apply(removal.handle, …)
 ```
 
+- **`list` member states** are `matching`, `changed-by-you`, `missing`, `unchecked`, `displaced-by` and `generated`. A
+  link is `generated` when its version folder holds, besides what Core placed, only files a file browser or a runtime
+  makes (`.DS_Store`, `Thumbs.db`, `desktop.ini`, or a recorded module's `__pycache__/*.pyc`). `generated` files are
+  not checked and never trusted: Core removes `__pycache__` folders before it links a version folder, or runs a
+  program from an AI setup folder.
+
 - **Before any effect**, Prepare refuses a file a step names that has no entry or no bytes (`source-missing`), bytes
   whose sha256 differs from the entry, the content document or the plan (`source-mismatch`), a CLI or profile id with
   no registry tool (`tool-unknown`), a path leaving its root or naming a Git folder or an 8.3 short name
