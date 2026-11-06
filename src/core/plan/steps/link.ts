@@ -13,6 +13,11 @@ export const link: StepHandler = {
     const linked = target(step, index, 'to'); if (!('root' in linked)) return linked;
     if (placed.root !== 'user') return problem(index, 'root', 'link-scope', 'A link is placed only in user scope.');
     const fold = (value: string) => process.platform === 'win32' || process.platform === 'darwin' ? value.toLowerCase() : value;
+    // A link points only into a shared copy's version folder (`~/.aihq/shared/…` or `~/.aihq/ai-setup/…`), never at
+    // Core's state, the shared roots themselves or any other folder of yours.
+    const to = fold(linked.path).split('/');
+    if (linked.root !== 'user' || to[0] !== '.aihq' || !['shared', 'ai-setup'].includes(to[1]!) || to.length < 3)
+      return problem(index, 'to', 'link-target', 'A link points into a shared version folder under `.aihq/shared/` or `.aihq/ai-setup/`.');
     if (fold(linked.path) === fold(placed.path) || fold(linked.path).startsWith(fold(placed.path) + '/') || fold(placed.path).startsWith(fold(linked.path) + '/'))
       return problem(index, 'to', 'link-overlap', 'A link and the folder it points to are separate places.');
     const served = clis(step, index); if (!('clis' in served)) return served;

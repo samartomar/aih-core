@@ -165,7 +165,20 @@ test('a shared place whose CLIs the plan did not record refuses removal by CLI (
 });
 const canonical = value => JSON.stringify(value);
 
-test('your own folder at a link place is never replaced: Prepare is blocked offering skip only, and a skip places the rest', async () => {
+test('a link points only into a shared version folder, never at Core\'s state or another of your folders', async () => {
+  const target = project();
+  for (const to of ['.aih', '.ssh', '.gnupg', '.aihq', 'Documents/notes', '.AIHQ/other/x']) {
+    const request = linkRequest(target);
+    for (const step of request.plan.plan) if (step.op === 'link') step.to = to;
+    const result = await prepare(request);
+    assert.equal(result.status, 'invalid', `${to}: ${JSON.stringify(result)}`);
+    assert.equal(result.handle, undefined);
+    assert.ok(result.problems.some(item => item.reason === 'link-target'), `${to}: ${JSON.stringify(result.problems)}`);
+  }
+  assert.equal(existsSync(join(home, '.claude', 'skills', 'ecc-plan')), false);
+});
+
+test('your own folder at a link place is never replaced:Prepare is blocked offering skip only, and a skip places the rest', async () => {
   const target = project();
   const mine = join(home, '.claude', 'skills', 'ecc-plan');
   mkdirSync(mine, { recursive: true });
