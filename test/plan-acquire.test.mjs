@@ -176,10 +176,14 @@ test('acquired bytes that differ fail that AI setup and its dependants; an unrel
   for (const row of finished.entries) assert.deepEqual([row.installState, row.lastRun], ['complete', undefined], row.managementId);
 });
 
+/** A native member name Core launches on this host: Windows starts only an `.exe` (or `.com`) by its path. */
+const program = name => process.platform === 'win32' ? `${name}.exe` : name;
+const programSetup = (name, options = {}) => nativeSetup(server, { name, members: { [program('memory-mcp')]: '#!/bin/sh\necho memory\n', LICENSE: 'MIT\n' }, ...options });
+
 /** The setup's MCP entry (Catalog `rootPaths`): `.mcp.json` starts the acquired executable by its path under the user root. */
 function withMcp(request, native) {
   const id = native.id.replace('.ai-setup.', '.mcp.');
-  const executable = `${native.folder}/memory-mcp`;
+  const executable = `${native.folder}/${Object.keys(native.members)[0]}`;
   request.plan.plan.find(step => step.op === 'acquire' && step.aiSetup === native.id).executable = executable;
   request.contents[0].items.find(item => item.id === native.id).aiSetup.mcpItem = id;
   request.contents[0].items.push({ id, kind: 'mcp', name: 'memory', description: 'memory', files: [] });
@@ -191,16 +195,17 @@ function withMcp(request, native) {
 test('an MCP entry naming an acquired executable needs its acquire step; when that step is skipped the entry is not written', async () => {
   noPython();
   const target = project();
-  const native = nativeSetup(server, { name: 'n-mcp' });
+  const native = programSetup('n-mcp');
   const planned = withMcp(setupRequest(target, [native]), native);
   const prepared = await prepare(planned.request);
   assert.equal(prepared.status, 'ready', JSON.stringify(prepared));
-  assert.equal((await apply(prepared.handle, approve(prepared.review))).completion, 'complete');
-  assert.equal(JSON.parse(readFileSync(join(target, '.mcp.json'), 'utf8')).mcpServers.memory.command, join(home, ...native.folder.split('/'), 'memory-mcp'));
+  const applied = await apply(prepared.handle, approve(prepared.review));
+  assert.equal(applied.completion, 'complete', JSON.stringify(applied));
+  assert.equal(JSON.parse(readFileSync(join(target, '.mcp.json'), 'utf8')).mcpServers.memory.command, join(home, ...native.folder.split('/'), program('memory-mcp')));
 
   // Skipping the acquisition leaves its MCP entry out too: it would start a program that is not there.
   const other = project();
-  const skipped = withMcp(setupRequest(other, [nativeSetup(server, { name: 'n-mcp-skip' })]), nativeSetup(server, { name: 'n-mcp-skip' }));
+  const skipped = withMcp(setupRequest(other, [programSetup('n-mcp-skip')]), programSetup('n-mcp-skip'));
   const partial = await prepare({ ...skipped.request, resolutions: [{ managementId: 'cbm.ai-setup.n-mcp-skip', step: 0, choice: 'skip', observedSha256: null }] });
   assert.equal(partial.status, 'partial', JSON.stringify(partial));
   assert.deepEqual(partial.review.steps.map(step => [step.step, step.effect]), [[0, 'skipped'], [skipped.step, 'skipped']]);
@@ -214,7 +219,7 @@ test('a failed AI setup holds back only its own MCP entries: the other tools\' e
   // The trio's shape: three acquires, then every tool's Codex TOML entry, then every tool's Claude Code JSON entry, so
   // the failing tool's entry comes first in both shared files.
   const setups = ['q-graph', 'q-memory', 'q-serena'].map((name, index) => nativeSetup(server, { name,
-    id: `${['crg', 'cbm', 'serena'][index]}.ai-setup.${name}`, members: { [name]: `#!/bin/sh\necho ${name}\n`, LICENSE: 'MIT\n' } }));
+    id: `${['crg', 'cbm', 'serena'][index]}.ai-setup.${name}`, members: { [program(name)]: `#!/bin/sh\necho ${name}\n`, LICENSE: 'MIT\n' } }));
   const request = setupRequest(target, setups);
   request.profiles.push({ schema: 'urn:aihq:catalog:tool-profile:0.1.0', id: 'codex', version: 1, checkedWith: 'fixture' });
   const mcpOf = setup => setup.id.replace('.ai-setup.', '.mcp.');
@@ -222,7 +227,8 @@ test('a failed AI setup holds back only its own MCP entries: the other tools\' e
     request.contents[0].items.find(item => item.id === setup.id).aiSetup.mcpItem = mcpOf(setup);
     request.contents[0].items.push({ id: mcpOf(setup), kind: 'mcp', name: setup.item.name, description: setup.item.name, files: [] });
   }
-  const executable = setup => `${setup.folder}/${setup.item.name}`;
+  const executable = setup => `${setup.folder}/${Object.keys(setup.members)[0]}`;
+  for (const setup of setups) request.plan.plan.find(step => step.op === 'acquire' && step.aiSetup === setup.id).executable = executable(setup);
   for (const setup of setups) request.plan.plan.push({ op: 'merge', root: 'project', file: '.codex/config.toml', format: 'toml',
     key: `mcp_servers.${setup.item.name}`, entry: { command: executable(setup), args: ['--stdio'] }, item: mcpOf(setup), clis: ['codex'],
     rootPaths: [{ pointer: '/command', root: 'user', path: executable(setup) }] });
