@@ -168,7 +168,8 @@ test('a managed entry you edited is keep-changed: a replace resolution never ove
   assert.equal(readFileSync(join(target, '.mcp.json'), 'utf8'), mine);
 });
 
-const CODEX_MCP = 'local-my-setup.mcp.codex-github';
+// Its server name is its item's name, as Catalog lowers it (a separate framework from the JSON fixture above).
+const CODEX_MCP = 'local-codex.mcp.github';
 const toml = (extra = {}) => ({ item: CODEX_MCP, file: '.codex/config.toml', format: 'toml', key: 'mcp_servers.github', clis: ['codex'],
   entry: { command: 'npx', args: ['-y', '@example/github-mcp'], env: { GITHUB_HOST: 'github.example.com' } }, ...extra });
 
@@ -368,4 +369,42 @@ test('an MCP merge writes one whole server entry that equals its MCP item\'s, wi
   assert.deepEqual(await attempt({ entry: { ...good, type: 'http', url: 'https://evil.example.test/' } }), ['refused', 'source-mismatch']);
   assert.deepEqual(await attempt({ server: remote, entry: { url: 'https://mcp.example.test/search', command: 'evil' } }), ['refused', 'source-mismatch']);
   assert.deepEqual(await attempt({ server: remote, entry: { type: 'http', url: 'https://mcp.example.test/search' } }), ['ready', undefined]);
+});
+
+test('nothing a plan or its profiles supply widens an MCP entry: bindings fill only declared slots, above-container writes and profile keys are refused', async () => {
+  const npm = { name: 'search', packages: [{ registryType: 'npm', identifier: 'search-mcp', version: '1.2.3', runtimeHint: 'npx',
+    runtimeArguments: [{ type: 'positional', value: '-y' }], environmentVariables: [{ name: 'SEARCH_KEY' }], transport: { type: 'stdio' } }] };
+  const item = 'local-my-setup.mcp.search';
+  const good = { type: 'stdio', command: 'npx', args: ['-y', 'search-mcp@1.2.3'] };
+  const attempt = async ({ key = '/mcpServers/search', entry = good, file = '.mcp.json', bindings = [], values = {}, profiles, env, framework = false } = {}) => {
+    const declared = Object.fromEntries(bindings.map(binding => [binding.input, { isRequired: false, isSecret: false }]));
+    const request = mergeRequest(project(), [{ item, file, format: 'json', key, entry, ...(bindings.length ? { inputs: bindings.map(at => ({ item, input: at.input, at: at.at })) } : {}) }],
+      { ...(bindings.length ? { inputs: { [item]: declared } } : {}), ...(profiles ? { profiles } : {}) });
+    const bytes = Buffer.from(JSON.stringify(npm));
+    const listed = { sourceId: 'local-my-setup', sourcePath: 'mcp/search/server.json', sha256: sha256(bytes), bytes: bytes.length, executable: false, role: 'content' };
+    Object.assign(request.contents[0].items[0], { files: [listed], ...(env ? { env } : {}) });
+    request.files = [{ sourceId: listed.sourceId, sourcePath: listed.sourcePath, sha256: listed.sha256, bytes }];
+    if (Object.keys(values).length) request.inputs = { [item]: values };
+    if (framework) { delete request.plan.plan[0].item; request.plan.plan[0].framework = 'local-my-setup'; }
+    const result = await prepare(request);
+    return [result.status, result.code ?? result.problems?.[0]?.reason];
+  };
+  assert.deepEqual(await attempt(), ['ready', undefined]);
+  // Bindings that would add a key, or an environment name server.json doesn't declare.
+  for (const [name, pointer, value] of [['CWD', '/cwd', './tools'], ['ENVFILE', '/envFile', '.env'], ['URL', '/url', 'https://evil.example/'],
+    ['PROXY', '/env/HTTPS_PROXY', 'http://proxy.invalid']])
+    assert.deepEqual(await attempt({ bindings: [{ input: name, at: { pointer } }], values: { [name]: value } }), ['refused', 'source-mismatch'], pointer);
+  assert.deepEqual(await attempt({ bindings: [{ input: 'SEARCH_KEY', at: { pointer: '/env/SEARCH_KEY' } }], values: { SEARCH_KEY: 'k' } }), ['ready', undefined]);
+  // A write above the container, here or in Claude Code's per-project servers.
+  assert.deepEqual(await attempt({ key: '/projects/C:~1work~1repo', entry: { mcpServers: { evil: { command: 'evil' } } }, file: '.claude.json', framework: true }),
+    ['refused', 'mcp-entry-shape']);
+  assert.deepEqual(await attempt({ key: '/x', entry: { mcpServers: { evil: { command: 'evil' } } }, framework: true }), ['refused', 'mcp-entry-shape']);
+  // Profiles only rename Core's own concepts: a profile naming `cwd`, `trust` or a `set` beyond `type` adds nothing.
+  const widened = [{ ...inputProfile('claude-code'), mcpFile: { stdio: { command: 'command', args: 'args', env: 'env', cwd: 'cwd', set: { cwd: 'C:/evil' } },
+    tools: { enabled: 'trust' } } }];
+  for (const extra of [{ cwd: 'C:/evil' }, { trust: true }]) assert.deepEqual(await attempt({ entry: { ...good, ...extra }, profiles: widened }), ['refused', 'mcp-entry-shape'], JSON.stringify(extra));
+  // The item's own server name only; and its content-level env, as Catalog writes it, is declared.
+  assert.deepEqual(await attempt({ key: '/mcpServers/github' }), ['refused', 'mcp-entry-shape']);
+  assert.deepEqual(await attempt({ entry: { ...good, env: { SEARCH_TIMEOUT: '120' } }, env: { SEARCH_TIMEOUT: '120' } }), ['ready', undefined]);
+  assert.deepEqual(await attempt({ entry: { ...good, env: { SEARCH_TIMEOUT: '999' } }, env: { SEARCH_TIMEOUT: '120' } }), ['refused', 'source-mismatch']);
 });
