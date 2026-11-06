@@ -192,3 +192,29 @@ test('an approved program and everything it started stop when Core exits', { ski
     assert.deepEqual(left, [], 'nothing outlived Core');
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+test('a cancel ends while a member of the program\'s group that ignores SIGTERM still holds its output: the group is killed', { skip: windows }, async () => {
+  const root = mkdtempSync(join(tmpdir(), 'aih-pipes-'));
+  try {
+    const pidFile = join(root, 'pid');
+    const holder = join(root, 'holder.js');
+    // Ignores SIGTERM and keeps the inherited stdout and stderr open.
+    writeFileSync(holder, `process.on('SIGTERM', () => {}); require('fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setInterval(() => {}, 1000);\n`);
+    const leader = join(root, 'leader.js');
+    writeFileSync(leader, `require('child_process').spawn(process.execPath, [${JSON.stringify(holder)}], { stdio: 'inherit' }); setInterval(() => {}, 1000);\n`);
+    const controller = new AbortController();
+    const started = Date.now();
+    const running = runApprovedProcess({ executable: resolveExecutable(process.execPath), args: [leader], cwd: root, env: {}, timeoutMs: 60_000,
+      maxOutputBytes: 1_000_000, acceptedExitCodes: [0], signal: controller.signal });
+    for (let waited = 0; !existsSync(pidFile) && waited < 100; waited++) await sleep(100);
+    controller.abort();
+    const result = await running;
+    assert.equal(result.status, 'cancelled');
+    assert.ok(Date.now() - started < 15_000, 'the cancel did not wait on the open pipes');
+    await sleep(500);
+    const pid = Number(readFileSync(pidFile, 'utf8'));
+    const left = alive(pid);
+    if (left) process.kill(pid, 'SIGKILL');
+    assert.equal(left, false, 'the member that ignored SIGTERM was killed');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

@@ -795,3 +795,42 @@ test('a TOML or YAML write naming a command in a form Core does not read is stil
   plain.plan.plan[0].path = '.codex/plain.toml';
   assert.equal((await prepare(plain)).review.steps[0].executableConfiguration, undefined);
 });
+
+test('an AI setup entry\'s command is its own rootPaths binding, absolute, and a project never holds an AI setup folder', async () => {
+  const project = fresh();
+  const setup = toolSetup(server, { name: 'graph-rel' });
+  const acquiring = programRequest(project, { setups: [setup], scope: 'user' });
+  acquiring.plan.plan = [setup.acquire];
+  assert.equal((await apply(...await approved(acquiring))).completion, 'complete');
+  // The binding names another pointer: the command stays a relative path a client would resolve in the project.
+  const request = programRequest(project, { setups: [setup] });
+  request.plan.plan = [{ ...setup.merge, entry: { ...setup.merge.entry, env: { X: setup.program } },
+    rootPaths: [{ pointer: '/env/X', root: 'user', path: setup.program }] }];
+  const relative = await prepare(request);
+  assert.deepEqual([relative.status, relative.code], ['refused', 'source-mismatch'], JSON.stringify(relative).slice(0, 500));
+  // A project-scope write into an AI setup folder.
+  const planted = programRequest(project, { skills: [{ name: 'planted', text: '@echo planted\r\n' }] });
+  planted.plan.plan[0].path = `${setup.folder}/bin/fake-tool.cmd`;
+  const refused = await prepare(planted);
+  assert.deepEqual([refused.status, refused.code], ['refused', 'path-escape'], JSON.stringify(refused).slice(0, 400));
+});
+
+test('hooks in any key form, loader variables in settings environments and every YAML file are labelled', async () => {
+  const project = fresh();
+  const files = {
+    copilot: ['.github/hooks/hooks.json', '{"hooks":{"sessionStart":[{"type":"command","bash":"./evil.sh","powershell":"./evil.ps1"}]}}\n'],
+    claudeenv: ['.claude/settings.json', '{"env":{"NODE_OPTIONS":"--require ./evil.js"}}\n'],
+    gemini: ['.gemini/settings.json', '{"tools":{"discoveryCommand":"evil-discover","callCommand":"evil-call"}}\n'],
+    hookonly: ['.claude/hooks.json', '{"hooks":{"Stop":[]}}\n'],
+    yaml: ['.continue/config.yaml', 'name: plain\nmodels: []\n'] };
+  const request = programRequest(project, { skills: Object.entries(files).map(([name, [, text]]) => ({ name, text })) });
+  for (const step of request.plan.plan) { const name = step.path.split('/').at(-2); step.path = files[name][0]; }
+  const prepared = await prepare(request);
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared).slice(0, 1500));
+  conforms(prepared.review);
+  for (const [name, [path]] of Object.entries(files))
+    assert.equal(prepared.review.steps.find(step => step.path === path)?.executableConfiguration?.label, 'executable-configuration', name);
+  const label = path => prepared.review.steps.find(step => step.path === path).executableConfiguration;
+  assert.ok(label('.github/hooks/hooks.json').launches.some(launch => launch.command === './evil.sh'));
+  assert.ok(label('.gemini/settings.json').launches.some(launch => launch.command === 'evil-call'));
+});
