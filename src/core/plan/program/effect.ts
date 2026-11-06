@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { basename, dirname, join } from 'node:path';
 import { argumentsRunnable, resolveProgram, runApprovedProcess, type ResolvedExecutable } from '../../internal/approved-process.js';
 import { SETUP_MARKER } from '../steps/upstream-setup.js';
+import { recordTree, removeRecordedTree } from '../../internal/tree-manifest.js';
 import { PRIOR } from '../steps/tool-command.js';
 import type { LoweredProgram, Readback } from '../steps/types.js';
 
@@ -74,6 +75,8 @@ export function cloneEffect(clone: NonNullable<LoweredProgram['clone']>, root: s
         if (existsSync(folder)) rmSync(folder, { recursive: true, force: true, maxRetries: 3 });
         renameSync(staging, folder);
       } catch { clear(); return { status: 'failed', reason: 'clone-unplaced', effectsUncertain: true }; }
+      // What the clone placed, so its removal deletes exactly that (contract 14); what the setup adds later is not.
+      recordTree(folder, join(folder, ...CLONE_MANIFEST));
       return { status: 'passed', reason: 'cloned', effectsUncertain: false };
     }
   };
@@ -128,6 +131,8 @@ export function commandEffect(lowered: LoweredProgram, root: string, pinned: Res
       const outcome = await run(executable, program, false, signal);
       if (outcome.status !== 'passed') return { status: outcome.status === 'cancelled' ? 'cancelled' : 'failed',
         reason: outcome.status === 'cancelled' ? 'cancelled' : outcome.status === 'unavailable' ? outcome.reason : 'command-failed', effectsUncertain: outcome.effectsUncertain || outcome.status === 'failed' };
+      // The reviewed setup's own files are part of what Core placed in its clone; later edits and additions are not.
+      if (lowered.clone && lowered.cwd === lowered.clone.into) recordTree(cwd, join(cwd, ...CLONE_MANIFEST));
       if (!lowered.readback) { verifications.set(step, { status: 'unverified', reason: 'command-effects-unknown' }); return { status: 'passed', reason: 'exit-accepted', effectsUncertain: false }; }
       const read = await readbackRun(executable, lowered.readback, cwd, lowered.env, signal);
       verifications.set(step, read.status === 'passed' ? { status: 'passed', reason: 'readback-matched' } : { status: 'failed', reason: read.reason });
@@ -163,14 +168,19 @@ export async function readbackRun(executable: ResolvedExecutable, readback: Read
   return readbackMatches(outcome.stdout, readback.expected) ? { status: 'passed', reason: 'readback-matched' } : { status: 'failed', reason: 'readback-mismatch' };
 }
 
-/** After removal: the clone whose marker is gone, with everything the setup left in it. */
-export function removeClone(markerPath: string): boolean {
+/** Where a clone's record of what it placed is kept: inside its Git folder, so it never shows as a change in the clone. */
+const CLONE_MANIFEST = ['.git', 'aih-tree.json'];
+/**
+ * After removal: the clone whose marker is gone, with the files the clone recorded placing that still hold the recorded
+ * bytes. Anything else (your edits, files the setup or you added, or every file of a clone with no record) is kept and
+ * returned in `kept`, relative to the clone.
+ */
+export function removeClone(markerPath: string): { removed: boolean; kept: string[] } {
   const folder = dirname(markerPath);
   try {
-    if (basename(markerPath) !== SETUP_MARKER || existsSync(markerPath)) return false;
+    if (basename(markerPath) !== SETUP_MARKER || existsSync(markerPath)) return { removed: false, kept: [] };
     const stats = lstatSync(folder);
-    if (stats.isSymbolicLink() || !stats.isDirectory() || !existsSync(join(folder, '.git'))) return false;
-    rmSync(folder, { recursive: true, force: true, maxRetries: 3 });
-    return true;
-  } catch { return false; }
+    if (stats.isSymbolicLink() || !stats.isDirectory() || !existsSync(join(folder, '.git'))) return { removed: false, kept: [] };
+    return removeRecordedTree(folder, join(folder, ...CLONE_MANIFEST));
+  } catch { return { removed: false, kept: [] }; }
 }

@@ -4,7 +4,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import tls from 'node:tls';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { apply, list, prepare, prepareRemoval } from '../dist/core/index.js';
@@ -117,6 +117,28 @@ test('a native archive installs its qualified members, lists, and is removed wit
   assert.equal(removed.completion, 'complete', JSON.stringify(removed));
   assert.equal(existsSync(folder), false, 'the acquired folder goes with its last claim');
   assert.equal(existsSync(join(home, '.aihq', 'ai-setup', 'n-ok')), false);
+});
+
+test('removal of an AI setup deletes only what the acquisition placed: an added or changed file is kept and reported', async () => {
+  noPython();
+  const target = project();
+  const native = nativeSetup(server, { name: 'n-kept' });
+  const prepared = await prepare(setupRequest(target, [native]));
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared));
+  assert.equal((await apply(prepared.handle, approve(prepared.review))).completion, 'complete');
+  const folder = join(home, ...native.folder.split('/'));
+  writeFileSync(join(folder, 'extra.txt'), 'mine\n');
+  writeFileSync(join(folder, 'LICENSE'), 'changed\n');
+  const removal = await prepareRemoval({ target: { project: target }, scope: 'user', removals: [{ managementId: native.id }] });
+  const removed = await apply(removal.handle, approve(removal.review));
+  assert.equal(removed.completion, 'complete', JSON.stringify(removed));
+  assert.equal(readFileSync(join(folder, 'extra.txt'), 'utf8'), 'mine\n');
+  assert.equal(readFileSync(join(folder, 'LICENSE'), 'utf8'), 'changed\n');
+  assert.equal(existsSync(join(folder, 'memory-mcp')), false, 'the recorded, unchanged member goes');
+  const into = native.folder.replace(/\/$/, '');
+  assert.deepEqual(removed.members.filter(member => member.kind === 'kept-unrecorded').map(member => [member.path, member.intent, member.outcome]).sort(),
+    [[`${into}/LICENSE`, 'keep', 'kept'], [`${into}/extra.txt`, 'keep', 'kept']]);
+  rmSync(join(home, '.aihq'), { recursive: true, force: true });
 });
 
 test('acquired bytes that differ fail that AI setup and its dependants; an unrelated item is applied and the run is incomplete', async () => {

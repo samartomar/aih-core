@@ -6,7 +6,7 @@ import { forgetProvenState, ownershipInventory, readOwnership } from '../interna
 import { take, takeComposite, type CompositeState, type HandleState, type ProgramCheck } from './handles.js';
 import { runApprovedProcess } from '../internal/approved-process.js';
 import { homedir } from 'node:os';
-import { basename, isAbsolute, relative } from 'node:path';
+import { basename, dirname, isAbsolute, relative } from 'node:path';
 import { readbackMatches, removeClone } from './program/effect.js';
 import { SETUP_MARKER } from './steps/upstream-setup.js';
 import { projectRoot } from '../internal/host-files.js';
@@ -276,7 +276,11 @@ function removeReleasedLinks(run: Run, links: LinkFacts[]): void {
     try { removeLink(home, link); } catch { /* left for the person; list no longer claims it */ }
   }
 }
-/** An AI setup folder goes with its marker: once a run removed the last claim's marker, the acquired files go too (C28). */
+/**
+ * An AI setup folder goes with its marker: once a run removed the last claim's marker, the acquired files go too (C28).
+ * Only what Core recorded placing goes (contract 14): each file kept because it was added or changed, or because the
+ * folder has no record, is reported as a `kept-unrecorded` member of the run.
+ */
 function removeReleasedSetups(run: Run): void {
   const pattern = new RegExp(`^(\\.aihq/ai-setup/[^/]+/[^/]+/[^/]+)/${MANIFEST.replace('.', '\\.')}$`);
   let home: string;
@@ -287,12 +291,20 @@ function removeReleasedSetups(run: Run): void {
     try { recorded ??= directoryMap(readOwnership(home).value.directories); } catch { recorded = {}; }
     return recorded;
   };
+  const kept: RunMember[] = [];
+  const report = (member: RunMember, folder: string, paths: string[]) => {
+    for (const path of paths) kept.push({ managementId: member.managementId, scope: member.scope, kind: 'kept-unrecorded',
+      path: path === '.' ? folder : `${folder}/${path}`, intent: 'keep', outcome: 'kept', check: 'unchecked' });
+  };
   for (const member of run.members) {
     if (member.intent !== 'remove' || member.check !== 'absent') continue;
-    // An upstream setup's clone goes with its marker (contract 12): Core wrote it, so Core removes it.
-    if (isAbsolute(member.path) && basename(member.path) === SETUP_MARKER) { removeClone(member.path); continue; }
+    // An upstream setup's clone goes with its marker (contract 12): Core wrote it, so Core removes what it placed.
+    if (isAbsolute(member.path) && basename(member.path) === SETUP_MARKER) {
+      report(member, dirname(member.path).replaceAll('\\', '/'), removeClone(member.path).kept); continue;
+    }
     if (member.scope !== 'user') continue;
     const into = pattern.exec((isAbsolute(member.path) ? relative(home, member.path) : member.path).replaceAll('\\', '/'))?.[1];
-    if (into) try { removeAcquiredFolder(home, into, created()); } catch { /* left for the person; list no longer claims it */ }
+    if (into) try { report(member, into, removeAcquiredFolder(home, into, created()).kept); } catch { /* left for the person; list no longer claims it */ }
   }
+  run.members.push(...kept);
 }

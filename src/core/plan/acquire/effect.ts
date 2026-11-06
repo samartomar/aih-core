@@ -12,6 +12,7 @@ import { createHash } from 'node:crypto';
 import { dirname, join, relative } from 'node:path';
 import { resolveExecutable, resolveProgram } from '../../internal/approved-process.js';
 import { directoryIdentity, type CreatedDirectories } from '../../internal/created-directories.js';
+import { recordTree, removeRecordedTree } from '../../internal/tree-manifest.js';
 import { readArchive } from './archive.js';
 import { AcquireError } from './download.js';
 import { environmentPython, probeInterpreter, runHelper, standalonePython } from './interpreter.js';
@@ -409,6 +410,8 @@ export function acquisition(spec: AcquireSpec, home: string, installed: Installe
       try {
         const facts: AcquireFacts = { ...(spec.kind === 'pypi-wheel' ? await python(signal) : await native(signal)), downloads: [...records.values()] };
         rmSync(join(folder, ACQUIRING), { force: true });
+        // What the acquisition placed, so its removal deletes exactly that (contract 14).
+        recordTree(folder, join(folder, TREE_MANIFEST));
         report('finish', { status: 'passed' });
         return { status: 'passed', reason: 'acquired', effectsUncertain: false, facts: facts as unknown as Json, ...(failures.length ? { buildFailures: failures } : {}) };
       } catch (error) {
@@ -423,16 +426,21 @@ export function acquisition(spec: AcquireSpec, home: string, installed: Installe
   };
 }
 
+/** The record of what an acquisition placed in its folder, kept inside that folder. */
+export const TREE_MANIFEST = '.aih-tree.json';
 /**
- * After removal: the AI setup folder whose marker is gone, with every file the acquisition left in it. Its empty version
- * and name folders go too, and so do the empty parents above them (`.aihq/ai-setup`, `.aihq`) that `created` records as
- * made by Core with the identity they still have; a folder the person made stays.
+ * After removal: the AI setup folder whose marker is gone, with the files the acquisition recorded placing that still
+ * hold the recorded bytes. Anything else (a file you or the tool added or changed, or every file of a folder with no
+ * record) is kept and returned in `kept`, relative to the folder. Once the folder is gone, its empty version and name
+ * folders go too, and so do the empty parents above them (`.aihq/ai-setup`, `.aihq`) that `created` records as made by
+ * Core with the identity they still have; a folder the person made stays.
  */
-export function removeAcquiredFolder(home: string, into: string, created: CreatedDirectories = {}): boolean {
-  if (!contained(home, into)) return false;
+export function removeAcquiredFolder(home: string, into: string, created: CreatedDirectories = {}): { removed: boolean; kept: string[] } {
+  if (!contained(home, into)) return { removed: false, kept: [] };
   const folder = join(home, ...into.split('/'));
-  if (!existsSync(folder) || existsSync(join(folder, MANIFEST))) return false;
-  rmSync(folder, { recursive: true, force: true, maxRetries: 3 });
+  if (!existsSync(folder) || existsSync(join(folder, MANIFEST))) return { removed: false, kept: [] };
+  const outcome = removeRecordedTree(folder, join(folder, TREE_MANIFEST));
+  if (!outcome.removed) return outcome;
   const parents = into.split('/').slice(0, -1);
   for (let depth = 0; parents.length; parents.pop(), depth++) {
     const path = parents.join('/');
@@ -443,5 +451,5 @@ export function removeAcquiredFolder(home: string, into: string, created: Create
       rmdirSync(current);
     } catch { break; }
   }
-  return true;
+  return outcome;
 }
