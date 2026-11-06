@@ -82,24 +82,53 @@ function yamlLaunches(text: string): { launches: Launch[]; hooks: boolean } {
   }
   return { launches, hooks };
 }
-/** The programs a written text configures, read by its content: JSON (comments, a BOM, trailing commas allowed), else TOML, else YAML. */
-function textLaunches(bytes: Buffer): { launches: Launch[]; hooks: boolean } {
-  if (bytes.length > 1_048_576) return { launches: [], hooks: false };
+/** Words a configuration that starts a program names, in any key form: a write that never names one starts nothing. */
+const COMMAND_WORDS = /command|notify|hooks?|apikeyhelper|awsauthrefresh|awscredentialexport|otelheadershelper|statuscommand|mcp_?servers|context_servers/i;
+/** Text with TOML and YAML escapes (`\uXXXX`, `\UXXXXXXXX`, `\xNN`) decoded, so an escaped key is seen as itself. */
+const unescaped = (text: string): string => text.replace(/\\u([0-9a-fA-F]{4})|\\U([0-9a-fA-F]{8})|\\x([0-9a-fA-F]{2})/g,
+  (_whole, u4: string | undefined, u8: string | undefined, x2: string | undefined) => {
+    try { return String.fromCodePoint(parseInt(u4 ?? u8 ?? x2!, 16)); } catch { return ''; }
+  });
+/** A value the line scans read as written, never a raw token that stands for something else (`*c`, `>-`, `"""`, `""`). */
+const resolved = (launch: Launch): boolean => !!launch.command && !/^(?:[*&!|>]|""|''|\[|\{)/.test(launch.command) && launch.command !== '"""';
+/** TOML or YAML forms the line scans don't read: inline or flow tables, multi-line values, anchors, aliases, tags, merge and explicit keys. */
+const COMPLEX_TOML = /=\s*\{|^\s*[^#=\n]*=\s*\[\s*(#.*)?$|"""|'''|\\u|\\U/m;
+const COMPLEX_YAML = /[{}]|^\s*\?\s|<<\s*:|(?:^|\s)[&*!][^\s]|:\s*[|>][-+]?\s*$|^\s*-\s*$|\\x|\\u/m;
+/**
+ * The programs a written text configures, read by its content: JSON (comments, a BOM, trailing commas allowed) is
+ * parsed. Any other text that names a command-like key in any form (escapes decoded) is read line by line as TOML or
+ * YAML; when it uses a form those scans don't read, or a value they can't resolve, it is `unparsed`: it is labelled all the
+ * same, never left out. Markdown is read only in its front matter.
+ */
+function textLaunches(path: string, bytes: Buffer): { launches: Launch[]; hooks: boolean; unparsed?: 'unparsed' | 'unparsed-yaml' } {
+  const none = { launches: [], hooks: false };
   let text: string;
-  try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes).replace(/^﻿/, ''); } catch { return { launches: [], hooks: false }; }
+  // UTF-8, or UTF-16 with its byte order mark (a client may refuse it, but the review still reads it).
+  const encoding = bytes[0] === 0xff && bytes[1] === 0xfe ? 'utf-16le' : bytes[0] === 0xfe && bytes[1] === 0xff ? 'utf-16be' : 'utf-8';
+  try { text = new TextDecoder(encoding, { fatal: true }).decode(bytes).replace(/^\uFEFF/, ''); } catch { return none; }
   const errors: ParseError[] = [];
   const parsed = parseJsonc(text, errors, { allowTrailingComma: true, disallowComments: false }) as Json;
   if (!errors.length && parsed !== null && typeof parsed === 'object') return { launches: launchesIn(parsed), hooks: mentionsHooks([], parsed) };
-  const toml = tomlLaunches(text);
-  if (toml.launches.length) return toml;
-  const yaml = yamlLaunches(text);
-  return yaml.launches.length ? yaml : { launches: [], hooks: false };
+  if (/\.(md|mdc|markdown)$/i.test(path)) {
+    const front = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text);
+    if (!front) return none;
+    text = front[1]!;
+  }
+  if (bytes.length > 1_048_576) return { ...none, unparsed: 'unparsed' };
+  if (!COMMAND_WORDS.test(unescaped(text))) return none;
+  const toml = /\.toml$/i.test(path) || /^\s*\[[^\]\n]+\]\s*(#.*)?$/m.test(text) || /^\s*[A-Za-z0-9_."'-]+\s*=/m.test(text) && !/^\s*[A-Za-z0-9_"'-]+\s*:\s/m.test(text);
+  if (toml) {
+    const read = tomlLaunches(text);
+    return COMPLEX_TOML.test(text) || !read.launches.length || !read.launches.every(resolved) ? { launches: [], hooks: read.hooks, unparsed: 'unparsed' } : read;
+  }
+  const read = yamlLaunches(text);
+  return COMPLEX_YAML.test(text) || !read.launches.length || !read.launches.every(resolved) ? { launches: [], hooks: read.hooks, unparsed: 'unparsed-yaml' } : read;
 }
 /** A written file's label: made executable, or settings (in any format) that run commands; with the bytes' sha256 either way. */
 export function writeConfiguration(path: string, bytes: Buffer, executable: boolean, hide: (text: string) => string = text => text): ExecutableConfiguration | undefined {
-  const read = textLaunches(bytes);
+  const read = textLaunches(path, bytes);
   const launches = shown(read.launches, hide); const hooks = read.hooks;
-  if (!executable && !launches.length) return undefined;
-  return { label: 'executable-configuration', kind: executable ? 'executable-file' : hooks ? 'hook' : 'settings-command', launches,
+  if (!executable && !launches.length && !read.unparsed) return undefined;
+  return { label: 'executable-configuration', kind: executable ? 'executable-file' : read.unparsed ?? (hooks ? 'hook' : 'settings-command'), launches,
     sha256: createHash('sha256').update(bytes).digest('hex'), executable };
 }
