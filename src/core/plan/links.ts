@@ -3,7 +3,8 @@
 // Core's private state (its own `~/.aih/core/content/<claim>/links/` folder, contract 5); the link itself is placed just
 // before the first record is written, and removed once no claim's record names it any more.
 import { createHash } from 'node:crypto';
-import { lstatSync, mkdirSync, readlinkSync, rmdirSync, symlinkSync, unlinkSync } from 'node:fs';
+import { lstatSync, mkdirSync, readdirSync, readlinkSync, rmdirSync, symlinkSync, unlinkSync } from 'node:fs';
+import { readOwnership } from '../internal/state.js';
 import { readRegularFileWithStats } from '../internal/fsxn.js';
 import { pathPins, pinsMatch, type PathPin } from '../internal/host-files.js';
 import { join, resolve } from 'node:path';
@@ -57,7 +58,39 @@ export function placeBytes(home: string, path: string): Buffer | null {
 }
 export function linkState(home: string, link: LinkFacts): 'matching' | 'changed-by-you' | 'missing' {
   const found = inspectLink(home, link.path, link.to);
+  // A version folder holding a file no claim recorded is not what Core placed there.
+  if (found === 'ours' && folderExtras(home, link.to).length) return 'changed-by-you';
   return found === 'ours' ? 'matching' : found === 'absent' ? 'missing' : 'changed-by-you';
+}
+/** A version folder is listed only up to this many entries; a larger one counts as holding unrecorded files. */
+const FOLDER_ENTRY_LIMIT = 10_000;
+/**
+ * The entries in a version folder `to` (relative to it, without following links) that are neither among `planned`
+ * (home-relative paths this plan writes) nor a member any receipt in the home records. Empty when the folder is absent.
+ */
+export function folderExtras(home: string, to: string, planned: Iterable<string> = []): string[] {
+  const root = join(home, ...to.split('/'));
+  try { if (!lstatSync(root).isDirectory()) return ['.']; } catch (error) { return (error as NodeJS.ErrnoException).code === 'ENOENT' ? [] : ['.']; }
+  const allowed = new Set([...planned].map(fold));
+  try {
+    for (const [key, owner] of Object.entries(readOwnership(home, false).value.members ?? {}))
+      allowed.add(fold((owner as { descriptor?: { path?: string } }).descriptor?.path ?? key));
+  } catch { /* no receipt: only the planned writes are known */ }
+  const extras: string[] = []; const stack = ['']; let seen = 0;
+  while (stack.length) {
+    const relative = stack.pop()!;
+    let names: string[];
+    try { names = readdirSync(relative ? join(root, ...relative.split('/')) : root); } catch { return ['.']; }
+    for (const name of names) {
+      if (++seen > FOLDER_ENTRY_LIMIT) return [...extras, '…'];
+      const path = relative ? `${relative}/${name}` : name;
+      let stats;
+      try { stats = lstatSync(join(root, ...path.split('/'))); } catch { extras.push(path); continue; }
+      if (stats.isDirectory()) { stack.push(path); continue; }
+      if (!allowed.has(fold(`${to}/${path}`))) extras.push(path);
+    }
+  }
+  return extras.sort();
 }
 /** The link's parent folders that don't exist yet, outermost first: the ones Core creates and removes again. */
 export function missingParents(home: string, path: string): string[] {
@@ -74,7 +107,9 @@ export function missingParents(home: string, path: string): string[] {
  * Places a junction or symlink (Apply, before its record is written). Never replaces what is already there, except, for
  * an update, Core's own link to the earlier version folder `from`, which is repointed (contract 12 "Version folder moved").
  */
-export function placeLink(home: string, link: LinkFacts, from?: string): { status: 'passed' | 'failed'; reason: string; effectsUncertain: boolean } {
+export function placeLink(home: string, link: LinkFacts, from?: string, planned?: readonly string[]): { status: 'passed' | 'failed'; reason: string; effectsUncertain: boolean } {
+  // The version folder still holds only what the plan writes and receipts record (re-listed now, as at Prepare).
+  if (planned && folderExtras(home, link.to, planned).length) return { status: 'failed', reason: 'link-target-changed', effectsUncertain: false };
   let found = inspectLink(home, link.path, link.to);
   if (found === 'ours') return { status: 'passed', reason: 'already-linked', effectsUncertain: false };
   if (from !== undefined && found === 'other' && inspectLink(home, link.path, from) === 'ours') {

@@ -214,6 +214,29 @@ test('your own file at a link place is a conflict carrying its exact bytes and t
   rmSync(join(home, '.claude'), { recursive: true });
 });
 
+test('a version folder holding a file nothing recorded is not linked, and list shows a planted file as changed', async () => {
+  const target = project();
+  const to = join(home, '.aihq', 'shared', 'ecc', 'skill', 'plan', '3f9c0a1b2d4e');
+  mkdirSync(to, { recursive: true }); writeFileSync(join(to, 'evil.sh'), 'echo hi\n');
+  const blocked = await prepare(linkRequest(target, ['claude-code']));
+  assert.equal(blocked.status, 'blocked', JSON.stringify(blocked));
+  const conflict = blocked.review.conflicts.find(item => item.target === '.aihq/shared/ecc/skill/plan/3f9c0a1b2d4e');
+  assert.ok(conflict, JSON.stringify(blocked.review.conflicts));
+  assert.match(conflict.detail, /evil\.sh/);
+  assert.deepEqual(conflict.choices, ['skip']);
+  assert.equal(validateFormat(blocked.review).status, 'ok');
+  assert.equal(existsSync(join(home, '.claude', 'skills', 'ecc-plan')), false);
+  rmSync(join(to, 'evil.sh'));
+
+  await install(linkRequest(target, ['claude-code']));
+  writeFileSync(join(to, 'later.sh'), 'echo hi\n');
+  const listed = await list({ target: { project: target }, scope: 'user' });
+  const link = listed.entries.find(entry => entry.managementId === PLAN).members.find(member => member.kind === 'link');
+  assert.equal(link.state, 'changed-by-you');
+  rmSync(join(to, 'later.sh'));
+  await remove(target, [{ managementId: PLAN }]);
+});
+
 test('a large file at a link place is a conflict that shows no bytes', async () => {
   const target = project();
   mkdirSync(join(home, '.claude', 'skills'), { recursive: true });
