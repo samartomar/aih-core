@@ -180,6 +180,7 @@ test('acquired bytes that differ fail that AI setup and its dependants; an unrel
 function withMcp(request, native) {
   const id = native.id.replace('.ai-setup.', '.mcp.');
   const executable = `${native.folder}/memory-mcp`;
+  native.step.executable = executable;
   request.contents[0].items.find(item => item.id === native.id).aiSetup.mcpItem = id;
   request.contents[0].items.push({ id, kind: 'mcp', name: 'memory', description: 'memory', files: [] });
   request.plan.plan.push({ op: 'merge', root: 'project', file: '.mcp.json', format: 'json', key: '/mcpServers/memory', entry: { command: executable },
