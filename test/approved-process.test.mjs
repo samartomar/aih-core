@@ -99,7 +99,7 @@ test('a cancelled program is stopped with everything it started', async () => {
   try {
     const late = join(root, 'LATE');
     const child = join(root, 'child.js');
-    writeFileSync(child, `setTimeout(() => require('fs').writeFileSync(${JSON.stringify(late)}, 'x'), 3000);\n`);
+    writeFileSync(child, `setTimeout(() => require('fs').writeFileSync(${JSON.stringify(late)}, 'x'), 8000);\n`);
     // On Windows a command shim (run by cmd.exe) starts the late writer; elsewhere a Node parent does.
     const parent = join(root, windows ? 'parent.cmd' : 'parent.js');
     writeFileSync(parent, windows ? `@"${process.execPath}" "${child}"\r\n` :
@@ -110,7 +110,7 @@ test('a cancelled program is stopped with everything it started', async () => {
     const result = await runApprovedProcess({ executable, args: windows ? [] : [parent], cwd: root, env: {}, timeoutMs: 60_000, maxOutputBytes: 1_000_000,
       acceptedExitCodes: [0], signal: controller.signal });
     assert.equal(result.status, 'cancelled');
-    await sleep(4000);
+    await sleep(9000);
     assert.equal(existsSync(late), false, 'the grandchild did not outlive the cancel');
   } finally {
     rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });

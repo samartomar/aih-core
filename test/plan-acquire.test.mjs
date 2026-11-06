@@ -105,7 +105,10 @@ test('a native archive installs its qualified members, lists, and is removed wit
   const listed = await list({ target: { project: target }, scope: 'both' });
   const entry = listed.entries.find(row => row.managementId === native.id);
   assert.ok(entry, JSON.stringify(listed));
-  assert.deepEqual([entry.scope, entry.items, entry.aiSetup], ['user', [native.id], { branch: null, interpreter: null, fallback: false, fallbackReason: null,
+  // The receipt records the folder's tree manifest by sha256: the bytes a later tool-command may run.
+  const { tree, ...facts } = entry.aiSetup;
+  assert.match(tree, /^[a-f0-9]{64}$/);
+  assert.deepEqual([entry.scope, entry.items, facts], ['user', [native.id], { branch: null, interpreter: null, fallback: false, fallbackReason: null,
     downloads: [{ role: 'artifact', file: native.step.distribution.file, sha256: native.step.distribution.sha256, origin: 'downloaded', url: native.step.distribution.url }] }]);
 
   const again = await prepare(setupRequest(target, [native]));

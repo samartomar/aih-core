@@ -99,7 +99,8 @@ export function stopTree(child: ChildProcess, force = false): void {
     let killer: ChildProcess;
     try { killer = spawn(system32('taskkill.exe'), ['/T', '/F', '/PID', String(pid)], { shell: false, windowsHide: true, stdio: 'ignore' }); }
     catch { direct(); return; }
-    const timer = setTimeout(direct, 1_500); timer.unref?.();
+    // Killing the child first would hide its tree from taskkill, so the direct kill waits for it (or a slow taskkill).
+    const timer = setTimeout(direct, 5_000); timer.unref?.();
     const done = () => { clearTimeout(timer); direct(); };
     killer.once('error', done); killer.once('close', done);
     return;
