@@ -551,10 +551,26 @@ export function writeHistory(runId: string, result: unknown, logging: 'on' | 'of
     const bytes = Buffer.from(JSON.stringify({ ...(result as object), record: written }));
     if (bytes.length > 1_048_576) return { status: 'failed', reason: 'record-limit', diagnosticId: 'record-limit' };
     protectState([reference]); writeStateFile(reference, bytes, 0o600);
+    rotateHistory(reference);
     return written;
   } catch { return { status: 'failed', reason: 'record-write', diagnosticId: 'record-write' }; }
 }
 
+/** Routine history keeps at most this many run records; the oldest go first. */
+export const HISTORY_LIMIT = 1000;
+function rotateHistory(keep: string): void {
+  try {
+    const folder = join(stateRoot(), 'runs');
+    const names = readdirSync(folder).filter(name => /^[a-f0-9-]{36}\.json$/.test(name) && `runs/${name}` !== keep);
+    if (names.length < HISTORY_LIMIT) return;
+    const aged = names.map(name => { try { return { name, at: lstatSync(join(folder, name)).mtimeMs }; } catch { return { name, at: 0 }; } })
+      .sort((a, b) => a.at - b.at || (a.name < b.name ? -1 : 1));
+    for (const { name } of aged.slice(0, names.length - HISTORY_LIMIT + 1)) {
+      protectState([`runs/${name}`]);
+      try { unlinkSync(join(folder, name)); } catch { /* left for the next run */ }
+    }
+  } catch { /* history rotation never fails a run */ }
+}
 const LOCK_HOLDER = 'holder.json';
 /** How old an empty lock folder (no holder record) or a reclaim guard must be before it counts as a crash leftover. */
 export const STALE_LOCK_MS = 120_000;
