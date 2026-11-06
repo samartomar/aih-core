@@ -37,45 +37,60 @@ export const treeSpawnOptions = (): { detached?: true } => process.platform === 
 
 /**
  * The process groups of Core's live POSIX children. While any runs, a SIGINT, SIGTERM or SIGHUP Core receives is passed
- * on to every group (a terminal's Ctrl-C reaches only Core's own group), and Core's exit kills every group. When Core has
- * no other handler for the signal, it then ends on it as it would have without these handlers.
+ * on to every group (a terminal's Ctrl-C reaches only Core's own group). A host that handles the signal itself (the
+ * `aih` CLI cancels the run) decides what follows. Without one, Core escalates as it ends: SIGTERM to every group, a
+ * grace of `GRACE_MS`, then SIGKILL, and only then ends on the signal. Core's exit SIGTERMs and SIGKILLs every group,
+ * and a group whose leader closed after Core stopped it is still SIGKILLed after the grace, so a program that handles
+ * signals, and its children, never outlive Core. (A SIGKILL to Core itself can't be answered.)
  */
 const groups = new Set<number>();
+const GRACE_MS = 2_000;
 const FORWARDED = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const;
+let ending: ReturnType<typeof setTimeout> | undefined;
+const signalGroups = (signal: NodeJS.Signals) => { for (const group of groups) try { process.kill(-group, signal); } catch { /* already gone */ } };
+/** SIGKILLs every process group Core tracks: for a host that ends now. */
+export function killTrees(): void { signalGroups('SIGKILL'); }
 const forward = (signal: NodeJS.Signals) => {
-  for (const group of groups) try { process.kill(-group, signal); } catch { /* already gone */ }
-  if (process.listenerCount(signal) === 1) {
-    unwatch();
-    process.kill(process.pid, signal);
-  }
+  signalGroups(signal);
+  if (process.listenerCount(signal) !== 1 || ending) return;
+  signalGroups('SIGTERM');
+  ending = setTimeout(() => { killTrees(); unwatch(); process.kill(process.pid, signal); }, GRACE_MS);
 };
 const handlers = new Map(FORWARDED.map(signal => [signal, () => forward(signal)]));
-const killAll = () => { for (const group of groups) try { process.kill(-group, 'SIGKILL'); } catch { /* already gone */ } };
+const onExit = () => { signalGroups('SIGTERM'); killTrees(); };
 let watching = false;
 function watch(): void {
   if (watching) return;
   watching = true;
   for (const [signal, handler] of handlers) process.on(signal, handler);
-  process.on('exit', killAll);
+  process.on('exit', onExit);
 }
 function unwatch(): void {
   if (!watching) return;
   watching = false;
   for (const [signal, handler] of handlers) process.removeListener(signal, handler);
-  process.removeListener('exit', killAll);
+  process.removeListener('exit', onExit);
 }
-/** Tracks a POSIX child's process group until it closes; see `groups`. */
+const stopped = new WeakSet<ChildProcess>();
+/** Tracks a POSIX child's process group until it closes, and for `GRACE_MS` more when Core stopped it; see `groups`. */
 export function trackTree(child: ChildProcess): void {
   if (process.platform === 'win32' || child.pid === undefined) return;
   const group = child.pid;
   groups.add(group); watch();
-  child.once('close', () => { groups.delete(group); if (!groups.size) unwatch(); });
+  const untrack = () => { groups.delete(group); if (!groups.size) unwatch(); };
+  child.once('close', () => {
+    if (!stopped.has(child)) { untrack(); return; }
+    // A program Core stopped may leave members of its group that handle SIGTERM: they get SIGKILL after the grace.
+    const timer = setTimeout(() => { try { process.kill(-group, 'SIGKILL'); } catch { /* already gone */ } untrack(); }, GRACE_MS);
+    timer.unref?.();
+  });
 }
 /**
  * Stops a child and everything it started: `taskkill /T /F` on Windows (by absolute path under the kernel's
  * `\SystemRoot`); on POSIX the child's process group (`SIGTERM`, then `SIGKILL` with `force`). The child itself is killed too.
  */
 export function stopTree(child: ChildProcess, force = false): void {
+  stopped.add(child);
   const direct = () => { try { child.kill(force ? 'SIGKILL' : 'SIGTERM'); } catch { /* Close or the cleanup deadline determines uncertainty. */ } };
   const pid = child.pid;
   if (pid === undefined || child.exitCode !== null || child.signalCode !== null) { direct(); return; }
