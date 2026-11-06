@@ -613,8 +613,7 @@ test('only an acquire step places programs in an AI setup folder: a write there 
   acquiring.plan.plan = [setup.acquire];
   assert.equal((await apply(...await approved(acquiring))).completion, 'complete');
   const later = programRequest(project, { setups: [setup] });
-  later.plan.plan = [{ ...setup.merge, entry: { ...setup.merge.entry, command: setup.program },
-    rootPaths: [{ pointer: '/command', root: 'user', path: setup.program }] }, ...setup.toolCommands];
+  later.plan.plan = [setup.merge, ...setup.toolCommands];
   const ready = await prepare(later);
   assert.equal(ready.status, 'ready', JSON.stringify(ready).slice(0, 2000));
 });
@@ -633,7 +632,8 @@ test('the review marks every step that makes a client start a program, with the 
   assert.equal(prepared.status, 'ready', JSON.stringify(prepared).slice(0, 2000));
   conforms(prepared.review);
   const label = op => prepared.review.steps.find(op)?.executableConfiguration;
-  assert.deepEqual(label(step => step.op === 'merge'), { label: 'executable-configuration', kind: 'mcp-server', launches: [{ command: setup.merge.entry.command, args: ['serve'] }] });
+  assert.deepEqual(label(step => step.op === 'merge'), { label: 'executable-configuration', kind: 'mcp-server',
+    launches: [{ command: join(home, ...setup.program.split('/')), args: ['serve'] }] });
   const sha = text => createHash('sha256').update(text).digest('hex');
   assert.deepEqual(label(step => step.path === '.claude/skills/runner/SKILL.md'),
     { label: 'executable-configuration', kind: 'executable-file', launches: [], sha256: sha('#!/bin/sh\necho run\n'), executable: true });
@@ -668,7 +668,7 @@ test('an AI setup settings folder takes only plain settings files, and a marker 
   };
   const base = `.aihq/ai-setup/graph-forged/settings`;
   for (const [path, executable] of [[`${base}/forged/.aih-acquired`, false], [`${base}/.aih-acquired`, false], [`${base}/t.cmd`, true],
-    [`${base}/forged/t.cmd`, false], ['.claude/.aih-acquired', false]]) {
+    [`${base}/forged/t.cmd`, false], [`${base}/run.cmd`, false], ['.claude/.aih-acquired', false]]) {
     const refused = await writing(path, executable);
     assert.deepEqual([refused.status, refused.code], ['refused', 'path-escape'], `${path}: ${JSON.stringify(refused).slice(0, 300)}`);
   }
@@ -708,4 +708,90 @@ test('executable configuration is labelled whatever its format: JSON with commen
     assert.ok(label.launches.some(launch => launch.command === command), `${name}: ${JSON.stringify(label)}`);
     assert.ok(kind === 'hook' ? label.kind === 'hook' : ['mcp-server', 'settings-command'].includes(label.kind), `${name}: ${label.kind}`);
   }
+});
+
+test('a tool-command alone runs only the bytes its acquisition placed, and keeps that acquisition recorded', async () => {
+  const project = fresh();
+  const setup = toolSetup(server, { name: 'graph-tree' });
+  const acquiring = programRequest(project, { setups: [setup], scope: 'user' });
+  acquiring.plan.plan = [setup.acquire];
+  assert.equal((await apply(...await approved(acquiring))).completion, 'complete');
+  const alone = () => { const request = programRequest(project, { setups: [setup] }); request.plan.plan = setup.toolCommands; return request; };
+  // The review names the placed program's sha256 and the tree manifest the receipt records.
+  const first = await prepare(alone());
+  assert.equal(first.status, 'ready', JSON.stringify(first).slice(0, 1500));
+  const program = first.review.steps.find(step => step.op === 'tool-command').program;
+  assert.equal(program.executableSha256, setup.qualification.observed.members[0].sha256);
+  assert.match(program.treeSha256, /^[a-f0-9]{64}$/);
+  assert.equal(conforms(await apply(first.handle, approve(first.review))).completion, 'complete');
+  // A second settings-only run still finds the acquisition, and so does its MCP item's exemption from server.json.
+  assert.equal((await prepare(alone())).status, 'ready', 'the acquisition is still recorded after a tool-command-only run');
+  const mcp = programRequest(project, { setups: [setup] });
+  mcp.plan.plan = [setup.merge];
+  const listed = mcp.contents[0].items.find(item => item.id === setup.mcpItem);
+  listed.files = [{ sourceId: 'local-my-skills', sourcePath: 'mcp/server.json', sha256: 'a'.repeat(64), bytes: 2, executable: false, role: 'content' }];
+  const exempt = await prepare(mcp);
+  assert.equal(exempt.status, 'ready', JSON.stringify(exempt).slice(0, 1500));
+  // Other bytes at the program's path, or a program the acquisition never placed, are refused before anything runs.
+  const placed = join(home, ...setup.program.split('/'));
+  const original = readFileSync(placed);
+  writeFileSync(placed, Buffer.concat([original, Buffer.from('changed')]));
+  const changed = await prepare(alone());
+  assert.deepEqual([changed.status, changed.code], ['refused', 'artifact-changed'], JSON.stringify(changed).slice(0, 600));
+  writeFileSync(placed, original);
+  const added = alone();
+  const extra = setup.program.replace(/fake-tool(\.exe)?$/, process.platform === 'win32' ? 'other.exe' : 'other');
+  writeFileSync(join(home, ...extra.split('/')), original);
+  for (const step of added.plan.plan) step.executable.path = extra;
+  const unplaced = await prepare(added);
+  assert.deepEqual([unplaced.status, unplaced.code], ['refused', 'artifact-changed'], JSON.stringify(unplaced).slice(0, 600));
+});
+
+test('an AI setup\'s MCP entry starts only that setup\'s acquired program, with its launch arguments', async () => {
+  const project = fresh();
+  const setup = toolSetup(server, { name: 'graph-own' });
+  const acquiring = programRequest(project, { setups: [setup], scope: 'user' });
+  acquiring.plan.plan = [setup.acquire];
+  assert.equal((await apply(...await approved(acquiring))).completion, 'complete');
+  const entry = (changes, drop = []) => { const request = programRequest(project, { setups: [setup] }); const step = { ...setup.merge, ...changes };
+    for (const key of drop) delete step[key]; request.plan.plan = [step]; return prepare(request); };
+  assert.equal((await entry({})).status, 'ready');
+  const evil = await entry({ entry: { command: 'evil', args: ['--pwn'] } }, ['rootPaths']);
+  assert.deepEqual([evil.status, evil.code], ['refused', 'source-mismatch'], JSON.stringify(evil).slice(0, 500));
+  const outside = await entry({ entry: { command: '.aihq/other/evil', args: ['serve'] }, rootPaths: [{ pointer: '/command', root: 'user', path: '.aihq/other/evil' }] });
+  assert.equal(outside.status === 'ready', false, JSON.stringify(outside).slice(0, 500));
+});
+
+test('a TOML or YAML write naming a command in a form Core does not read is still labelled, never shown as a raw token', async () => {
+  const project = fresh();
+  const B = String.fromCharCode(92);
+  const files = {
+    multiline: ['.codex/a.toml', 'notify = [\n  "evil",\n  "--x",\n]\n'],
+    inline: ['.codex/b.toml', '[mcp_servers]\nx = { command = "evil" }\n'],
+    nested: ['.codex/c.toml', 'mcp_servers = { x = { command = "evil" } }\n'],
+    escaped: ['.codex/d.toml', `"comm${B}u0061nd" = "evil"\n`],
+    hooks: ['.codex/e.toml', '[[hooks.PreToolUse]]\ncommand = [\n  "evil",\n]\n'],
+    triple: ['.codex/f.toml', 'command = """\nevil"""\n'],
+    quoted: ['.continue/a.yaml', '"command": evil\n'],
+    flow: ['.continue/b.yaml', 'mcpServers: [{name: x, command: evil}]\n'],
+    merge: ['.continue/c.yaml', 'base: &b {command: evil}\nserver:\n  <<: *b\n'],
+    explicit: ['.continue/d.yaml', '? command\n: evil\n'],
+    tagged: ['.continue/e.yaml', '!!str command: evil\n'],
+    alias: ['.continue/f.yaml', 'c: &c evil\nx:\n  command: *c\n'],
+    folded: ['.continue/g.yaml', 'command: >-\n  evil\n'],
+    commented: ['.continue/h.json', '# note\n{"command": "evil"}\n'] };
+  const request = programRequest(project, { skills: Object.entries(files).map(([name, [, text]]) => ({ name, text })) });
+  for (const step of request.plan.plan) { const name = step.path.split('/').at(-2); step.path = files[name][0]; }
+  const prepared = await prepare(request);
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared).slice(0, 1500));
+  conforms(prepared.review);
+  for (const [name, [path]] of Object.entries(files)) {
+    const label = prepared.review.steps.find(step => step.path === path)?.executableConfiguration;
+    assert.equal(label?.label, 'executable-configuration', `${name}: ${JSON.stringify(label)}`);
+    for (const launch of label.launches) assert.equal(launch.command, 'evil', `${name}: ${JSON.stringify(label)}`);
+  }
+  // A settings file that names no command in any form is not labelled.
+  const plain = programRequest(project, { skills: [{ name: 'plain', text: 'model = "o5"\n[profiles.work]\nmodel = "o5-pro"\n' }] });
+  plain.plan.plan[0].path = '.codex/plain.toml';
+  assert.equal((await prepare(plain)).review.steps[0].executableConfiguration, undefined);
 });
