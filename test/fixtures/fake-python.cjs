@@ -61,7 +61,7 @@ if (/^python/i.test(basename(process.execPath))) {
     // The environment a build ran with, for tests that check what reaches it (the sidecar's `buildRecord` names the file;
     // a build receives no host variable such a test could use).
     if (facts.buildRecord) fs.writeFileSync(facts.buildRecord, JSON.stringify(Object.fromEntries(
-      Object.entries(process.env).filter(([key]) => /^(HOME|USERPROFILE|APPDATA|TMP|TEMP|TMPDIR|CC|CXX|LDSHARED|CFLAGS|CPPFLAGS|LDFLAGS|SETUPTOOLS_.*|DISTUTILS_.*|CL|_CL_|INCLUDE|LIB|RUSTFLAGS|CARGO_.*|PIP_.*|HTTPS?_PROXY|ALL_PROXY|MAKEFLAGS|PYTHON.*)$/i.test(key)))));
+      Object.entries(process.env).filter(([key]) => /^(HOME|USERPROFILE|APPDATA|TMP|TEMP|TMPDIR|CC|CXX|LDSHARED|CFLAGS|CPPFLAGS|LDFLAGS|SETUPTOOLS_.*|DISTUTILS_.*|CL|_CL_|INCLUDE|LIB|RUSTFLAGS|CARGO_.*|PIP_.*|HTTPS?_PROXY|ALL_PROXY|MAKEFLAGS|PYTHON.*|PROGRAMFILES.*|COMMONPROGRAMFILES.*)$/i.test(key)))));
     const [, name, version] = /^(.+)-([^-]+)\.tar\.gz$/.exec(basename(args[0]));
     const file = `${name}-${version}-py3-none-any.whl`;
     fs.mkdirSync(args[1], { recursive: true });

@@ -289,3 +289,43 @@ test('an MCP entry is bound to the item\'s scanned server.json: a command, argum
   const elsewhere = await declared(remote, { type: 'http', url: 'https://other.example.test/search' });
   assert.deepEqual([elsewhere.status, elsewhere.code], ['refused', 'source-mismatch']);
 });
+
+test('every MCP entry for an item with a scanned server.json is bound to it, whatever the step\'s owners, and never sets a loader variable', async () => {
+  const npm = { name: 'search', packages: [{ registryType: 'npm', identifier: 'search-mcp', version: '1.2.3', runtimeHint: 'npx',
+    runtimeArguments: [{ type: 'positional', value: '-y' }], environmentVariables: [{ name: 'SEARCH_KEY' }], transport: { type: 'stdio' } }] };
+  const good = { type: 'stdio', command: 'npx', args: ['-y', 'search-mcp@1.2.3'] };
+  const evil = { type: 'stdio', command: 'node', args: ['-e', 'evil'] };
+  const item = 'local-my-setup.mcp.search';
+  const make = (entry, { server = npm, supply = true, name = 'server.json', shape } = {}) => {
+    const request = mergeRequest(project(), [{ item, file: '.mcp.json', format: 'json', key: '/mcpServers/search', entry }]);
+    const bytes = Buffer.from(JSON.stringify(server));
+    const file = { sourceId: 'local-my-setup', sourcePath: `mcp/search/${name}`, sha256: sha256(bytes), bytes: bytes.length, executable: false, role: 'content' };
+    request.contents[0].items[0].files = [file];
+    if (supply) request.files = [{ sourceId: file.sourceId, sourcePath: file.sourcePath, sha256: file.sha256, bytes }];
+    shape?.(request);
+    return prepare(request);
+  };
+  const outcome = async (...args) => { const result = await make(...args); return [result.status, result.code ?? result.problems?.[0]?.reason]; };
+  assert.deepEqual(await outcome(good), ['ready', undefined]);
+  // The plan lists the item's server.json but withholds its bytes.
+  assert.deepEqual(await outcome(evil, { supply: false }), ['refused', 'source-missing']);
+  // Two owners, or the framework as owner: the MCP item is still found and bound.
+  assert.deepEqual(await outcome(evil, { shape: request => {
+    const step = request.plan.plan[0]; delete step.item; step.items = [item, 'local-my-setup.skill.other'].sort();
+    request.contents[0].items.push({ id: 'local-my-setup.skill.other', kind: 'skill', name: 'other', description: 'other', files: [] }); } }), ['refused', 'source-mismatch']);
+  assert.deepEqual(await outcome(evil, { shape: request => { const step = request.plan.plan[0]; delete step.item; step.framework = 'local-my-setup'; } }),
+    ['refused', 'source-mismatch']);
+  // Another item's claim that it is an AI setup's MCP item exempts nothing unless that setup is acquired.
+  assert.deepEqual(await outcome(evil, { shape: request => request.contents[0].items.push({ id: 'local-my-setup.ai-setup.claim', kind: 'ai-setup',
+    name: 'claim', description: 'claim', files: [], aiSetup: { version: '1.0.0', mcpItem: item } }) }), ['refused', 'source-mismatch']);
+  // A registry Core can't lower, a server file named otherwise, and an environment key the file doesn't declare.
+  assert.deepEqual(await outcome(evil, { server: { name: 'search', packages: [{ registryType: 'oci', identifier: 'x', version: '1' }] } }), ['refused', 'source-mismatch']);
+  assert.deepEqual(await outcome(evil, { name: 'Server.json' }), ['refused', 'source-mismatch']);
+  assert.deepEqual(await outcome({ ...good, env: { SEARCH_KEY: 'x' } }), ['ready', undefined]);
+  assert.deepEqual(await outcome({ ...good, env: { OTHER: 'x' } }), ['refused', 'source-mismatch']);
+  // A literal loader variable in any MCP entry's environment, with or without a server.json.
+  const loader = mergeRequest(project(), [{ item: 'local-my-setup.mcp.plain', file: '.mcp.json', format: 'json', key: '/mcpServers/plain',
+    entry: { command: 'tool', env: { node_options: '--require=x' } } }]);
+  const refused = await prepare(loader);
+  assert.deepEqual([refused.status, refused.problems?.[0]?.reason], ['invalid', 'loader-variable']);
+});

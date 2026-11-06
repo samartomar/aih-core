@@ -88,7 +88,9 @@ test('a build runs with its home and temp inside the build folder, offline, and 
   const host = { CC: 'host-cc', CXX: 'host-cxx', CFLAGS: '-O0', CPPFLAGS: '-I/host', LDFLAGS: '-L/host', SETUPTOOLS_USE_DISTUTILS: 'stdlib',
     DISTUTILS_DEBUG: '1', CL: '/FIinjected.h', _CL_: '/link', INCLUDE: 'C:\host\include', LIB: 'C:\host\lib', RUSTFLAGS: '-C link-arg=x',
     CARGO_HOME: join(scratch, 'host-cargo'), CARGO_NET_OFFLINE: 'false', HTTPS_PROXY: 'http://proxy.invalid:1', ALL_PROXY: 'http://proxy.invalid:1',
-    MAKEFLAGS: '-j99', PIP_INDEX_URL: 'https://index.invalid/simple', PYTHONPATH: join(scratch, 'host-site') };
+    MAKEFLAGS: '-j99', PIP_INDEX_URL: 'https://index.invalid/simple', PYTHONPATH: join(scratch, 'host-site'),
+    // Kept: where Windows build tools are found (setuptools finds vswhere through it).
+    'ProgramFiles(x86)': 'C:\\Program Files (x86)', 'CommonProgramFiles(x86)': 'C:\\Program Files (x86)\\Common Files' };
   const saved = Object.fromEntries(Object.keys(host).map(key => [key, process.env[key]]));
   Object.assign(process.env, host);
   try {
@@ -103,6 +105,7 @@ test('a build runs with its home and temp inside the build folder, offline, and 
     assert.deepEqual(Object.keys(lower).filter(key => /^(CC|CXX|CFLAGS|CPPFLAGS|LDFLAGS|SETUPTOOLS_.*|DISTUTILS_.*|CL|_CL_|INCLUDE|LIB|RUSTFLAGS|HTTPS?_PROXY|ALL_PROXY|MAKEFLAGS|PIP_INDEX_URL|PYTHONPATH)$/.test(key)), []);
     // Package tools stay offline: what Core sets, never the host's.
     assert.deepEqual([lower.CARGO_NET_OFFLINE, lower.PIP_NO_INDEX, lower.CARGO_HOME], ['true', '1', undefined]);
+    assert.deepEqual([lower['PROGRAMFILES(X86)'], lower['COMMONPROGRAMFILES(X86)']], [host['ProgramFiles(x86)'], host['CommonProgramFiles(x86)']]);
   } finally { for (const [key, value] of Object.entries(saved)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; } }
 });
 

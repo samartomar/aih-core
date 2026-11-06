@@ -31,7 +31,15 @@ const sourceFacts = (from: { [key: string]: Json }): { sourceId?: string; sha256
 const asExecutable = (executable: unknown): string => executable === true ? ' as an executable file' : '';
 export const write: StepHandler = {
   op: 'write',
+  // An executable file is never placed in an AI setup's folder, not even its settings folder.
   async prepare(step, context) {
+    const outcome = await lowerWrite(step, context);
+    if (!('lowered' in outcome) || outcome.lowered.kind !== 'write' || !outcome.lowered.executable) return outcome;
+    return aiSetupReserved(outcome.lowered.root, outcome.lowered.path, context.index, true) ?? outcome;
+  }
+};
+async function lowerWrite(step: Parameters<StepHandler['prepare']>[0], context: StepContext): Promise<StepOutcome> {
+  {
     const { index } = context;
     const owner = owners(step, index); if ('problem' in owner) return owner;
     const placed = target(step, index); if (!('root' in placed)) return placed;

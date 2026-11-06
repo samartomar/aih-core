@@ -1004,21 +1004,31 @@ the undo, and `cantRemove`, which says what Core can't remove around it.
   inside quotes (`"`, `%`, a line break) is refused at Prepare (`program-unavailable`), before any command runs. Every
   program Core starts gets `NoDefaultCurrentDirectoryInExePath=1`, so a program a shim or tool names is never found in
   its working folder; cancel and deadline stop it with everything it started (`taskkill /T` on Windows, its process
-  group on POSIX). A plugin name that starts with `-` or holds `"`, `%` or a control character is invalid.
+  group on POSIX). On POSIX each program runs in its own process group: while one runs, a `SIGINT`, `SIGTERM` or `SIGHUP`
+  Core receives is passed on to its group (then Core ends on it as before, unless its host handles the signal), and
+  Core's exit kills the group. Windows system programs (`cmd.exe`, `taskkill.exe`) are started only from the folder the
+  kernel's `\SystemRoot` names; when it can't be read, nothing is started. A plugin name that starts with `-` or holds `"`, `%` or a control character is invalid.
 - **Environment bindings** never set a variable that changes which program or code runs or where programs find their
   configuration (`NODE_OPTIONS`, `PATH`, `PATHEXT`, `LD_*`, `DYLD_*`, `PYTHON*`, `GIT_*`, `HOME` and the like, compared
   without case; Catalog's list for MCP server environments): such a binding is a plan problem (`input-binding`).
 - **AI setup folders** (`~/.aihq/ai-setup/`) are filled only by acquire steps: a write, merge or link there is
-  `path-escape`. A `tool-command`, like an MCP entry's `rootPaths`, runs a program there only when an acquire step of
-  the plan, or an acquisition Core recorded (its marker present), places it (`root-path-unplaced` otherwise).
+  `path-escape`, except a non-executable file directly in a setup's own `settings/` folder. A file named like Core's
+  acquisition marker is refused anywhere. A `tool-command`, like an MCP entry's `rootPaths`, runs a program there only
+  when an acquire step of the plan places it, or a user-scope receipt records that acquisition and its marker still has
+  the recorded bytes (`root-path-unplaced` otherwise); a marker file alone proves nothing.
 - **Executable configuration.** The review marks each merge or write that makes a client start a program later with
   `executableConfiguration: { label: "executable-configuration", kind, launches }`: `mcp-server` (an MCP entry with a
   `command`), `hook`, `settings-command` (`apiKeyHelper` and similar keys) or `executable-file`, with each program and
-  its arguments, and for a write the bytes' `sha256` and `executable` flag.
-- **MCP entries and `server.json`.** When the plan supplies an MCP item's `server.json`, the merge entry must start
-  exactly what it declares (the registry's runner `npx` or `uvx`, its flags, `identifier@version` or
-  `identifier==version`, the package's arguments) or name its remote's URL; anything else is `source-mismatch`. An AI
-  setup's MCP item starts the acquired program instead and is bound by its acquire step.
+  its arguments, and for a write the bytes' `sha256` and `executable` flag. A write is read by its content, whatever
+  its name: JSON (with comments, a BOM or trailing commas), else TOML, else YAML.
+- **MCP entries and `server.json`.** Every merge entry for an MCP item whose content document lists a `server.json`
+  (the step's `item` or `items`, or for an MCP server entry the MCP item of that name in the step's framework) needs
+  that file's bytes (`source-missing`) and must start exactly what it declares (the registry's runner `npx` or `uvx`,
+  its flags, `identifier@version` or `identifier==version`, the package's arguments) with no environment key it doesn't
+  declare, or name its remote's URL. Anything else, a registry Core can't start, or a file not named exactly
+  `server.json`, is `source-mismatch`. Only an AI setup's own MCP item is exempt, when that setup is acquired in the plan
+  or on a receipt: its entry starts the acquired program. An MCP entry's own environment never sets a loader or search
+  variable (`loader-variable`).
 - **Order and outcomes (D92, C60).** Apply runs every step of the plan in the plan's order across all items: the fixed
   phases (fetch and acquire, write, link, merge, plugin, upstream setup and installer, tool-command), then root and
   path. A failed step makes the not-yet-run steps of its item and of every item that depends on it `not-attempted`
