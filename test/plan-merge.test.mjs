@@ -408,3 +408,51 @@ test('nothing a plan or its profiles supply widens an MCP entry: bindings fill o
   assert.deepEqual(await attempt({ entry: { ...good, env: { SEARCH_TIMEOUT: '120' } }, env: { SEARCH_TIMEOUT: '120' } }), ['ready', undefined]);
   assert.deepEqual(await attempt({ entry: { ...good, env: { SEARCH_TIMEOUT: '999' } }, env: { SEARCH_TIMEOUT: '120' } }), ['refused', 'source-mismatch']);
 });
+
+test('each MCP entry concept has exactly one key, the known client\'s own, and every one is compared', async () => {
+  const remote = { name: 'search', remotes: [{ type: 'streamable-http', url: 'https://mcp.example.test/search' }] };
+  const npm = { name: 'search', packages: [{ registryType: 'npm', identifier: 'search-mcp', version: '1.2.3', runtimeHint: 'npx',
+    runtimeArguments: [{ type: 'positional', value: '-y' }], transport: { type: 'stdio' } }] };
+  const item = 'local-my-setup.mcp.search';
+  const attempt = async ({ server, entry, cli, file, key = '/mcpServers/search', profiles }) => {
+    const request = mergeRequest(project(), [{ item, file, format: 'json', key, entry, clis: [cli] }], profiles ? { profiles } : {});
+    const bytes = Buffer.from(JSON.stringify(server));
+    const listed = { sourceId: 'local-my-setup', sourcePath: 'mcp/search/server.json', sha256: sha256(bytes), bytes: bytes.length, executable: false, role: 'content' };
+    request.contents[0].items[0].files = [listed];
+    request.files = [{ sourceId: listed.sourceId, sourcePath: listed.sourcePath, sha256: listed.sha256, bytes }];
+    const result = await prepare(request);
+    return [result.status, result.code ?? result.problems?.[0]?.reason];
+  };
+  // Antigravity names a remote's URL `serverUrl`: a second `url` beside it is not its key.
+  const antigravity = { server: remote, cli: 'antigravity', file: '.agents/mcp_config.json' };
+  assert.deepEqual(await attempt({ ...antigravity, entry: { serverUrl: 'https://mcp.example.test/search' } }), ['ready', undefined]);
+  assert.deepEqual(await attempt({ ...antigravity, entry: { serverUrl: 'https://mcp.example.test/search', url: 'https://evil.example/mcp' } }), ['refused', 'mcp-entry-shape']);
+  assert.deepEqual(await attempt({ ...antigravity, entry: { serverUrl: 'https://evil.example/mcp' } }), ['refused', 'source-mismatch']);
+  // OpenCode's whole argv is `command`, its environment `environment`: `args` and `env` are not its keys.
+  const opencode = { server: npm, cli: 'opencode', file: 'opencode.json', key: '/mcp/search' };
+  const argv = { type: 'local', command: ['npx', '-y', 'search-mcp@1.2.3'] };
+  assert.deepEqual(await attempt({ ...opencode, entry: argv }), ['ready', undefined]);
+  assert.deepEqual(await attempt({ ...opencode, entry: { ...argv, args: ['--evil'] } }), ['refused', 'mcp-entry-shape']);
+  assert.deepEqual(await attempt({ ...opencode, entry: { ...argv, env: { HTTPS_PROXY: 'http://evil.example:8080' } } }), ['refused', 'mcp-entry-shape']);
+  // A request can't redefine a known client: a claude-code profile naming `command` `cmd` adds nothing.
+  const claude = { server: npm, cli: 'claude-code', file: '.mcp.json',
+    profiles: [{ ...inputProfile('claude-code'), mcpFile: { stdio: { command: 'cmd', args: 'args', env: 'env' } } }] };
+  assert.deepEqual(await attempt({ ...claude, entry: { cmd: 'npx', args: ['-y', 'search-mcp@1.2.3'], command: 'evil' } }), ['refused', 'mcp-entry-shape']);
+  assert.deepEqual(await attempt({ ...claude, entry: { type: 'stdio', command: 'npx', args: ['-y', 'search-mcp@1.2.3'] } }), ['ready', undefined]);
+});
+
+test('a merge is labelled as it lands: at a command key, in Codex\'s shell environment, Claude\'s execution variables and MCP consent', async () => {
+  const label = async (file, format, key, entry) => {
+    const request = mergeRequest(project(), [{ item: 'local-my-setup.mcp.settings', file, format, key, entry, ...(format === 'toml' ? { clis: ['codex'] } : {}) }]);
+    const prepared = await prepare(request);
+    assert.equal(prepared.status, 'ready', JSON.stringify(prepared).slice(0, 600));
+    return prepared.review.steps[0].executableConfiguration;
+  };
+  for (const key of ['/apiKeyHelper', '/statusLine/command', '/awsAuthRefresh', '/otelHeadersHelper'])
+    assert.deepEqual((await label('.claude/settings.json', 'json', key, './evil.sh'))?.launches, [{ command: './evil.sh', args: [] }], key);
+  assert.equal((await label('.codex/config.toml', 'toml', 'shell_environment_policy.set', { NODE_OPTIONS: '--require ./evil.js' }))?.label, 'executable-configuration');
+  for (const name of ['CLAUDE_CODE_SHELL_PREFIX', 'CLAUDE_ENV_FILE'])
+    assert.equal((await label('.claude/settings.json', 'json', `/env/${name}`, './evil.sh'))?.label, 'executable-configuration', name);
+  assert.equal((await label('.claude/settings.json', 'json', '/enableAllProjectMcpServers', true))?.kind, 'mcp-enable');
+  assert.equal((await label('.claude/settings.json', 'json', '/enabledMcpjsonServers', ['evil']))?.kind, 'mcp-enable');
+});
