@@ -5,7 +5,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import tls from 'node:tls';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -635,4 +635,57 @@ test('an upstream setup clones with none of the host\'s git overrides: a GIT_DIR
     assert.ok(existsSync(join(home, '.claude', 'skills', 'gstack', 'README.md')));
     assert.equal(existsSync(process.env.GIT_DIR), false, 'nothing was written where the host pointed git');
   } finally { for (const [key, value] of Object.entries(saved)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; } }
+});
+
+test('an AI setup settings folder takes only plain settings files, and a marker file alone never proves an acquisition', async () => {
+  const project = fresh();
+  const setup = toolSetup(server, { name: 'graph-forged' });
+  const writing = (path, executable) => {
+    const request = programRequest(project, { skills: [{ name: 'forged', text: '@echo forged\r\n' }] });
+    Object.assign(request.plan.plan[0], { root: 'user', path });
+    request.contents[0].items[0].files[0].executable = executable;
+    return prepare(request);
+  };
+  const base = `.aihq/ai-setup/graph-forged/settings`;
+  for (const [path, executable] of [[`${base}/forged/.aih-acquired`, false], [`${base}/.aih-acquired`, false], [`${base}/t.cmd`, true],
+    [`${base}/forged/t.cmd`, false], ['.claude/.aih-acquired', false]]) {
+    const refused = await writing(path, executable);
+    assert.deepEqual([refused.status, refused.code], ['refused', 'path-escape'], `${path}: ${JSON.stringify(refused).slice(0, 300)}`);
+  }
+  assert.equal((await writing(`${base}/config.json`, false)).status, 'ready', 'a plain settings file directly in settings/ is a write');
+
+  // A forged marker on disk, beside a planted program: no receipt records it, so a tool-command there is refused.
+  const forged = join(home, ...setup.folder.split('/'));
+  mkdirSync(join(forged, 'bin'), { recursive: true });
+  writeFileSync(join(forged, '.aih-acquired'), `Managed by AIH Core:${setup.id} 1.4.0 forged\n`);
+  writeFileSync(join(home, ...setup.program.split('/')), 'planted\n');
+  const alone = programRequest(project, { setups: [setup] });
+  alone.plan.plan = setup.toolCommands;
+  const unplaced = await prepare(alone);
+  assert.equal(unplaced.status, 'invalid', JSON.stringify(unplaced).slice(0, 400));
+  assert.ok(unplaced.problems.some(problem => problem.reason === 'root-path-unplaced'), JSON.stringify(unplaced.problems));
+  rmSync(join(home, '.aihq'), { recursive: true, force: true });
+});
+
+test('executable configuration is labelled whatever its format: JSON with comments, a BOM or trailing commas, TOML and YAML', async () => {
+  const project = fresh();
+  const files = {
+    commented: ['.claude/settings.json', '// team hooks\n{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"sh stop.sh"}]}]}}\n', 'hook', 'sh stop.sh'],
+    bom: ['.claude/other.json', '﻿{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"sh bom.sh"}]}]}}\n', 'hook', 'sh bom.sh'],
+    trailing: ['.mcp.json', '{"mcpServers":{"x":{"command":"evil-a","args":["--x"],},},}\n', 'settings-command', 'evil-a'],
+    toml: ['.codex/config.toml', '[mcp_servers.x]\ncommand = "evil-b"\nargs = ["--y"]\n', 'settings-command', 'evil-b'],
+    notify: ['.codex/notify.toml', 'notify = ["evil-c", "--z"]\n', 'settings-command', 'evil-c'],
+    yaml: ['.continue/config.yaml', 'mcpServers:\n  - name: x\n    command: evil-d\n', 'settings-command', 'evil-d'],
+    renamed: ['.claude/settings.txt', '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"sh txt.sh"}]}]}}\n', 'hook', 'sh txt.sh'] };
+  const request = programRequest(project, { skills: Object.entries(files).map(([name, [, text]]) => ({ name, text })) });
+  for (const step of request.plan.plan) { const name = step.path.split('/').at(-2); step.path = files[name][0]; }
+  const prepared = await prepare(request);
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared).slice(0, 1500));
+  conforms(prepared.review);
+  for (const [name, [path, , kind, command]] of Object.entries(files)) {
+    const label = prepared.review.steps.find(step => step.path === path)?.executableConfiguration;
+    assert.equal(label?.label, 'executable-configuration', `${name}: ${JSON.stringify(label)}`);
+    assert.ok(label.launches.some(launch => launch.command === command), `${name}: ${JSON.stringify(label)}`);
+    assert.ok(kind === 'hook' ? label.kind === 'hook' : ['mcp-server', 'settings-command'].includes(label.kind), `${name}: ${label.kind}`);
+  }
 });

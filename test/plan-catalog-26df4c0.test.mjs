@@ -12,6 +12,8 @@ import { delimiter, dirname, join } from 'node:path';
 import { apply, list, prepare, prepareRemoval } from '../dist/core/index.js';
 import { validateFormat } from '../dist/core/contracts.js';
 import { fakeClientEnv, fakeClientState, installFakeClient } from './fixtures/fake-client.mjs';
+import { artifactServer, nativeSetup, setupRequest } from './fixtures/acquire-fixture.mjs';
+import tls from 'node:tls';
 import { BYO_SECRET, byoControls, byoRequest, catalog, cbmRequest, recipeRequest, recorded, rulesRequest } from './fixtures/catalog-26df4c0/replay.mjs';
 
 const scratch = mkdtempSync(join(tmpdir(), 'aih-catalog-26df4c0-'));
@@ -27,7 +29,10 @@ function fakeCli(name, version, folder) {
     `@echo off\r\n${folder ? `mkdir "%USERPROFILE%\\${folder.replaceAll('/', '\\')}" 2>nul\r\n` : ''}echo ${version}\r\n`);
   else { writeFileSync(join(bin, name), `#!/bin/sh\n${folder ? `mkdir -p "$HOME/${folder}"\n` : ''}echo ${version}\n`); chmodSync(join(bin, name), 0o755); }
 }
-before(() => {
+let server;
+before(async () => {
+  server = await artifactServer();
+  tls.setDefaultCACertificates([...tls.getCACertificates('default'), server.caPem]);
   home = join(scratch, 'home'); mkdirSync(home);
   fakeCli('opencode', '1.19.5', '.config/opencode'); fakeCli('cursor-agent', '2026.10.1');
   // The fake `claude` and `codex` record the plugin commands Core runs.
@@ -36,7 +41,7 @@ before(() => {
   Object.assign(process.env, { HOME: home, USERPROFILE: home, ...env,
     PATH: [bin, dirname(process.execPath), ...(process.platform === 'win32' ? [join(process.env.SystemRoot ?? 'C:\\Windows', 'System32')] : ['/usr/bin', '/bin'])].join(delimiter) });
 });
-after(() => { for (const [key, value] of Object.entries(previous)) {
+after(async () => { await server?.close(); for (const [key, value] of Object.entries(previous)) {
   if (value === undefined) delete process.env[key]; else process.env[key] = value;
 } rmSync(scratch, { recursive: true, force: true }); });
 
@@ -166,28 +171,48 @@ test('the qualified linux-x64 cbm plan carries settings commands with a restore 
 });
 
 /**
- * A Core-side stand-in for an acquisition Core recorded earlier: the acquire step's marker file in its folder, so a plan
- * that keeps only the tool-commands runs a program Core placed (a tool-command never runs one no acquisition placed).
+ * Acquisitions Core recorded earlier, so a plan that keeps only the real tool-commands or MCP entries runs programs Core
+ * placed (a receipt, never a marker file alone, proves one): for each real acquire step, a Core-side FIXTURE native
+ * archive for this host's cell holding that step's program, acquired through the public API from a local HTTPS server.
+ * The plan's linux-x64 program paths are replaced by those folders' (the same paths on linux-x64, with `.exe` on Windows).
  */
-function acquiredEarlier(request) {
-  const acquire = recorded.cbm.plans['linux-x64'].plan.find(step => step.op === 'acquire');
-  const folder = join(home, ...acquire.into.replace(/\/$/, '').split('/'));
-  mkdirSync(folder, { recursive: true });
-  writeFileSync(join(folder, '.aih-acquired'), `Managed by AIH Core:${acquire.aiSetup} ${acquire.version} ${acquire.cell}\n`);
+async function acquiredEarlier(request, acquires = [recorded.cbm.plans['linux-x64'].plan.find(step => step.op === 'acquire')]) {
+  const target = project();
+  const setups = acquires.map(real => {
+    const into = real.into.replace(/\/$/, '');
+    const relative = real.executable.slice(into.length + 1);
+    const member = process.platform === 'win32' ? `${relative}.exe` : relative;
+    const setup = nativeSetup(server, { name: into.split('/')[2], version: real.version, id: real.aiSetup,
+      members: { [member]: process.platform === 'win32' ? 'MZ fixture\n' : '#!/bin/sh\necho fixture\n', LICENSE: 'MIT\n' } });
+    setup.step.executable = `${setup.folder}/${member}`;
+    request.plan.plan = JSON.parse(JSON.stringify(request.plan.plan).split(`${into}/${relative}`).join(`${setup.folder}/${member}`));
+    return setup;
+  });
+  const installed = await prepare({ ...setupRequest(target, setups), scope: 'user' });
+  assert.equal(installed.status, 'ready', JSON.stringify(installed).slice(0, 1500));
+  assert.equal((await apply(installed.handle, approve(installed.review))).completion, 'complete');
+  earlier = { target, setups };
   return request;
 }
-/** Removes that stand-in again, so later tests see no earlier acquisition. */
-function forgetEarlier() {
-  rmSync(join(home, '.aihq', 'ai-setup'), { recursive: true, force: true });
+let earlier;
+/** Removes those acquisitions again through reviewed removals, so later tests see none. */
+async function forgetEarlier() {
+  if (!earlier) return;
+  for (const setup of earlier.setups) {
+    const removal = await prepareRemoval({ target: { project: earlier.target }, scope: 'user', removals: [{ managementId: setup.id }] });
+    assert.ok(removal.handle, JSON.stringify(removal).slice(0, 1500));
+    assert.equal((await apply(removal.handle, approve(removal.review))).completion, 'complete');
+  }
+  earlier = undefined;
 }
 
 test('Core lowers the real linux-x64 settings commands: the review shows the readback run first and the restore it plans', async () => {
   // Core-side change of the real plan: only its three tool-commands are kept (the acquire is not run on this host, and
   // an earlier acquisition's marker stands in for it); on Windows the executable path gains `.exe`, as Core runs only an
   // `.exe`, `.com`, `.cmd` or `.bat` there.
-  const request = acquiredEarlier(cbmRequest(project(), 'linux-x64'));
-  request.plan.plan = request.plan.plan.filter(step => step.op === 'tool-command').map(step => process.platform === 'win32' ?
-    { ...step, executable: { ...step.executable, path: `${step.executable.path}.exe` } } : step);
+  const request = cbmRequest(project(), 'linux-x64');
+  request.plan.plan = request.plan.plan.filter(step => step.op === 'tool-command');
+  await acquiredEarlier(request);
   const prepared = await prepare(request, { catalog }).finally(forgetEarlier);
   assert.equal(prepared.status, 'ready', JSON.stringify(prepared).slice(0, 2000));
   conforms(prepared.review);
@@ -202,6 +227,13 @@ test('an MCP entry naming an executable no acquire step places and Core never ac
   request.plan.plan = request.plan.plan.filter(step => step.op !== 'acquire' && step.op !== 'tool-command');
   const rooted = request.plan.plan.flatMap((step, index) => step.rootPaths ? [index] : []);
   assert.ok(rooted.length > 0);
+  // With no acquisition of its AI setup, the MCP item is bound to the server.json its content lists, whose bytes this
+  // plan doesn't carry.
+  const withheld = await prepare(request, { catalog });
+  assert.deepEqual([withheld.status, withheld.code], ['refused', 'source-missing'], JSON.stringify(withheld).slice(0, 600));
+  // Core-side change: the item's server.json listing dropped too, leaving only the program its entries name.
+  for (const content of request.contents) for (const item of content.items ?? [])
+    if (item.kind === 'mcp') item.files = item.files.filter(file => file.sourcePath.split('/').at(-1) !== 'server.json');
   const refused = await prepare(request, { catalog });
   assert.equal(refused.status, 'invalid', JSON.stringify(refused).slice(0, 2000));
   assert.deepEqual(refused.problems.map(problem => [problem.path, problem.reason]), rooted.map(index => [`/plan/plan/${index}/rootPaths/0`, 'root-path-unplaced']));
@@ -211,11 +243,9 @@ test('an MCP entry naming an executable no acquire step places and Core never ac
 test('an MCP entry naming an executable in a folder Core acquired gets its absolute path under the user root (Catalog rootPaths)', async () => {
   const target = project();
   const request = cbmRequest(target, 'linux-x64');
-  // Core-side change as above, and a FIXTURE stand-in for an earlier install's acquired folder: Core's marker file in it.
+  // Core-side change as above, and an earlier acquisition of the program the entries start (FIXTURE, see `acquiredEarlier`).
   request.plan.plan = request.plan.plan.filter(step => step.op !== 'acquire' && step.op !== 'tool-command');
-  const folder = join(home, ...request.plan.plan.find(step => step.rootPaths).rootPaths[0].path.split('/').slice(0, -1));
-  mkdirSync(folder, { recursive: true });
-  writeFileSync(join(folder, '.aih-acquired'), 'Managed by AIH Core: cbm.ai-setup.codebase-memory-mcp 0.12.1 linux-x64\n');
+  await acquiredEarlier(request);
   const prepared = await prepare(request, { catalog });
   assert.equal(prepared.status, 'ready', JSON.stringify(prepared).slice(0, 3000));
   assert.equal(conforms(await apply(prepared.handle, approve(prepared.review))).completion, 'complete');
@@ -225,6 +255,11 @@ test('an MCP entry naming an executable in a folder Core acquired gets its absol
   assert.equal(written.mcpServers['codebase-memory-mcp'].command, join(home, ...rootPath.path.split('/')));
   const toml = readFileSync(join(target, '.codex', 'config.toml'), 'utf8');
   assert.ok(toml.includes(JSON.stringify(join(home, ...rootPath.path.split('/')))), toml);
+  for (const managementId of [...new Set(request.plan.plan.map(entry => entry.item))]) {
+    const removal = await prepareRemoval({ target: { project: target }, scope: 'project', removals: [{ managementId }] });
+    if (removal.handle) await apply(removal.handle, approve(removal.review));
+  }
+  await forgetEarlier();
   rmSync(join(home, '.aihq'), { recursive: true, force: true });
 });
 
@@ -322,9 +357,9 @@ test('a plugin step whose pin Catalog marks unverified says so in the review: Co
 test('a settings command with no qualification (a recipe\'s replacement settings) is lowered and its review says no qualification ran it', async () => {
   // Core-side change of the real linux-x64 plan, as in the test above, with each command's qualification dropped: the
   // shape Catalog 26df4c0 plans for a recipe's own settings.
-  const request = acquiredEarlier(cbmRequest(project(), 'linux-x64'));
-  request.plan.plan = request.plan.plan.filter(step => step.op === 'tool-command').map(({ qualification, ...step }) => process.platform === 'win32' ?
-    { ...step, executable: { ...step.executable, path: `${step.executable.path}.exe` } } : step);
+  const request = cbmRequest(project(), 'linux-x64');
+  request.plan.plan = request.plan.plan.filter(step => step.op === 'tool-command').map(({ qualification, ...step }) => step);
+  await acquiredEarlier(request);
   const prepared = await prepare(request, { catalog }).finally(forgetEarlier);
   assert.equal(prepared.status, 'ready', JSON.stringify(prepared).slice(0, 2000));
   conforms(prepared.review);
@@ -371,17 +406,13 @@ test('Catalog\'s real tool-trio plan for linux-x64: refused on another cell; its
       assert.deepEqual([result.status, result.code, result.step], ['refused', 'cell-mismatch', 0], JSON.stringify(result).slice(0, 600));
     }
   } else t.diagnostic('on linux-x64 the acquire steps would download: not run here');
-  // Core-side change: the acquire and settings steps dropped (they need the linux-x64 downloads), and FIXTURE stand-ins for
-  // an earlier install's acquired folders (Core's marker file in each).
+  // Core-side change: the acquire and settings steps dropped (they need the linux-x64 downloads), and earlier acquisitions of
+  // the programs the entries start (FIXTURE, see `acquiredEarlier`).
   const target = project();
   const changed = recipeRequest('trio', target);
   const acquires = changed.plan.plan.filter(step => step.op === 'acquire');
   changed.plan.plan = changed.plan.plan.filter(step => step.op !== 'acquire' && step.op !== 'tool-command');
-  for (const step of acquires) {
-    const folder = join(home, ...step.into.replace(/\/$/, '').split('/'));
-    mkdirSync(folder, { recursive: true });
-    writeFileSync(join(folder, '.aih-acquired'), `Managed by AIH Core: ${step.aiSetup} ${step.version} ${step.cell}\n`);
-  }
+  await acquiredEarlier(changed, acquires);
   const prepared = await prepare(changed, { catalog });
   assert.equal(prepared.status, 'ready', JSON.stringify(prepared).slice(0, 2000));
   conforms(prepared.review);
@@ -394,6 +425,7 @@ test('Catalog\'s real tool-trio plan for linux-x64: refused on another cell; its
   assert.ok(existsSync(join(target, '.aihq', 'notices', 'serena', 'LICENSES', 'MIT.txt')));
   await removeAll(target, 'project');
   gone(changed.plan, { user: home, project: target });
+  await forgetEarlier();
   rmSync(join(home, '.aihq', 'ai-setup'), { recursive: true, force: true });
 });
 
