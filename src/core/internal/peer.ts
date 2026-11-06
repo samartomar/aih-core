@@ -2,13 +2,13 @@
 // used only when its real path is inside one of these folders (each by its real path):
 // - Core's own package folder;
 // - the `node_modules` folder that holds `@aihq/core`, and in a pnpm install the `node_modules` holding that `.pnpm`
-//   store;
-// - for a linked Core (`npm link`, a `file:` link), the `node_modules` folder of the project whose own
-//   `node_modules/@aihq/core` links to this Core, found from the main script.
-// One found anywhere else (a parent folder's `node_modules`, `NODE_PATH`, a link to elsewhere) is not loaded. The
-// accepted file is imported by its file URL, so what is checked is what runs. This module imports only Node built-ins.
+//   store.
+// All are found from Core's own real path, never from the main script or the working folder. A linked Core (`npm link`,
+// a `file:` link) therefore loads only peers in its checkout's own `node_modules`; a project's peer beside the link is
+// not loaded. One found anywhere else (a parent folder's `node_modules`, `NODE_PATH`, a link to elsewhere) is not
+// loaded either. The accepted file is imported by its file URL, so what is checked is what runs. This module imports only Node built-ins.
 import { closeSync, fstatSync, openSync, readSync, realpathSync } from 'node:fs';
-import { dirname, join, relative, isAbsolute, resolve, sep } from 'node:path';
+import { dirname, join, relative, isAbsolute, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 export type PeerLoad =
@@ -36,50 +36,6 @@ export function peerRoots(core: string = coreFolder()): string[] {
     if (last(store) === '.pnpm' && last(outer) === 'node_modules') roots.push(outer);
   }
   return roots;
-}
-
-const same = (a: string, b: string): boolean => inside(a, b) && inside(b, a);
-/**
- * For a linked Core: the real path of the nearest `node_modules` above `main` whose `@aihq/core` resolves to `core`.
- * A folder at a filesystem root (where any local user may create `node_modules`) is never used.
- */
-export function linkedHolder(main: string | undefined, core: string = coreFolder()): string | undefined {
-  if (!main) return undefined;
-  for (let folder = dirname(resolve(main)), depth = 0; depth < 64 && dirname(folder) !== folder; depth += 1, folder = dirname(folder)) {
-    try { if (same(realpathSync.native(join(folder, 'node_modules', '@aihq', 'core')), core)) return realpathSync.native(join(folder, 'node_modules')); }
-    catch { /* not here */ }
-  }
-  return undefined;
-}
-
-const CONDITIONS = new Set(['node', 'import', 'module-sync', 'default']);
-/** One `exports` target for the conditions Core loads with, or `undefined`. */
-function conditional(value: unknown): string | undefined {
-  if (typeof value === 'string') return value;
-  if (Array.isArray(value)) { for (const item of value) { const found = conditional(item); if (found) return found; } return undefined; }
-  if (!value || typeof value !== 'object') return undefined;
-  for (const [key, item] of Object.entries(value)) if (CONDITIONS.has(key)) { const found = conditional(item); if (found !== undefined) return found; }
-  return undefined;
-}
-/** The file a package's `exports` names for `subpath` (`.` or `./x`), relative to the package; `null` when not exported. */
-function exportTarget(exports: unknown, subpath: string): string | null {
-  let target: string | undefined;
-  const map = exports && typeof exports === 'object' && !Array.isArray(exports) ? exports as Record<string, unknown> : undefined;
-  if (map && Object.keys(map).some(key => key.startsWith('.'))) {
-    if (Object.hasOwn(map, subpath)) target = conditional(map[subpath]);
-    else for (const [key, item] of Object.entries(map)) {
-      const star = key.indexOf('*');
-      if (star < 0 || key.indexOf('*', star + 1) >= 0) continue;
-      const before = key.slice(0, star), after = key.slice(star + 1);
-      if (subpath.length >= key.length - 1 && subpath.startsWith(before) && subpath.endsWith(after)) {
-        const found = conditional(item);
-        if (found) target = found.replaceAll('*', subpath.slice(before.length, subpath.length - after.length));
-        break;
-      }
-    }
-  } else if (subpath === '.') target = conditional(exports);
-  if (!target || !target.startsWith('./') || target.split(/[\\/]/).some(part => part === '..' || part.toLowerCase() === 'node_modules')) return null;
-  return target;
 }
 
 function inside(root: string, path: string): boolean {
@@ -133,20 +89,6 @@ export async function loadPeer(specifier: string): Promise<PeerLoad> {
       if (root) found = { real, root }; else status = 'outside';
     }
   } catch (error) { if ((error as { code?: unknown })?.code === 'ERR_PACKAGE_PATH_NOT_EXPORTED') status = 'not-exported'; }
-  // A linked Core resolves from its checkout, so the project's own peer is looked up in the project's `node_modules`.
-  const linked = found ? undefined : linkedHolder(process.argv[1], core);
-  if (linked && !roots.some(root => same(root, linked))) {
-    const folder = join(linked, ...name.split('/'));
-    const manifest = readManifest(join(folder, 'package.json'));
-    if (manifest?.name === name) {
-      const target = exportTarget(manifest.exports, '.' + specifier.slice(name.length));
-      if (target === null) status = 'not-exported';
-      else try {
-        const real = realpathSync.native(join(folder, ...target.slice(2).split('/')));
-        if (inside(linked, real)) found = { real, root: linked }; else status = 'outside';
-      } catch { status = 'missing'; }
-    }
-  }
   if (!found) return { status };
   const { real, root } = found;
   try {

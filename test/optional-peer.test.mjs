@@ -104,31 +104,20 @@ test('a pnpm install loads the peer from its store, and still refuses one linked
   assert.equal(loadFrom(join(other, 'proj', 'app.mjs'), core2).status, 'outside');
 }));
 
-test('an npm link or file: link to a Core checkout loads the peer the project declares, never one in a parent folder', layout('link', root => {
-  const checkout = join(root, 'aih-core'); coreAt(checkout);
-  // A planted package in a parent of the checkout is what Node's own walk-up from the checkout would find.
-  scanPackage(join(root, 'node_modules', '@aihq', 'scan'), 'parent');
+test('a linked Core loads peers only from its own real layout, never from the project or a parent folder', layout('link', root => {
+  const checkout = join(root, 'dev', 'aih-core'); coreAt(checkout);
+  // A planted `node_modules/@aihq/core` link to the checkout plus a stand-in peer, in a parent of the checkout.
+  link(checkout, join(root, 'dev', 'node_modules', '@aihq', 'core'));
+  scanPackage(join(root, 'dev', 'node_modules', '@aihq', 'scan'), 'planted');
+  assert.equal(loadFrom(join(checkout, 'scripts', 'x.mjs'), checkout).status, 'outside');
+  assert.equal(loadFrom(join(root, 'dev', 'app.mjs'), checkout).status, 'outside');
+  // A project whose own node_modules links to the checkout: its peer is not loaded either.
   const project = join(root, 'work', 'proj');
   link(checkout, join(project, 'node_modules', '@aihq', 'core'));
   scanPackage(join(project, 'node_modules', '@aihq', 'scan'), 'project');
-  assert.deepEqual(loadFrom(join(project, 'app.mjs'), checkout), { status: 'loaded', marker: 'project', version: '0.1.0' });
-  // Run as the linked bin (`node_modules/@aihq/core/...`): the same project folder.
-  assert.equal(loadFrom(join(project, 'node_modules', '@aihq', 'core', 'dist', 'core', 'bin.mjs'), checkout).marker, 'project');
-  // A project without the peer: the parent's is still refused, and NODE_PATH is never used.
-  const bare = join(root, 'work', 'bare');
-  link(checkout, join(bare, 'node_modules', '@aihq', 'core'));
-  scanPackage(join(root, 'elsewhere', '@aihq', 'scan'), 'node-path');
-  assert.equal(loadFrom(join(bare, 'app.mjs'), checkout, { NODE_PATH: join(root, 'elsewhere') }).status, 'outside');
-  // The project's own peer linked to a folder outside its node_modules is refused.
-  const linked = join(root, 'work', 'linked');
-  link(checkout, join(linked, 'node_modules', '@aihq', 'core'));
-  scanPackage(join(root, 'evil', 'scan'), 'evil');
-  link(join(root, 'evil', 'scan'), join(linked, 'node_modules', '@aihq', 'scan'));
-  assert.equal(loadFrom(join(linked, 'app.mjs'), checkout).status, 'outside');
+  assert.notEqual(loadFrom(join(project, 'app.mjs'), checkout).status, 'loaded');
+  assert.notEqual(loadFrom(join(project, 'node_modules', '@aihq', 'core', 'dist', 'core', 'bin.mjs'), checkout).status, 'loaded');
+  // The checkout's own node_modules is part of its real layout and loads.
+  scanPackage(join(checkout, 'node_modules', '@aihq', 'scan'), 'checkout');
+  assert.deepEqual(loadFrom(join(project, 'app.mjs'), checkout), { status: 'loaded', marker: 'checkout', version: '0.1.0' });
 }));
-
-test('a linked project holder at a filesystem root is never used', async () => {
-  const { linkedHolder } = await import('../dist/core/internal/peer.js');
-  const root = process.platform === 'win32' ? 'C:' + String.fromCharCode(92) : '/';
-  assert.equal(linkedHolder(join(root, 'app.mjs'), join(tmpdir(), 'no-such-core')), undefined);
-});
