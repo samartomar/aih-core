@@ -115,6 +115,7 @@ export declare function prepareRepairDefinition(request: { id: string; variantRe
     diagnostics: { code: string; reason: string; message: string; block?: number; offset?: number; guidance?: string }[] } |
   { status: 'completed'; fingerprints: string[]; evaluatedAt: string; count: number; duplicates: number;
     bundle?: string; bindings?: Record<string, string>; privateBindings?: Record<string, string> };
+export declare function windowsUserEnvironmentKept(blockIds: readonly string[]): string[];
 export declare function repairObservationRequests(request: { id: string; targets: string[]; variantRef?: string }):
   { id: string; operationId: string; executable: string; args: string[]; timeoutMs: number; maxOutputBytes: number }[];
 export declare function assessRepairObservations(request: { id: string; managedPath: string; variantRef?: string;

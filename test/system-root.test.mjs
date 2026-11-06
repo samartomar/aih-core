@@ -38,3 +38,11 @@ test('the Windows folder comes from the kernel link even when %SystemRoot% point
     rmSync(decoy, { recursive: true, force: true });
   }
 });
+
+test('a repair removal names the Windows user environment values that its recorded profile blocks went with', async () => {
+  const { windowsUserEnvironmentKept } = await import('../dist/harness/runtime.mjs');
+  assert.deepEqual(windowsUserEnvironmentKept(['node-ca']), ['NODE_EXTRA_CA_CERTS']);
+  assert.deepEqual(windowsUserEnvironmentKept(['node-system-ca', 'npm-ca']), ['NODE_USE_SYSTEM_CA']);
+  assert.deepEqual(windowsUserEnvironmentKept(['python-ca', 'python-ca']), ['SSL_CERT_FILE', 'REQUESTS_CA_BUNDLE']);
+  assert.deepEqual(windowsUserEnvironmentKept(['npm-ca', 'constructor', '__proto__']), []);
+});

@@ -416,6 +416,15 @@ export function prepareRepairDefinition(request) {
     evaluatedAt: accepted.evaluatedAt, count: accepted.certificates.length, duplicates: accepted.duplicates };
 }
 
+/**
+ * The Windows user environment values (`HKCU\Environment`, set with setx) that go with a repair's recorded shell
+ * profile blocks on Windows. Removing the repair leaves them as they are, so its removal review names them.
+ */
+export function windowsUserEnvironmentKept(blockIds) {
+  const values = { 'node-ca': ['NODE_EXTRA_CA_CERTS'], 'node-system-ca': ['NODE_USE_SYSTEM_CA'], 'python-ca': ['SSL_CERT_FILE', 'REQUESTS_CA_BUNDLE'] };
+  return [...new Set(blockIds.flatMap(id => Object.hasOwn(values, id) ? values[id] : []))];
+}
+
 /** Fixed, read-only host observations selected by the installed repair definition. */
 export function repairObservationRequests(request) {
   if (request.id === 'jvm-ca') return [];
