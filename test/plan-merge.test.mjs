@@ -474,13 +474,18 @@ test('an MCP entry\'s key names come from the served clients whose MCP place is 
   assert.deepEqual(await attempt({ server: npm, clis: ['claude-code', 'opencode'], file: 'opencode.json', key: '/mcp/search', entry: argv }), ['ready', undefined]);
   assert.deepEqual(await attempt({ server: npm, clis: ['claude-code', 'opencode'], file: 'opencode.json', key: '/mcp/search', entry: { ...argv, args: ['--evil'] } }),
     ['refused', 'mcp-entry-shape']);
-  // Two clients that both keep their MCP servers in this file and name a field differently: refused. Claude Code's
-  // `.mcp.json` is also a (request-described) dsh MCP place here; agreeing names are ready.
-  const dsh = command => ({ ...inputProfile('dsh'), places: { mcp: { project: { file: '.mcp.json', format: 'json', key: '/mcpServers/<name>' } } },
-    mcpFile: { stdio: { command, args: 'args', env: 'env' } } });
-  for (const [command, outcome] of [['cmd', ['refused', 'mcp-entry-shape']], ['command', ['ready', undefined]]])
-    assert.deepEqual(await attempt({ server: npm, clis: ['claude-code', 'dsh'], file: '.mcp.json', entry: canonical,
-      profiles: [inputProfile('claude-code'), dsh(command)] }), outcome, command);
+  // Every profiled client's MCP shape is Core's: a request's dsh profile (dsh keeps no MCP servers) claiming `.mcp.json`
+  // with renamed or swapped concepts changes nothing, alone or beside Claude Code: Core's fixed names, still compared.
+  const dsh = stdio => ({ ...inputProfile('dsh'), places: { mcp: { project: { file: '.mcp.json', format: 'json', key: '/mcpServers/<name>' } } },
+    mcpFile: { stdio: { command: 'command', args: 'args', env: 'env', ...stdio } } });
+  for (const clis of [['dsh'], ['claude-code', 'dsh']]) {
+    const profiles = [inputProfile('claude-code'), dsh({ command: 'cmd', env: 'args', args: 'arguments' })];
+    assert.deepEqual(await attempt({ server: npm, clis, file: '.mcp.json', entry: canonical, profiles }), ['ready', undefined], clis.join());
+    assert.deepEqual(await attempt({ server: npm, clis, file: '.mcp.json', entry: { cmd: 'npx', args: canonical.args }, profiles }), ['refused', 'mcp-entry-shape'], clis.join());
+    assert.deepEqual(await attempt({ server: npm, clis, file: '.mcp.json', profiles,
+      entry: { command: 'npx', arguments: canonical.args, args: { SEARCH_KEY: 'x' } } }), ['refused', 'mcp-entry-shape'], clis.join());
+  }
+  assert.deepEqual(await attempt({ server: npm, clis: ['dsh'], file: '.aih-test/mcp.json', entry: canonical, profiles: [dsh({ command: 'cmd' })] }), ['ready', undefined]);
 });
 
 test('a merge is labelled as it lands: at a command key, in Codex\'s shell environment, Claude\'s execution variables and MCP consent', async () => {
@@ -537,4 +542,40 @@ test('every Codex key that runs a program is labelled where it lands: notify, au
   // `tui.notifications` is Codex's own alert (a boolean or an event list), not a program.
   assert.equal(await label('.codex/config.toml', 'toml', 'tui', { notifications: true }), undefined);
   assert.equal(mergeConfiguration(['tui', 'notifications'], ['agent-turn-complete']), undefined);
+});
+
+test('plugin loading is labelled kind plugin: OpenCode\'s npm plugin list, Claude Code\'s marketplaces and enabled plugins', async () => {
+  const { writeConfiguration } = await import('../dist/core/plan/steps/executable.js');
+  const label = async (file, key, entry) => {
+    const prepared = await prepare(mergeRequest(project(), [{ item: 'local-my-setup.mcp.settings', file, format: 'json', key, entry }]));
+    assert.equal(prepared.status, 'ready', JSON.stringify(prepared).slice(0, 600));
+    return prepared.review.steps[0].executableConfiguration;
+  };
+  for (const [file, key, entry, plugins] of [
+    ['opencode.json', '/plugin', ['opencode-evil@1.0.0'], ['opencode-evil@1.0.0']],
+    ['opencode.json', '/plugin/0', 'opencode-evil@1.0.0', ['opencode-evil@1.0.0']],
+    ['.claude/settings.json', '/enabledPlugins/evil@market', true, ['evil@market']],
+    ['.claude/settings.json', '/enabledPlugins', { 'evil@market': true }, ['evil@market']],
+    ['.claude/settings.json', '/extraKnownMarketplaces/market', { source: { source: 'github', repo: 'evil/market' } }, ['market']]]) {
+    const found = await label(file, key, entry);
+    assert.equal(found?.kind, 'plugin', `${file} ${key}`);
+    assert.deepEqual(found?.plugins, plugins, `${file} ${key}`);
+  }
+  const written = writeConfiguration('opencode.json', Buffer.from(JSON.stringify({ $schema: 'https://opencode.ai/config.json', plugin: ['opencode-evil'] })), false);
+  assert.deepEqual([written?.kind, written?.plugins], ['plugin', ['opencode-evil']]);
+  const settings = writeConfiguration('.claude/settings.json', Buffer.from(JSON.stringify({ enabledPlugins: { 'evil@market': true },
+    extraKnownMarketplaces: { market: { source: { source: 'github', repo: 'evil/market' } } } })), false);
+  assert.deepEqual([settings?.kind, settings?.plugins], ['plugin', ['evil@market', 'market']]);
+  // A plugin turned off loads nothing.
+  assert.equal(await label('.claude/settings.json', '/enabledPlugins/evil@market', false), undefined);
+});
+
+test('a client\'s config root is a loader variable: pointing it elsewhere changes which hooks and MCP servers run', async () => {
+  const { isLoaderVariable } = await import('../dist/core/plan/inputs.js');
+  for (const name of ['CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'GEMINI_CLI_HOME', 'KIRO_HOME']) {
+    assert.equal(isLoaderVariable(name), true, name);
+    const request = mergeRequest(project(), [{ item: 'local-my-setup.mcp.settings', file: '.claude/settings.json', format: 'json', key: `/env/${name}`, entry: '/tmp/evil' }]);
+    const prepared = await prepare(request);
+    assert.equal(prepared.review?.steps[0].executableConfiguration?.label, 'executable-configuration', name);
+  }
 });

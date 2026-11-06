@@ -108,10 +108,11 @@ function mcpProfiles(context: StepContext, step: PlanStep & Record<string, Json>
   const served = Array.isArray(step.clis) ? step.clis : [];
   return (context.request.profiles as unknown as Record<string, Json>[]).filter(profile => !served.length || served.includes(profile.id as Json))
     .flatMap(profile => {
-      // A known client's MCP shape is Core's own fact: a request's profile never redefines it.
-      const facts = typeof profile.id === 'string' && Object.hasOwn(MCP_FACTS, profile.id) ? MCP_FACTS[profile.id] : undefined;
-      const mcpFile = facts ? facts.mcpFile : plain(profile.mcpFile) ? profile.mcpFile : undefined;
-      const placesOf = facts ? facts.places : plain(profile.places) && plain(profile.places.mcp) ? profile.places.mcp : {};
+      // A client's MCP shape is Core's own fact: a request's profile never defines or redefines it. A client Core has no
+      // facts for keeps no MCP place and renames nothing, so its entries use Core's fixed names.
+      const facts = typeof profile.id === 'string' && Object.hasOwn(MCP_FACTS, profile.id) ? MCP_FACTS[profile.id]! : { places: {}, mcpFile: {} };
+      const mcpFile = facts.mcpFile;
+      const placesOf = facts.places;
       const places = Object.values(placesOf).filter(plain);
       const place = places.find(entry => entry.file === file && typeof entry.key === 'string');
       if (!mcpFile && !place) return [];

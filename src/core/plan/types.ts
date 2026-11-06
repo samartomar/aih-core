@@ -214,9 +214,11 @@ export interface ReviewCommand { argv: string[]; executable: string; executableS
 export interface ExecutableConfiguration {
   label: 'executable-configuration';
   /** `unparsed` (TOML) and `unparsed-yaml`: settings that name a command-like key in a form Core doesn't read; `launches` is then empty. */
-  kind: 'mcp-server' | 'hook' | 'settings-command' | 'executable-file' | 'unparsed' | 'unparsed-yaml' | 'mcp-enable';
+  kind: 'mcp-server' | 'hook' | 'settings-command' | 'executable-file' | 'unparsed' | 'unparsed-yaml' | 'mcp-enable' | 'plugin';
   /** The remote URLs an MCP server entry connects to. */
   connects?: string[];
+  /** The plugins the configuration loads or enables (OpenCode npm plugins, Claude Code plugins and marketplaces). */
+  plugins?: string[];
   launches: { command: string; args: string[] }[];
   sha256?: string; executable?: boolean;
 }
