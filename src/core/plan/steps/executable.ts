@@ -14,8 +14,10 @@ const strings = (value: Json | undefined): value is string[] => Array.isArray(va
 const COMMAND_KEYS = new Set(['apikeyhelper', 'awsauthrefresh', 'awscredentialexport', 'otelheadershelper', 'notify', 'statuscommand',
   // Copilot's hooks run a `bash` or `powershell` command; Gemini CLI runs its tools' discovery and call commands.
   'bash', 'powershell', 'discoverycommand', 'callcommand',
-  // An MCP entry's headers helper runs a command for every request.
-  'headershelper']);
+  // An MCP entry's headers helper runs a command for every request (Codex: `http_headers_helper`).
+  'headershelper', 'http_headers_helper',
+  // Codex's Windows-only hook command, beside or instead of its `command`.
+  'command_windows', 'commandwindows']);
 /**
  * Environment names a client itself acts on to run a program, beyond the loader list: Claude Code wraps every Bash
  * command in `CLAUDE_CODE_SHELL_PREFIX` and sources `CLAUDE_ENV_FILE` before it. Setting one is executable configuration.
@@ -144,7 +146,7 @@ function yamlLaunches(text: string): { launches: Launch[]; hooks: boolean } {
   return { launches, hooks };
 }
 /** Words a configuration that starts a program names, in any key form: a write that never names one starts nothing. */
-const COMMAND_WORDS = /command|notify|hooks?|apikeyhelper|awsauthrefresh|awscredentialexport|otelheadershelper|statuscommand|mcp_?servers|context_servers/i;
+const COMMAND_WORDS = /command|notify|hooks?|apikeyhelper|awsauthrefresh|awscredentialexport|otelheadershelper|headers_?helper|statuscommand|mcp_?servers|context_servers/i;
 /** Text with TOML and YAML escapes (`\uXXXX`, `\UXXXXXXXX`, `\xNN`) decoded, so an escaped key is seen as itself. */
 const unescaped = (text: string): string => text.replace(/\\u([0-9a-fA-F]{4})|\\U([0-9a-fA-F]{8})|\\x([0-9a-fA-F]{2})/g,
   (_whole, u4: string | undefined, u8: string | undefined, x2: string | undefined) => {

@@ -456,3 +456,43 @@ test('a merge is labelled as it lands: at a command key, in Codex\'s shell envir
   assert.equal((await label('.claude/settings.json', 'json', '/enableAllProjectMcpServers', true))?.kind, 'mcp-enable');
   assert.equal((await label('.claude/settings.json', 'json', '/enabledMcpjsonServers', ['evil']))?.kind, 'mcp-enable');
 });
+
+test('every Codex key that runs a program is labelled where it lands: notify, auth and headers helpers, file handlers, Windows hook commands', async () => {
+  const { mergeConfiguration, writeConfiguration } = await import('../dist/core/plan/steps/executable.js');
+  const label = async (file, format, key, entry) => {
+    const request = mergeRequest(project(), [{ item: 'local-my-setup.mcp.settings', file, format, key, entry, ...(format === 'toml' ? { clis: ['codex'] } : {}) }]);
+    const prepared = await prepare(request);
+    assert.equal(prepared.status, 'ready', JSON.stringify(prepared).slice(0, 600));
+    return prepared.review.steps[0].executableConfiguration;
+  };
+  // `notify` as an argv array or a bare string: in a merged TOML table, and at the JSON-form pointer `/notify`.
+  for (const [value, launch] of [[['./evil', '--x'], { command: './evil', args: ['--x'] }], ['./evil', { command: './evil', args: [] }]]) {
+    assert.deepEqual((await label('.codex/config.toml', 'toml', 'profiles.evil', { notify: value }))?.launches, [launch], JSON.stringify(value));
+    assert.deepEqual((await label('.codex/settings.json', 'json', '/notify', value))?.launches, [launch], JSON.stringify(value));
+    assert.deepEqual(mergeConfiguration(['notify'], value)?.launches, [launch], JSON.stringify(value));
+  }
+  // The other documented command keys, merged at the key itself or inside a table at any depth.
+  for (const [segments, entry] of [[['model_providers', 'evil'], { name: 'evil', auth: { command: './evil', args: [] } }],
+    [['model_providers', 'evil', 'auth', 'command'], './evil'], [['mcp_servers', 'search', 'http_headers_helper'], './evil'],
+    [['mcp_servers', 'search'], { url: 'https://example.test/mcp', http_headers_helper: './evil' }],
+    [['desktop', 'custom_file_handlers', 'evil'], { command: './evil', args: [] }]])
+    assert.deepEqual(mergeConfiguration(segments, entry)?.launches, [{ command: './evil', args: [] }], segments.join('.'));
+  for (const [segments, entry] of [[['hooks', 'PreToolUse'], [{ hooks: [{ type: 'command', command_windows: './evil.cmd' }] }]],
+    [['hooks', 'PreToolUse'], [{ hooks: [{ type: 'command', commandWindows: './evil.cmd' }] }]]]) {
+    const hook = mergeConfiguration(segments, entry);
+    assert.equal(hook?.kind, 'hook');
+    assert.deepEqual(hook?.launches, [{ command: './evil.cmd', args: [] }]);
+  }
+  // A whole config.toml written with these keys.
+  const toml = (text) => writeConfiguration('.codex/config.toml', Buffer.from(text), false)?.launches;
+  assert.deepEqual(toml('notify = ["./evil", "--x"]\n'), [{ command: './evil', args: ['--x'] }]);
+  assert.deepEqual(toml('notify = "./evil"\n'), [{ command: './evil', args: [] }]);
+  // A multi-line array is beyond the line scan: the file is labelled `unparsed`, never left unlabelled.
+  assert.equal(writeConfiguration('.codex/config.toml', Buffer.from('notify = [\n  "./evil",\n  "--x",\n]\n'), false)?.kind, 'unparsed');
+  assert.deepEqual(toml('[model_providers.evil.auth]\ncommand = "./evil"\n'), [{ command: './evil', args: [] }]);
+  assert.deepEqual(toml('[mcp_servers.search]\nurl = "https://example.test/mcp"\nhttp_headers_helper = "./evil"\n'), [{ command: './evil', args: [] }]);
+  assert.deepEqual(toml('[[hooks.PreToolUse.hooks]]\ntype = "command"\ncommand_windows = "./evil.cmd"\n'), [{ command: './evil.cmd', args: [] }]);
+  // `tui.notifications` is Codex's own alert (a boolean or an event list), not a program.
+  assert.equal(await label('.codex/config.toml', 'toml', 'tui', { notifications: true }), undefined);
+  assert.equal(mergeConfiguration(['tui', 'notifications'], ['agent-turn-complete']), undefined);
+});
