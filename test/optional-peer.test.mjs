@@ -64,3 +64,71 @@ test('an absent peer or an unexported subpath is reported, not thrown', async ()
     assert.deepEqual(await loadPeer('@aihq/catalog/node'), { status: 'not-exported' });
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+// Layouts where Core is reached through a link: pnpm's store, and `npm link` or a `file:` link to a checkout. The peer
+// is loaded in a child process whose main script stands where the project's own code would.
+const { spawnSync } = await import('node:child_process');
+const { symlinkSync } = await import('node:fs');
+const link = (target, path) => { mkdirSync(join(path, '..'), { recursive: true }); symlinkSync(target, path, process.platform === 'win32' ? 'junction' : 'dir'); };
+const coreAt = folder => {
+  mkdirSync(join(folder, 'dist', 'core', 'internal'), { recursive: true });
+  writeFileSync(join(folder, 'package.json'), JSON.stringify({ name: '@aihq/core', version: '0.0.0-test', type: 'module' }));
+  copyFileSync(new URL('../dist/core/internal/peer.js', import.meta.url), join(folder, 'dist', 'core', 'internal', 'peer.js'));
+};
+/** Run `main` (a script written at that path) that loads `@aihq/scan/read` through the given Core folder. */
+function loadFrom(main, core, env = {}) {
+  mkdirSync(join(main, '..'), { recursive: true });
+  writeFileSync(main, `const m = await import(${JSON.stringify(pathToFileURL(join(core, 'dist', 'core', 'internal', 'peer.js')).href)});\n` +
+    `const r = await m.loadPeer('@aihq/scan/read'); console.log(JSON.stringify({ status: r.status, marker: r.module?.marker ?? null, version: r.version ?? null }));\n`);
+  const child = spawnSync(process.execPath, [main], { encoding: 'utf8', windowsHide: true, env: { ...process.env, ...env } });
+  assert.equal(child.status, 0, child.stderr);
+  return JSON.parse(child.stdout.trim().split('\n').at(-1));
+}
+const layout = (name, body) => async () => {
+  const root = realpathSync.native(mkdtempSync(join(tmpdir(), `aih-peer-${name}-`)));
+  try { await body(root); } finally { rmSync(root, { recursive: true, force: true }); }
+};
+
+test('a pnpm install loads the peer from its store, and still refuses one linked from outside', layout('pnpm', root => {
+  const store = join(root, 'proj', 'node_modules', '.pnpm');
+  const core = join(store, '@aihq+core@0.1.0', 'node_modules', '@aihq', 'core'); coreAt(core);
+  scanPackage(join(store, '@aihq+scan@0.1.0', 'node_modules', '@aihq', 'scan'), 'store');
+  link(join(store, '@aihq+scan@0.1.0', 'node_modules', '@aihq', 'scan'), join(store, '@aihq+core@0.1.0', 'node_modules', '@aihq', 'scan'));
+  link(core, join(root, 'proj', 'node_modules', '@aihq', 'core'));
+  assert.deepEqual(loadFrom(join(root, 'proj', 'app.mjs'), core), { status: 'loaded', marker: 'store', version: '0.1.0' });
+  // The same layout with the peer linked to a folder outside the project's node_modules.
+  const other = join(root, 'other');
+  const core2 = join(other, 'proj', 'node_modules', '.pnpm', '@aihq+core@0.1.0', 'node_modules', '@aihq', 'core'); coreAt(core2);
+  scanPackage(join(root, 'evil', 'scan'), 'evil');
+  link(join(root, 'evil', 'scan'), join(other, 'proj', 'node_modules', '.pnpm', '@aihq+core@0.1.0', 'node_modules', '@aihq', 'scan'));
+  assert.equal(loadFrom(join(other, 'proj', 'app.mjs'), core2).status, 'outside');
+}));
+
+test('an npm link or file: link to a Core checkout loads the peer the project declares, never one in a parent folder', layout('link', root => {
+  const checkout = join(root, 'aih-core'); coreAt(checkout);
+  // A planted package in a parent of the checkout is what Node's own walk-up from the checkout would find.
+  scanPackage(join(root, 'node_modules', '@aihq', 'scan'), 'parent');
+  const project = join(root, 'work', 'proj');
+  link(checkout, join(project, 'node_modules', '@aihq', 'core'));
+  scanPackage(join(project, 'node_modules', '@aihq', 'scan'), 'project');
+  assert.deepEqual(loadFrom(join(project, 'app.mjs'), checkout), { status: 'loaded', marker: 'project', version: '0.1.0' });
+  // Run as the linked bin (`node_modules/@aihq/core/...`): the same project folder.
+  assert.equal(loadFrom(join(project, 'node_modules', '@aihq', 'core', 'dist', 'core', 'bin.mjs'), checkout).marker, 'project');
+  // A project without the peer: the parent's is still refused, and NODE_PATH is never used.
+  const bare = join(root, 'work', 'bare');
+  link(checkout, join(bare, 'node_modules', '@aihq', 'core'));
+  scanPackage(join(root, 'elsewhere', '@aihq', 'scan'), 'node-path');
+  assert.equal(loadFrom(join(bare, 'app.mjs'), checkout, { NODE_PATH: join(root, 'elsewhere') }).status, 'outside');
+  // The project's own peer linked to a folder outside its node_modules is refused.
+  const linked = join(root, 'work', 'linked');
+  link(checkout, join(linked, 'node_modules', '@aihq', 'core'));
+  scanPackage(join(root, 'evil', 'scan'), 'evil');
+  link(join(root, 'evil', 'scan'), join(linked, 'node_modules', '@aihq', 'scan'));
+  assert.equal(loadFrom(join(linked, 'app.mjs'), checkout).status, 'outside');
+}));
+
+test('a linked project holder at a filesystem root is never used', async () => {
+  const { linkedHolder } = await import('../dist/core/internal/peer.js');
+  const root = process.platform === 'win32' ? 'C:' + String.fromCharCode(92) : '/';
+  assert.equal(linkedHolder(join(root, 'app.mjs'), join(tmpdir(), 'no-such-core')), undefined);
+});
