@@ -44,7 +44,7 @@ export async function detectProjectFacts(request, controls = {}) {
   const invalid = invalidRequest(request, controls);
   const budgetMs = invalid ? DEFAULT_BUDGET_MS : controls.budgetMs ?? DEFAULT_BUDGET_MS;
   const limits = reads => ({ budgetMs, elapsedMs: Math.round(performance.now() - started), reads, maxReads: MAX_READS });
-  if (invalid) return { status: 'invalid', facts: null, diagnostics: [{ code: 'INPUT_INVALID', reason: invalid,
+  if (invalid) return { status: 'invalid', facts: null, problems: [{ path: invalid === 'project' ? '/project' : '', reason: invalid, message: 'Use { project: <absolute folder> } and bounded controls.' }], diagnostics: [{ code: 'INPUT_INVALID', reason: invalid,
     message: 'Use { project: <absolute folder> } and bounded controls.' }], limits: limits(0) };
   if (controls.signal?.aborted) return { status: 'cancelled', facts: null, diagnostics: [{ code: 'CANCELLED', reason: 'cancelled',
     message: 'Project facts detection was cancelled.' }], limits: limits(0) };
@@ -93,17 +93,17 @@ export async function detectProjectFacts(request, controls = {}) {
   let project;
   try { project = read(() => realpathSync.native(request.project)); }
   catch {
-    return { status: 'invalid', facts: null, diagnostics: [{ code: 'INPUT_INVALID', reason: 'project',
+    return { status: 'invalid', facts: null, problems: [{ path: '/project', reason: 'project', message: 'The project must be an existing folder Core can read.' }], diagnostics: [{ code: 'INPUT_INVALID', reason: 'project',
       message: 'The project folder is not an existing absolute folder.' }], limits: limits(reads) };
   }
   let directory = false;
   try { directory = read(() => lstatSync(project).isDirectory()); }
   catch {
-    return { status: 'invalid', facts: null, diagnostics: [{ code: 'INPUT_INVALID', reason: 'project',
+    return { status: 'invalid', facts: null, problems: [{ path: '/project', reason: 'project', message: 'The project must be an existing folder Core can read.' }], diagnostics: [{ code: 'INPUT_INVALID', reason: 'project',
       message: 'The project folder is not an existing absolute folder.' }], limits: limits(reads) };
   }
   if (!directory) {
-    return { status: 'invalid', facts: null, diagnostics: [{ code: 'INPUT_INVALID', reason: 'project',
+    return { status: 'invalid', facts: null, problems: [{ path: '/project', reason: 'project', message: 'The project must be an existing folder Core can read.' }], diagnostics: [{ code: 'INPUT_INVALID', reason: 'project',
       message: 'The project path is not a folder.' }], limits: limits(reads) };
   }
 

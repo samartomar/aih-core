@@ -13,9 +13,6 @@ import { readTrustCustody, readPendingTrust, pendingEntries, readTrustOwner } fr
 import { readMacosCustody, sessionFilesMatch } from './internal/macos-session-custody.js';
 import { checkMember, interruptedClaim, memberPointer, publicKind, type CustodyItem } from './internal/custody-items.js';
 import { transaction } from './recipe-engine.js';
-import { releaseIndexStatus, validIndex, type ManagedInventoryIndex } from './internal/release-index.js';
-import { validateOrganizationPolicy } from './contracts.js';
-import { contentEntries, contentFactsOf, matchContent, SetMembership } from './internal/organization-content.js';
 import { approvalGiven, bindingApprovalLocation, bindingPermissionStep } from '../harness/delivery-review.mjs';
 import { parse as parseJsonc, type ParseError } from 'jsonc-parser';
 import type { Owner } from './internal/state.js';
@@ -31,15 +28,7 @@ export interface ManagedInventoryRequest {
   scope: 'project' | 'user' | 'both';
   /** Select inventory 1.1.0; omitted keeps 1.0.0. */
   format?: typeof SCHEMA_11;
-  /** Inventory 1.1.0: the consumer's complete current index, from which `updateState` is derived. */
-  index?: ManagedInventoryIndex;
-  /**
-   * Inventory 1.1.0, Enterprise only: the organization document whose admission `policyState` reports, with optional
-   * Catalog-resolved members for its 1.2.0 set selectors (without them a set selector reads `unknown`).
-   */
-  organization?: { document: OrganizationPolicy; setMembers?: OrganizationSetMembers[] };
 }
-export type { ManagedInventoryIndex } from './internal/release-index.js';
 export interface ManagedInventoryControls { signal?: AbortSignal; budgetMs?: number }
 export interface ManagedInventorySelection {
   managementId: string;
@@ -106,6 +95,9 @@ function addClaims(rows: Map<string, ManagedInventorySelection>, ownership: Owne
     return selection;
   };
   for (const claim of Object.values(ownership.selections ?? {})) if (visible(claim))
+    row(claim.managementId, claim.scope, 'claim');
+  // A displaced claim (C61) is still an install, listed although it holds no member on disk.
+  for (const owner of Object.values(ownership.members)) for (const claim of owner.displaced?.claims ?? []) if (visible(claim))
     row(claim.managementId, claim.scope, 'claim');
   // An interrupted install is listed from its pending receipt, also before it wrote any member.
   for (const item of Object.values(ownership.items ?? {}))
@@ -179,7 +171,8 @@ export async function listManagedSelections(request: ManagedInventoryRequest,
   }
   let admitted = false;
   try {
-    const optional = ['format', 'index', 'organization'].filter(key => Object.hasOwn(request, key));
+    // The release index and organization 1.x inputs are retired (C15, C19): only `format` is optional.
+    const optional = ['format'].filter(key => Object.hasOwn(request, key));
     admitted = (optional.length === 0 || wants11) && plainWithKeys(request, ['target', 'scope', ...optional]) &&
     plainWithKeys(request.target, ['project']) && typeof request.target.project === 'string' &&
     ['project', 'user', 'both'].includes(request.scope) &&
@@ -189,25 +182,11 @@ export async function listManagedSelections(request: ManagedInventoryRequest,
     Object.getOwnPropertyNames(controls).every(key => (key === 'signal' || key === 'budgetMs') &&
       Object.getOwnPropertyDescriptor(controls, key)?.enumerable &&
       'value' in Object.getOwnPropertyDescriptor(controls, key)!) &&
-    (controls.signal === undefined || controls.signal instanceof AbortSignal) &&
-    (request.index === undefined || validIndex(request.index)); } catch { admitted = false; }
+    (controls.signal === undefined || controls.signal instanceof AbortSignal); } catch { admitted = false; }
   if (!admitted) {
     result.status = 'invalid';
     result.diagnostics.push(diagnostic('INPUT_INVALID', 'request-shape', 'The inventory request is invalid.'));
     return finish();
-  }
-  if (admitted && request.organization !== undefined) {
-    let organized = false;
-    try {
-      const keys = ['document', ...Object.hasOwn(request.organization, 'setMembers') ? ['setMembers'] : []];
-      organized = plainWithKeys(request.organization, keys) && validateOrganizationPolicy(request.organization.document,
-        keys.length > 1 ? { setMembers: request.organization.setMembers! } : {}).valid;
-    } catch { organized = false; }
-    if (!organized) {
-      result.status = 'invalid';
-      result.diagnostics.push(diagnostic('INPUT_INVALID', 'organization-policy', 'The organization document is invalid.'));
-      return finish();
-    }
   }
   let project: string;
   try { project = projectRoot(request.target.project); }
@@ -318,31 +297,6 @@ export async function listManagedSelections(request: ManagedInventoryRequest,
   }
 }
 
-const STRENGTH = ['required', 'recommended', 'permitted'] as const;
-/**
- * Enterprise admission of the recorded recipe identity, with any organization 1.2.0 content entry matching the recorded
- * item; a target selector Core cannot evaluate here, an unrecorded fact or a set without supplied members reads unknown.
- */
-function policyState(document: OrganizationPolicy, scope: 'project' | 'user', identities: Set<string>,
-    facts: { kind: SelectionMetadata['kind'] | null; item: CatalogItemRef | null }, membership: SetMembership): NonNullable<ManagedInventorySelection11['policyState']> {
-  if (identities.size !== 1) return 'unknown';
-  const [identity] = identities;
-  const recorded = contentFactsOf(facts);
-  const entries = document.selections.filter(entry => entry.recipeIdentity === identity && entry.scopes.includes(scope) &&
-    !('content' in entry && entry.content && matchContent(entry.content, recorded, membership) === 'mismatch'));
-  if (!entries.length) return 'not-admitted';
-  // Content entries that could govern this row: content-only ones, and those narrowing this recipe identity.
-  const content = contentEntries(document).filter(entry => entry.content && entry.scopes.includes(scope) &&
-      (entry.recipeIdentity === undefined || entry.recipeIdentity === identity))
-    .map(entry => ({ entry, match: matchContent(entry.content!, recorded, membership) })).filter(({ match }) => match !== 'mismatch');
-  if (content.some(({ match }) => match !== 'matches')) return 'unknown';
-  const governing = [...entries, ...content.filter(({ entry }) => entry.recipeIdentity === undefined).map(({ entry }) => entry)];
-  if (governing.some(entry => 'clients' in entry && entry.clients !== undefined || 'repositories' in entry && entry.repositories !== undefined)) return 'unknown';
-  const obligations = governing.map(entry => 'obligation' in entry ? entry.obligation : 'permitted');
-  if (obligations.includes('prohibited')) return 'prohibited';
-  return STRENGTH.find(strength => obligations.includes(strength)) ?? 'permitted';
-}
-
 function describe(rows: ManagedInventorySelection[], collected: Map<string, Collected>, redacted: RedactedPaths, request: ManagedInventoryRequest,
   check: () => void, checks: { bytes: number; skipped: boolean }): ManagedInventorySelection11[] {
   const lives = new Map<string, ReturnType<ReturnType<typeof transaction>['inspect']>>();
@@ -391,10 +345,7 @@ function describe(rows: ManagedInventorySelection[], collected: Map<string, Coll
     };
     return { ...row, name: facts?.name ?? null, kind, framework: facts?.framework ?? null, item: facts?.item ?? null, tool,
       origins: facts?.origins ?? [], ...(facts?.projectFacts ? { projectFacts: clone(facts.projectFacts) } : {}),
-      ...(source ? { materialSource: { ...source } } : {}), members, updateState: releaseIndexStatus(facts?.item ?? null, request.index),
-      ...(request.organization ? { policyState: policyState(request.organization.document, row.scope,
-        new Set(detail.members.map(member => member.owner.recipeIdentity)), { kind, item: facts?.item ?? null },
-        new SetMembership(request.organization.setMembers)) } : {}),
+      ...(source ? { materialSource: { ...source } } : {}), members, updateState: 'unknown',
       approval: granted ? 'granted-by-aih' : tool === null || kind === null ? null : bindingPermissionStep(tool, kind) === undefined || givenByPerson() ? 'not-needed' : 'needed',
       installState: detail.items.some(item => item.installState === 'interrupted') ? 'interrupted' : 'complete' };
   });

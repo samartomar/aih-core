@@ -17,8 +17,7 @@ import {
   projectClaims,
   readClaimSet,
   validateClaimSet,
-} from '@aihq/core/report';
-import { contractSupport } from '@aihq/core/harness';
+} from '../../dist/harness/report/data.mjs';
 
 const T1 = '2026-10-14T10:00:00Z';
 const T2 = '2026-10-14T10:05:00.250Z';
@@ -70,7 +69,7 @@ function deepFreeze(value) {
 }
 
 test('the accepted versions, calculation methods and schema export are advertised', async () => {
-  assert.deepEqual(CLAIMS_ACCEPTED_VERSIONS, ['urn:aihq:report:claims:1.0.0', 'urn:aihq:report:claims:1.1.0']);
+  assert.deepEqual(CLAIMS_ACCEPTED_VERSIONS, ['urn:aihq:report:claims:1.0.0', 'urn:aihq:report:claims:1.1.0', 'urn:aihq:core:claims:0.1.0']);
   assert.equal(Object.isFrozen(CLAIMS_ACCEPTED_VERSIONS), true);
   assert.equal(CLAIMS_SCHEMA, 'urn:aihq:report:claims:1.0.0');
   assert.equal(CLAIMS_PROJECTION_SCHEMA, 'urn:aihq:report:claims-projection:1.0.0');
@@ -83,25 +82,17 @@ test('the accepted versions, calculation methods and schema export are advertise
     { id: 'recurrence', version: '1.0.0' },
   ]);
   assert.equal(Object.isFrozen(CALCULATION_METHODS), true);
-  assert.partialDeepStrictEqual(
-    contractSupport.contracts.find((entry) => entry.id === CLAIMS_SCHEMA),
-    { id: CLAIMS_SCHEMA, role: 'accepts', schemaExport: '@aihq/core/report/schemas/claims/1.0.0.json' },
-  );
-  assert.partialDeepStrictEqual(
-    contractSupport.contracts.find((entry) => entry.id === CLAIMS_SCHEMA_1_1_0),
-    { id: CLAIMS_SCHEMA_1_1_0, role: 'accepts', schemaExport: '@aihq/core/report/schemas/claims/1.1.0.json' },
-  );
-  const schema = (await import('@aihq/core/report/schemas/claims/1.0.0.json', { with: { type: 'json' } })).default;
+  const schema = (await import('../../dist/harness/report/claims-schema.json', { with: { type: 'json' } })).default;
   assert.equal(schema.$id, 'urn:aihq:report:claims:1.0.0');
   assert.equal(schema.$schema, 'https://json-schema.org/draft/2020-12/schema');
-  const next = (await import('@aihq/core/report/schemas/claims/1.1.0.json', { with: { type: 'json' } })).default;
+  const next = (await import('../../dist/harness/report/claims-schema-1.1.0.json', { with: { type: 'json' } })).default;
   assert.equal(next.$id, 'urn:aihq:report:claims:1.1.0');
   assert.equal(next.$schema, 'https://json-schema.org/draft/2020-12/schema');
   assert.doesNotThrow(() => new Ajv2020({ strict: true, allErrors: true }).compile(next));
 });
 
 test('the JSON Schema accepts a valid claim set and rejects structural violations', async () => {
-  const schema = (await import('@aihq/core/report/schemas/claims/1.0.0.json', { with: { type: 'json' } })).default;
+  const schema = (await import('../../dist/harness/report/claims-schema.json', { with: { type: 'json' } })).default;
   const validate = new Ajv2020({ strict: true, allErrors: true }).compile(schema);
   const valid = claimSet([
     claim('a'),
@@ -833,9 +824,9 @@ test('the claim set carries no global or combined risk score', () => {
 test('the filled examples read, project to their committed projections and match worked values', async () => {
   const directory = new URL('../../examples/reporting/claims/', import.meta.url);
   const load = (name) => readFile(new URL(name, directory), 'utf8');
-  const schema = (await import('@aihq/core/report/schemas/claims/1.0.0.json', { with: { type: 'json' } })).default;
+  const schema = (await import('../../dist/harness/report/claims-schema.json', { with: { type: 'json' } })).default;
   const validate = new Ajv2020({ strict: true, allErrors: true }).compile(schema);
-  const next = (await import('@aihq/core/report/schemas/claims/1.1.0.json', { with: { type: 'json' } })).default;
+  const next = (await import('../../dist/harness/report/claims-schema-1.1.0.json', { with: { type: 'json' } })).default;
   const validateNext = new Ajv2020({ strict: true, allErrors: true }).compile(next);
   const byId = (projection) => Object.fromEntries(projection.calculations.map((entry) => [entry.id, entry]));
   const project = async (name, check = validate) => {
@@ -956,7 +947,7 @@ test('a claims 1.0.0 set cannot request recurrence, in the validator or the 1.0.
   assert.equal(validation.errors[0], 'claimSet.calculations[0].method: unsupported calculation method or version');
   assert.throws(() => projectClaims(set), (error) => error instanceof ReportInputError
     && error.code === 'INPUT_INVALID' && /^claimSet\.calculations\[0\]\.method: /.test(error.message));
-  const schema = (await import('@aihq/core/report/schemas/claims/1.0.0.json', { with: { type: 'json' } })).default;
+  const schema = (await import('../../dist/harness/report/claims-schema.json', { with: { type: 'json' } })).default;
   assert.equal(new Ajv2020({ strict: true, allErrors: true }).compile(schema)(set), false);
 });
 
@@ -1187,7 +1178,7 @@ test('recurrence: a repeated or unresolved reference, or a malformed request, is
 });
 
 test('the claims 1.1.0 JSON Schema accepts a recurrence request and rejects a malformed one', async () => {
-  const schema = (await import('@aihq/core/report/schemas/claims/1.1.0.json', { with: { type: 'json' } })).default;
+  const schema = (await import('../../dist/harness/report/claims-schema-1.1.0.json', { with: { type: 'json' } })).default;
   const validate = new Ajv2020({ strict: true, allErrors: true }).compile(schema);
   const valid = claimSet11([outcomeClaim('a', 'failed', 1), claim('c')], {
     calculations: [recurrenceRequest('r', ['a']), scoreRequest('score', ['c'])],

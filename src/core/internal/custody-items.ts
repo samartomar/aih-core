@@ -11,6 +11,8 @@ import type { Claim, MemberDescriptor } from './recipe-lifecycle.js';
 import type { GitMaterialProvenance, InclusionOrigin, Json, SelectionMetadata } from '../types.js';
 import type { Owner } from './state.js';
 import { githubName } from './material-descriptors.js';
+import type { PluginFacts, ProgramFacts, ScanFacts } from '../plan/types.js';
+export type { PluginFacts, ProgramFacts } from '../plan/types.js';
 
 export type TypedMember =
   | { kind: 'file'; path: string; sha256: string; executable: boolean }
@@ -30,7 +32,91 @@ export interface ItemFacts {
   projectFacts?: SelectionMetadata['projectFacts'];
   /** The exact git commit the selection's referenced recipe was last applied from; absent for every other source. */
   materialSource?: GitMaterialProvenance;
+  /** Receipt facts of an install made from a plan request (`urn:aihq:core:plan-request:0.1.0`); absent for every other request. */
+  plan?: PlanItemFacts;
+  /**
+   * A claim the engine keeps under a claim key that isn't a plan's (a user-scope change made for a project, contract 5):
+   * the management id it belongs to and the project that made it.
+   */
+  claim?: { managementId: string; project: string | null };
 }
+/**
+ * What a plan-request install records for one management id (one item per scope, C48): where the content came from and
+ * which clients, steps and profiles it was planned for. Copied from the reviewed request; never authority.
+ */
+export interface PlanItemFacts {
+  /** The item ids the management id's steps name. */
+  items: string[];
+  /** Sorted, unique CLI ids the steps record in `clis`. */
+  clis: string[];
+  /** The Catalog data the plan was made from, or `null` for own content. */
+  data: { repository: string; commit: string } | null;
+  /** `chosen`, or the recipe origin Core proved at Prepare (8.2, C44). */
+  origin: 'chosen' | { recipe: { id: string; sha256: string; repository: string; commit: string }; data: { repository: string; commit: string } | null };
+  /** The caller's Catalog version when one was passed in `controls.catalog`; otherwise `null`. */
+  catalog: string | null;
+  /** The tool profiles supplied with the plan for the CLIs named here. */
+  profiles: { id: string; version: string | number }[];
+  /** The plan step indexes grouped under this management id, ascending. */
+  steps: number[];
+  /** For an AI setup (`acquire`): the interpreter branch that ran and whether the fallback did (C46); absent otherwise. */
+  aiSetup?: { branch: 'installed' | 'fallback' | null; interpreter: { path: string; version: string } | null; fallback: boolean; fallbackReason: string | null;
+    downloads?: import('../plan/acquire/types.js').DownloadRecord[]; executable?: import('../plan/types.js').PlacedExecutable; tree?: string };
+  /**
+   * Native plugin installs (`plugin` steps), with the undo facts copied from the profile at install (C54): the exact
+   * removal commands and the presence check, so removal never needs the old profile. Absent when there are none.
+   */
+  plugins?: PluginFacts[];
+  /** Program steps (`tool-command`, `upstream-installer`, `upstream-setup`) and their undo facts (C30, C54). */
+  programs?: ProgramFacts[];
+  /**
+   * The content facts Enterprise fulfilment counts (contract 11): the item's kind and framework from the content documents
+   * the plan was made from, `null` when they gave none. Absent on receipts made before they were recorded.
+   */
+  kind?: string | null; framework?: string | null;
+  /** The management id this claim belongs to (C48); the engine keeps the claim under its claim key. */
+  managementId?: string;
+  /** The one CLI that makes this claim (from the steps' `clis`), or `null` when the steps recorded none (C55). */
+  cli?: string | null;
+  /** The project folder that made the claim, for user-scope claims too (C28); `null` when the request named none. */
+  project?: string | null;
+  /** Folder links this claim placed (`link` steps, C29): where, to what, how, and which parents Core created for them. */
+  links?: LinkFacts[];
+  /**
+   * The item's input bindings as installed (C59): how each was written and where its value came from. Only an ordinary
+   * value is kept; a secret's value never is. Absent when the item binds no inputs.
+   */
+  inputs?: { input: string; secret: boolean; written: 'value' | 'reference' | 'omitted'; from: 'inputs' | 'default' | 'privateInputs' | null; value?: Json }[];
+  /** A local-plugin route (C68): the items its plan said it contains, or `null` when the plan gave none. */
+  localPlugin?: { contains: string[] | null };
+  /**
+   * A switch-off of one item inside a plugin (C45, C69): this claim owns one marked Codex `[[skills.config]]` block that
+   * turns the skill `name` (`<plugin>:<skill>`) off; the framework's own install stays. Removing this claim turns it back on.
+   */
+  switchOff?: { framework: string; item: string; cli: string; name: string };
+  /**
+   * The slots of this claim's merge entries that hold a secret written by value (C59, C64): the file, the full editor
+   * path, the input and the slot's authored text with its `{NAME}` marker. Never the secret itself.
+   */
+  secretSlots?: { file: string; path: string[]; item: string; input: string; template: string }[];
+  /** The Scan results the review showed for this management id: key, revision, signer (contract 5, 13). Never authority. */
+  scans?: ScanFacts[];
+  /**
+   * The steps several items share (C48) that this claim was made by: the path and the step's source facts. Another plan's
+   * shared step with the same facts shares the member; a step for one item alone never does.
+   */
+  sharedSteps?: SharedStepFacts[];
+}
+/**
+ * One shared step's identity: where it writes and what it writes from (`sourceId`, `sourcePath`, `sha256` of a supplied
+ * source file), or, for a step with no source file (a merge entry, a render), `null` source ids and the planned bytes' sha256.
+ */
+export interface SharedStepFacts { path: string; sourceId: string | null; sourcePath: string | null; sha256: string }
+export const sameSharedStep = (a: SharedStepFacts, b: SharedStepFacts): boolean =>
+  a.path === b.path && a.sourceId === b.sourceId && a.sourcePath === b.sourcePath && a.sha256 === b.sha256;
+/** One placed folder link: a junction or symlink at `path` to `to` (both under the user root), or a copy of `to`. */
+export interface LinkFacts { step: number; path: string; to: string; linkType: 'junction' | 'symlink' | 'copy'; created: string[] }
+export interface ItemRunOutcome { runId: string; outcome: 'failed' | 'not-attempted'; reason?: string }
 export interface CustodyItem extends ItemFacts {
   members: TypedMember[];
   /** Protected restoration data: the person's value found at an owned pointer before Core wrote it. */
@@ -40,6 +126,12 @@ export interface CustodyItem extends ItemFacts {
    * operations succeed. An interrupted item stays even before any member is written.
    */
   installState?: 'interrupted';
+  /**
+   * An interrupted install that a run reached its end on without finishing: that run and its outcome for the item
+   * (`failed` when one of its steps failed, with that step's reason; `not-attempted` when its steps were never run). A run
+   * that stops early, or the next Apply for the item, leaves none.
+   */
+  lastRun?: ItemRunOutcome;
   /**
    * Members of a file effect Apply is attempting: written ahead of the commit and cleared with the custody published
    * after it. Only a crash between the two leaves an entry; `resolvePending` then reads the target to settle it.
@@ -56,7 +148,7 @@ export interface PendingMember { key: string; descriptor: MemberDescriptor; owne
 /** An interrupted install counts as a claim of its selection, also before it wrote a member. */
 export const interruptedClaim = (item: Pick<CustodyItem, 'managementId' | 'scope'>): Claim =>
   ({ managementId: item.managementId, scope: item.scope, sets: [], requires: [] });
-interface Owned { managementId: string; sha256: string; mode: number; descriptor?: MemberDescriptor; claims?: Claim[]; approval?: { tool: string } }
+interface Owned { managementId: string; sha256: string; mode: number; descriptor?: MemberDescriptor; claims?: Claim[]; approval?: { tool: string }; displaced?: { claims: Claim[] } }
 interface Custody { members: Record<string, Owned>; selections?: Record<string, Claim>; items?: Record<string, CustodyItem> }
 
 /** Custody data with the same own keys in the same order and identical values: it serializes identically. */
@@ -112,6 +204,9 @@ export function typedMembers(key: string, owner: Owned): TypedMember[] {
 const claimed = (owner: Owned, scope: string, managementId: string): boolean =>
   !!owner.claims?.some(claim => claim.scope === scope && claim.managementId === managementId);
 const byKey = ([a]: [string, Owned], [b]: [string, Owned]): number => a < b ? -1 : a > b ? 1 : 0;
+/** Whether a claim a reviewed replace displaced (C61) is recorded on some member: its install is kept, holding nothing on disk. */
+export const displacedClaim = (value: Custody, scope: string, managementId: string): boolean =>
+  Object.values(value.members).some(owner => owner.displaced?.claims.some(claim => claim.scope === scope && claim.managementId === managementId));
 /** Target-keyed members a claim owns, in key order. */
 export function claimedMembers(value: Custody, scope: string, managementId: string): [string, Owned][] {
   return Object.entries(value.members).filter(([, owner]) => claimed(owner, scope, managementId)).sort(byKey);
@@ -156,7 +251,7 @@ export function refreshItems(value: Custody, identity: (scope: 'project' | 'user
     const keys = new Set(owned.map(([key]) => key));
     for (const field of ['preExisting', 'redactedPaths'] as const)
       for (const [key, entry] of Object.entries(item[field] ?? {})) if (!keys.has(key) && value.members[key]) (orphaned[field] as Record<string, unknown>)[key] ??= entry;
-    if (!owned.length && !value.selections?.[id] && !item.installState) continue;
+    if (!owned.length && !value.selections?.[id] && !item.installState && !displacedClaim(value, item.scope, item.managementId)) continue;
     const kept = <T>(record?: Record<string, T>) => Object.fromEntries(Object.entries(record ?? {}).filter(([key]) => keys.has(key)));
     const preExisting = kept(item.preExisting), redactedPaths = kept(item.redactedPaths);
     const { preExisting: _prior, redactedPaths: _paths, ...facts } = item;
@@ -185,15 +280,151 @@ const exact = (value: unknown, keys: string[], optional: string[] = []): value i
   Object.keys(value).every(key => keys.includes(key) || optional.includes(key));
 function validOrigin(value: unknown): boolean {
   if (exact(value, ['reasonIncluded']) && value.reasonIncluded === 'chosen') return true;
-  if (exact(value, ['reasonIncluded', 'set'], ['options']) && value.reasonIncluded === 'in-set')
-    return exact(value.set, ['framework', 'setId', 'setSha256']) && text(value.set.framework, 128) && text(value.set.setId, 128) && hex(value.set.setSha256) &&
-      (value.options === undefined || exact(value.options, []) || !!value.options && typeof value.options === 'object' && !Array.isArray(value.options) &&
-        Object.values(value.options).every(choice => Array.isArray(choice) && choice.length <= 64 && choice.every(entry => text(entry, 128))));
   return exact(value, ['reasonIncluded', 'requiredBy']) && value.reasonIncluded === 'required-by' &&
     exact(value.requiredBy, ['itemId'], ['framework']) && text(value.requiredBy.itemId, 128) &&
     (value.requiredBy.framework === undefined || text(value.requiredBy.framework, 128));
 }
 
+const PLAN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+const ascending = (values: unknown[]): boolean => values.every((value, index) => index === 0 || (values[index - 1] as string) < (value as string));
+/** Plan-request receipt facts, bounded like the rest of an item record. */
+const ROLES = ['artifact', 'closure', 'interpreter', 'build-source', 'build-dependency'];
+const identityText = (value: unknown, bound: number): boolean => typeof value === 'string' && value.length <= bound;
+function validToolRecord(value: unknown): boolean {
+  return exact(value, ['name', 'qualified', 'observed']) && text(value.name, 128) &&
+    [value.qualified, value.observed].every(side => exact(side, ['version', 'sha256']) && identityText(side.version, 512) && hex(side.sha256));
+}
+/** Where one acquired file came from (C78): supplied, downloaded from a URL, or built from pinned source. */
+function validDownloadRecord(value: unknown): boolean {
+  if (!exact(value, ['role', 'file', 'sha256', 'origin'], ['url', 'built'])) return false;
+  if (!ROLES.includes(value.role as string) || !text(value.file, 256) || !hex(value.sha256)) return false;
+  if (value.origin === 'supplied') return value.url === undefined && value.built === undefined;
+  if (value.origin === 'downloaded') return text(value.url, 4096) && (value.url as string).startsWith('https://') && value.built === undefined;
+  if (value.origin !== 'built' || value.url !== undefined || value.role !== 'closure') return false;
+  const built = value.built;
+  return exact(built, ['file', 'sha256', 'byteQualified', 'source', 'dependencies', 'tools'], ['env']) &&
+    (built.env === undefined || exact(built.env, ['CC'], ['CXX', 'LDSHARED']) && [built.env.CC, built.env.CXX, built.env.LDSHARED].every(item => item === undefined || text(item, 4096))) && text(built.file, 256) && hex(built.sha256) &&
+    built.byteQualified === false && hex(built.source) && Array.isArray(built.dependencies) && built.dependencies.length <= 4096 &&
+    built.dependencies.every(hex) && Array.isArray(built.tools) && built.tools.length <= 64 && built.tools.every(validToolRecord);
+}
+function validAiSetupFacts(value: unknown): boolean {
+  if (!exact(value, ['branch', 'interpreter', 'fallback', 'fallbackReason'], ['downloads', 'executable', 'tree'])) return false;
+  if (value.tree !== undefined && !(typeof value.tree === 'string' && /^[a-f0-9]{64}$/.test(value.tree))) return false;
+  if (value.executable !== undefined && !(exact(value.executable, ['path', 'placed']) && text(value.executable.path, 4096) &&
+      ['member', 'environment', 'symlink', 'hardlink', 'launcher'].includes(value.executable.placed as string))) return false;
+  if (value.downloads !== undefined && !(Array.isArray(value.downloads) && value.downloads.length <= 8192 && value.downloads.every(validDownloadRecord))) return false;
+  const interpreter = value.interpreter;
+  return [null, 'installed', 'fallback'].includes(value.branch as string) && typeof value.fallback === 'boolean' &&
+    (value.fallbackReason === null || text(value.fallbackReason, 64)) &&
+    (interpreter === null || exact(interpreter, ['path', 'version']) && text(interpreter.path, 4096) && text(interpreter.version, 64));
+}
+export function validPlanFacts(value: unknown): boolean {
+  if (!exact(value, ['items', 'clis', 'data', 'origin', 'catalog', 'profiles', 'steps'], ['aiSetup', 'plugins', 'localPlugin', 'switchOff', 'inputs', 'managementId', 'cli', 'project', 'links', 'programs', 'secretSlots', 'kind', 'framework', 'scans', 'sharedSteps'])) return false;
+  if (value.sharedSteps !== undefined && !(Array.isArray(value.sharedSteps) && value.sharedSteps.length > 0 && value.sharedSteps.length <= 4096 &&
+      value.sharedSteps.every(step => exact(step, ['path', 'sourceId', 'sourcePath', 'sha256']) && text(step.path, 4096) &&
+        (step.sourceId === null ? step.sourcePath === null : text(step.sourceId, 512) && text(step.sourcePath, 4096)) &&
+        typeof step.sha256 === 'string' && /^[a-f0-9]{64}$/.test(step.sha256)))) return false;
+  if (value.scans !== undefined && !(Array.isArray(value.scans) && value.scans.length > 0 && value.scans.length <= 64 && value.scans.every(validScanFacts))) return false;
+  for (const fact of [value.kind, value.framework]) if (fact !== undefined && fact !== null && !(typeof fact === 'string' && PLAN_ID.test(fact))) return false;
+  if (value.secretSlots !== undefined && !(Array.isArray(value.secretSlots) && value.secretSlots.length > 0 && value.secretSlots.length <= 256 &&
+      value.secretSlots.every(slot => exact(slot, ['file', 'path', 'item', 'input', 'template']) && text(slot.file, 4096) &&
+        Array.isArray(slot.path) && slot.path.length > 0 && slot.path.length <= 64 && slot.path.every(part => typeof part === 'string' && part.length <= 256) &&
+        typeof slot.item === 'string' && PLAN_ID.test(slot.item) && typeof slot.input === 'string' && PLAN_ID.test(slot.input) &&
+        typeof slot.template === 'string' && slot.template.length <= 4096 && slot.template.includes(`{${slot.input}}`)))) return false;
+  if (value.managementId !== undefined && !(typeof value.managementId === 'string' && PLAN_ID.test(value.managementId))) return false;
+  if (value.cli !== undefined && value.cli !== null && !(typeof value.cli === 'string' && PLAN_ID.test(value.cli))) return false;
+  if (value.project !== undefined && value.project !== null && !text(value.project, 4096)) return false;
+  if (value.links !== undefined && !(Array.isArray(value.links) && value.links.length > 0 && value.links.length <= 4096 && value.links.every(validLinkFacts))) return false;
+  if (value.programs !== undefined && !(Array.isArray(value.programs) && value.programs.length > 0 && value.programs.length <= 256 &&
+    value.programs.every(validProgramFacts))) return false;
+  if (value.inputs !== undefined && !validInputFacts(value.inputs)) return false;
+  if (value.aiSetup !== undefined && !validAiSetupFacts(value.aiSetup)) return false;
+  if (value.localPlugin !== undefined && !(exact(value.localPlugin, ['contains']) && (value.localPlugin.contains === null ||
+      Array.isArray(value.localPlugin.contains) && value.localPlugin.contains.length <= 4096 &&
+      value.localPlugin.contains.every(id => typeof id === 'string' && PLAN_ID.test(id)) && ascending(value.localPlugin.contains)))) return false;
+  if (value.switchOff !== undefined && !(exact(value.switchOff, ['framework', 'item', 'cli', 'name']) &&
+      [value.switchOff.framework, value.switchOff.item, value.switchOff.cli].every(id => typeof id === 'string' && PLAN_ID.test(id)) &&
+      typeof value.switchOff.name === 'string' && SKILL_NAME.test(value.switchOff.name))) return false;
+  if (value.plugins !== undefined && !(Array.isArray(value.plugins) && value.plugins.length > 0 && value.plugins.length <= 64 &&
+    value.plugins.every(validPluginFacts))) return false;
+  const ids = (list: unknown, bound: number): boolean => Array.isArray(list) && list.length <= bound &&
+    list.every(entry => typeof entry === 'string' && PLAN_ID.test(entry)) && ascending(list);
+  if (!ids(value.items, 4096) || (value.items as unknown[]).length === 0 || !ids(value.clis, 64)) return false;
+  if (value.data !== null && !(exact(value.data, ['repository', 'commit']) && text(value.data.repository, 512) && text(value.data.commit, 128))) return false;
+  const pin = (entry: unknown): boolean => exact(entry, ['repository', 'commit']) && text(entry.repository, 512) && text(entry.commit, 128);
+  if (value.data !== null && !pin(value.data)) return false;
+  const origin = value.origin;
+  if (origin !== 'chosen' && !(exact(origin, ['recipe', 'data']) && exact(origin.recipe, ['id', 'sha256', 'repository', 'commit']) &&
+      typeof origin.recipe.id === 'string' && PLAN_ID.test(origin.recipe.id) && hex(origin.recipe.sha256) &&
+      text(origin.recipe.repository, 512) && text(origin.recipe.commit, 128) && (origin.data === null || pin(origin.data)))) return false;
+  if (value.catalog !== null && !text(value.catalog, 64)) return false;
+  if (!Array.isArray(value.profiles) || value.profiles.length > 64 || !value.profiles.every(profile => exact(profile, ['id', 'version']) &&
+      typeof profile.id === 'string' && PLAN_ID.test(profile.id) &&
+      (text(profile.version, 64) || Number.isSafeInteger(profile.version) && (profile.version as number) >= 0))) return false;
+  const steps = value.steps;
+  return Array.isArray(steps) && steps.length > 0 && steps.length <= 65536 &&
+    steps.every((step, index) => Number.isSafeInteger(step) && step >= 0 && (index === 0 || step > steps[index - 1]));
+}
+
+const relativePath = (value: unknown): boolean => text(value, 4096) && (value as string).split('/').every(part => part.length > 0 && part !== '.' && part !== '..');
+const SCAN_KEY = /^git-(sha1:[0-9a-f]{40}|sha256:[0-9a-f]{64})$/;
+function validScanFacts(value: unknown): boolean {
+  if (!exact(value, ['scanKey', 'revision', 'signer', 'label', 'coverage', 'withdrawn', 'match'])) return false;
+  const signer = value.signer;
+  return typeof value.scanKey === 'string' && SCAN_KEY.test(value.scanKey) && Number.isSafeInteger(value.revision) && (value.revision as number) >= 1 &&
+    exact(signer, ['identity', 'trusted', 'issuer', 'subject']) && text(signer.identity, 2048) && typeof signer.trusted === 'boolean' &&
+    text(signer.issuer, 2048) && text(signer.subject, 2048) && text(value.label, 64) && ['complete', 'partial'].includes(value.coverage as string) &&
+    typeof value.withdrawn === 'boolean' && ['matches', 'differs', 'refused', 'not-checked'].includes(value.match as string);
+}
+function validLinkFacts(value: unknown): boolean {
+  return exact(value, ['step', 'path', 'to', 'linkType', 'created']) && Number.isSafeInteger(value.step) && (value.step as number) >= 0 &&
+    relativePath(value.path) && relativePath(value.to) && ['junction', 'symlink', 'copy'].includes(value.linkType as string) &&
+    Array.isArray(value.created) && value.created.length <= 64 && value.created.every(relativePath);
+}
+function validInputFacts(value: unknown): boolean {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 256) return false;
+  return value.every((row, index) => exact(row, ['input', 'secret', 'written', 'from'], ['value']) &&
+    typeof row.input === 'string' && /^[A-Za-z_][A-Za-z0-9_-]{0,127}$/.test(row.input) &&
+    (index === 0 || (value[index - 1] as { input: string }).input < row.input) && typeof row.secret === 'boolean' &&
+    ['value', 'reference', 'omitted'].includes(row.written as string) && [null, 'inputs', 'default', 'privateInputs'].includes(row.from as string | null) &&
+    // A secret's value is never kept.
+    (row.value === undefined || !row.secret && (typeof row.value === 'string' && row.value.length <= 65_536 || typeof row.value === 'boolean' ||
+      typeof row.value === 'number' && Number.isFinite(row.value))));
+}
+const argv = (value: unknown): value is string[] => Array.isArray(value) && value.length > 0 && value.length <= 64 &&
+  value.every(arg => typeof arg === 'string' && arg.length <= 4096 && !arg.includes('\0'));
+/** A plugin-qualified skill name, `<plugin>:<skill>`, as Codex keys `[[skills.config]]` (no quotes or control characters). */
+const SKILL_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}:[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+const SKILL = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+function validPluginFacts(value: unknown): boolean {
+  if (!exact(value, ['step', 'cli', 'plugin', 'commit', 'contains', 'undo', 'presenceCheck'], ['skills'])) return false;
+  if (value.skills !== undefined && !(value.skills && typeof value.skills === 'object' && !Array.isArray(value.skills) && Array.isArray(value.contains) &&
+      Object.entries(value.skills).every(([item, name]) => (value.contains as unknown[]).includes(item) && typeof name === 'string' && SKILL.test(name))))
+    return false;
+  if (!Number.isSafeInteger(value.step) || (value.step as number) < 0 || typeof value.cli !== 'string' || !PLAN_ID.test(value.cli) ||
+      !text(value.plugin, 256) || !text(value.commit, 128)) return false;
+  if (!Array.isArray(value.contains) || value.contains.length > 4096 ||
+      !value.contains.every(id => typeof id === 'string' && PLAN_ID.test(id)) || !ascending(value.contains)) return false;
+  if (value.undo !== null && !(Array.isArray(value.undo) && value.undo.length > 0 && value.undo.length <= 8 && value.undo.every(argv))) return false;
+  const check = value.presenceCheck;
+  return check === 'none' || exact(check, ['argv', 'expect']) && argv(check.argv) && text(check.expect, 4096);
+}
+
+function validProgramFacts(value: unknown): boolean {
+  if (!exact(value, ['step', 'op', 'argv', 'executable', 'managed', 'undo'], ['clone', 'prior', 'root', 'cwd', 'env'])) return false;
+  if (value.root !== undefined && value.root !== 'project' && value.root !== 'user' || value.cwd !== undefined && !(value.cwd === '' || text(value.cwd, 4096))) return false;
+  const name = (entry: unknown): boolean => typeof entry === 'string' && /^[A-Za-z_][A-Za-z0-9_-]{0,127}$/.test(entry);
+  if (value.env !== undefined && !(Array.isArray(value.env) && value.env.length <= 64 && value.env.every(entry =>
+    exact(entry, ['name', 'value']) && name(entry.name) && typeof entry.value === 'string' && entry.value.length <= 4096 ||
+    exact(entry, ['name', 'input']) && name(entry.name) && exact(entry.input, ['item', 'input']) && text(entry.input.item, 256) && text(entry.input.input, 256)))) return false;
+  if (value.prior !== undefined && !(value.op === 'tool-command' && (value.prior === 'read' ? value.undo !== null : value.prior === 'withheld' && value.undo === null))) return false;
+  const readback = (entry: unknown): boolean => exact(entry, ['argv', 'expected']) && argv(entry.argv) && typeof entry.expected === 'string' && entry.expected.length <= 4096;
+  return Number.isSafeInteger(value.step) && (value.step as number) >= 0 && ['tool-command', 'upstream-installer', 'upstream-setup'].includes(value.op as string) &&
+    argv(value.argv) && (value.executable === null || text(value.executable, 4096)) && typeof value.managed === 'boolean' &&
+    (value.undo === null || exact(value.undo, ['argv', 'readback']) && argv(value.undo.argv) && readback(value.undo.readback)) &&
+    (value.clone === undefined || exact(value.clone, ['repository', 'commit', 'into']) && text(value.clone.repository, 512) &&
+      typeof value.clone.commit === 'string' && /^[a-f0-9]{40}$/.test(value.clone.commit) && text(value.clone.into, 4096));
+}
 function validProvenance(value: unknown): boolean {
   if (!exact(value, ['kind', 'repository', 'commit', 'identity']) || value.kind !== 'git' ||
       typeof value.commit !== 'string' || !/^[a-f0-9]{40}$/.test(value.commit)) return false;
@@ -217,8 +448,11 @@ export function validItems(value: Custody, identity: (scope: 'project' | 'user',
   const claimedBy = claimIndex(value);
   for (const [id, item] of Object.entries(items as Record<string, unknown>)) {
     if (!exact(item, ['managementId', 'scope', 'name', 'kind', 'framework', 'item', 'tool', 'origins', 'members'],
-        ['preExisting', 'installState', 'redactedPaths', 'pending', 'materialSource', 'projectFacts']) ||
+        ['preExisting', 'installState', 'lastRun', 'redactedPaths', 'pending', 'materialSource', 'projectFacts', 'plan', 'claim']) ||
         item.installState !== undefined && item.installState !== 'interrupted') return false;
+    if (item.lastRun !== undefined && !(item.installState === 'interrupted' && exact(item.lastRun, ['runId', 'outcome'], ['reason']) &&
+        text(item.lastRun.runId, 64) && ['failed', 'not-attempted'].includes(item.lastRun.outcome as string) &&
+        (item.lastRun.reason === undefined ? true : item.lastRun.outcome === 'failed' && text(item.lastRun.reason, 128)))) return false;
     // Pending members belong to an interrupted install; their owners are validated with the receipt's members.
     if (item.pending !== undefined && (item.installState !== 'interrupted' || !Array.isArray(item.pending) || item.pending.length === 0 || item.pending.length > 8192 ||
         !item.pending.every(entry => exact(entry, ['key', 'descriptor', 'owner'], ['identity', 'redactedPath', 'preExisting']) && text(entry.key, 8192) &&
@@ -231,16 +465,26 @@ export function validItems(value: Custody, identity: (scope: 'project' | 'user',
         text(item.item.itemId, 128) && hex(item.item.contentSha256) && hex(item.item.behaviourSha256) && item.item.framework === item.framework)) return false;
     if (!Array.isArray(item.origins) || item.origins.length > 256 || !item.origins.every(validOrigin)) return false;
     if (item.materialSource !== undefined && !validProvenance(item.materialSource)) return false;
+    if (item.plan !== undefined && !validPlanFacts(item.plan)) return false;
+    if (item.claim !== undefined && !(exact(item.claim, ['managementId', 'project']) && typeof item.claim.managementId === 'string' &&
+        PLAN_ID.test(item.claim.managementId) && (item.claim.project === null || text(item.claim.project, 4096)))) return false;
     if (!validProjectFacts(item.projectFacts)) return false;
     const owned = claimedBy(item.scope as string, item.managementId);
-    if (!owned.length && !value.selections?.[id] && item.installState !== 'interrupted') return false;
+    if (!owned.length && !value.selections?.[id] && item.installState !== 'interrupted' && !displacedClaim(value, item.scope as string, item.managementId)) return false;
     if (!Array.isArray(item.members) || item.members.length > 8192) return false;
     if (canonicalJson(item.members) !== canonicalJson(owned.flatMap(([key, owner]) => typedMembers(key, owner)))) return false;
     if (item.preExisting !== undefined) {
       const restorable = new Set(owned.filter(([, owner]) => owner.descriptor?.kind === 'entry' && ['json', 'jsonc'].includes(owner.descriptor.format) ||
         owner.descriptor?.kind === 'block' && sharedBlockRole(owner.descriptor.startMarker, owner.descriptor.endMarker) !== null).map(([key]) => key));
+      // A plan merge's replaced entry or block is restorable by a reference to its file's protected original (secret-safe).
+      const merged = new Set(owned.filter(([, owner]) => owner.descriptor?.kind === 'entry' || owner.descriptor?.kind === 'block').map(([key]) => key));
+      // A replaced whole file is restorable by a reference to its protected original, never by its bytes.
+      const files = new Set(owned.filter(([, owner]) => owner.descriptor === undefined || owner.descriptor.kind === 'file').map(([key]) => key));
+      const original = (entry: unknown): boolean => exact(entry, ['value']) && exact(entry.value, ['originalFile']) &&
+        exact(entry.value.originalFile, ['sha256', 'byteLength']) && hex(entry.value.originalFile.sha256) &&
+        Number.isSafeInteger(entry.value.originalFile.byteLength) && (entry.value.originalFile.byteLength as number) >= 0;
       if (!item.preExisting || typeof item.preExisting !== 'object' || Array.isArray(item.preExisting) || Object.keys(item.preExisting).length === 0 ||
-          !Object.entries(item.preExisting).every(([key, entry]) => restorable.has(key) && exact(entry, ['value']))) return false;
+          !Object.entries(item.preExisting).every(([key, entry]) => restorable.has(key) && exact(entry, ['value']) || (files.has(key) || merged.has(key)) && original(entry))) return false;
     }
     if (item.redactedPaths !== undefined) {
       const keys = new Set(owned.map(([key]) => key));
@@ -305,7 +549,8 @@ export function upsertItem(value: Custody, item: { id: string; named: boolean; f
   value.items = { ...value.items, [item.id]: { managementId: facts.managementId, scope: facts.scope, name: facts.name, kind: facts.kind,
     framework: facts.framework, item: facts.item, tool: facts.tool, origins: facts.origins,
     ...(facts.projectFacts ? { projectFacts: facts.projectFacts } : {}),
-    ...(source ? { materialSource: source } : {}), members: prior?.members ?? [],
+    ...(source ? { materialSource: source } : {}),
+    ...(facts.plan ? { plan: facts.plan } : {}), ...(facts.claim ? { claim: facts.claim } : {}), members: prior?.members ?? [],
     ...(Object.keys(restoration).length ? { preExisting: restoration } : {}),
     ...(Object.keys(redactedPaths).length ? { redactedPaths } : {}),
     ...(record.installing || prior?.installState ? { installState: 'interrupted' as const } : {}),
@@ -318,11 +563,18 @@ export function upsertItem(value: Custody, item: { id: string; named: boolean; f
 export function completeItem(value: Custody, id: string): boolean {
   const item = value.items?.[id];
   if (!item?.installState) return false;
-  const { installState: _done, pending: _pending, ...rest } = item;
+  const { installState: _done, pending: _pending, lastRun: _run, ...rest } = item;
   const items = { ...value.items, [id]: rest };
-  if (rest.name === null && rest.kind === null && rest.item === null && rest.tool === null && !rest.origins.length && !rest.materialSource && !rest.preExisting && !rest.redactedPaths)
+  if (rest.name === null && rest.kind === null && rest.item === null && rest.tool === null && !rest.origins.length && !rest.materialSource && !rest.plan && !rest.claim && !rest.preExisting && !rest.redactedPaths)
     delete items[id];
   value.items = items;
+  return true;
+}
+/** A run reached its end with this install unfinished: record the run and its outcome for the item (still interrupted). */
+export function noteItemRun(value: Custody, id: string, outcome: ItemRunOutcome): boolean {
+  const item = value.items?.[id];
+  if (item?.installState !== 'interrupted') return false;
+  value.items = { ...value.items, [id]: { ...item, lastRun: outcome } };
   return true;
 }
 /** Record the members a file effect is about to change, before it commits. */

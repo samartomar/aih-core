@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aihq:core:plan-request:0.1.0",
+  "title": "A Catalog plan plus what Core needs to carry it out; source bytes never appear in the saved document",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "scope", "target", "plan", "contents", "profiles", "files"],
+  "properties": {
+    "schema": { "const": "urn:aihq:core:plan-request:0.1.0" },
+    "scope": { "enum": ["project", "user"] },
+    "mode": { "enum": ["vibe", "enterprise"] },
+    "target": {
+      "type": "object", "additionalProperties": false,
+      "properties": { "project": { "type": ["string", "null"], "minLength": 1, "maxLength": 4096 },
+        "client": { "$ref": "#/$defs/client" }, "repository": { "type": "string", "minLength": 1, "maxLength": 512 } }
+    },
+    "plan": { "$ref": "#/$defs/plan" },
+    "contents": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/content" } },
+    "profiles": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/profile" } },
+    "files": { "type": "array", "maxItems": 65536, "items": { "$ref": "#/$defs/file" } },
+    "qualifications": { "type": "array", "maxItems": 4096, "items": { "type": "object" } },
+    "inputs": { "type": "object", "additionalProperties": { "type": "object" } },
+    "recipeProof": { "$ref": "#/$defs/recipeProof" },
+    "scans": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/scan" } },
+    "resolutions": { "type": "array", "maxItems": 65536, "items": { "$ref": "#/$defs/resolution" } }
+  },
+  "$defs": {
+    "client": { "type": "object", "additionalProperties": false, "required": ["id", "surface"],
+      "properties": { "id": { "$ref": "#/$defs/id" }, "surface": { "enum": ["cli", "ide"] } } },
+    "id":{ "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "profileVersion": { "oneOf": [{ "type": "string", "minLength": 1, "maxLength": 64 }, { "type": "integer", "minimum": 0 }] },
+    "sourcePath": { "type": "string", "minLength": 1, "maxLength": 4096 },
+    "data": {
+      "type": "object", "additionalProperties": false, "required": ["repository", "commit"],
+      "properties": { "repository": { "type": "string", "minLength": 1, "maxLength": 512 }, "commit": { "type": "string", "minLength": 1, "maxLength": 128 } }
+    },
+    "plan": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "data", "plan", "missing", "unavailable", "clashes", "duplicates", "references", "warnings"],
+      "properties": {
+        "status": { "enum": ["ok", "incomplete"] },
+        "data": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/data" }] },
+        "recipe": {
+          "type": "object", "additionalProperties": false, "required": ["id", "sha256", "repository", "commit"],
+          "properties": { "id": { "$ref": "#/$defs/id" }, "sha256": { "$ref": "#/$defs/sha256" },
+            "repository": { "type": "string", "minLength": 1, "maxLength": 512 }, "commit": { "type": "string", "minLength": 1, "maxLength": 128 } }
+        },
+        "profiles": {
+          "description": "The tool profile ids and versions the plan was made with, as Catalog records them.",
+          "type": "array", "maxItems": 64,
+          "items": { "type": "object", "additionalProperties": false, "required": ["id", "version"],
+            "properties": { "id": { "$ref": "#/$defs/id" }, "version": { "$ref": "#/$defs/profileVersion" } } }
+        },
+        "plan": { "type": "array", "items": { "$ref": "#/$defs/step" } },
+        "missing": { "type": "array" }, "unavailable": { "type": "array" }, "clashes": { "type": "array" },
+        "duplicates": { "type": "array" }, "references": { "type": "array" }, "warnings": { "type": "array" }
+      }
+    },
+    "step": {
+      "description": "A Catalog plan step. Fields depend on `op`; an op Core does not carry out is refused (`step-unknown`), never schema-invalid.",
+      "type": "object", "required": ["op"],
+      "properties": { "op": { "type": "string", "minLength": 1, "maxLength": 64 } }
+    },
+    "content": {
+      "type": "object", "required": ["schema", "framework", "sources", "items"],
+      "properties": {
+        "schema": { "const": "urn:aihq:catalog:content:0.1.0" },
+        "framework": { "type": "object", "required": ["id"], "properties": { "id": { "$ref": "#/$defs/id" } } },
+        "sources": { "type": "array", "items": { "type": "object", "required": ["id"], "properties": { "id": { "$ref": "#/$defs/id" },
+          "notices": { "type": "array", "items": { "type": "object", "required": ["sourcePath", "sha256"],
+            "properties": { "sourcePath": { "$ref": "#/$defs/sourcePath" }, "sha256": { "$ref": "#/$defs/sha256" } } } } } } },
+        "items": { "type": "array", "items": { "type": "object", "required": ["id", "files"], "properties": { "id": { "$ref": "#/$defs/id" },
+          "files": { "type": "array", "items": { "type": "object", "required": ["sourceId", "sourcePath", "sha256", "executable"],
+            "properties": { "sourceId": { "$ref": "#/$defs/id" }, "sourcePath": { "$ref": "#/$defs/sourcePath" },
+              "sha256": { "$ref": "#/$defs/sha256" }, "executable": { "type": "boolean" } } } } } } }
+      }
+    },
+    "profile": {
+      "type": "object", "required": ["schema", "id", "version"],
+      "properties": {
+        "schema": { "const": "urn:aihq:catalog:tool-profile:0.1.0" },
+        "id": { "$ref": "#/$defs/id" },
+        "version": { "$ref": "#/$defs/profileVersion" }
+      }
+    },
+    "file": {
+      "type": "object", "additionalProperties": false, "required": ["sourceId", "sourcePath", "sha256"],
+      "properties": { "sourceId": { "$ref": "#/$defs/id" }, "sourcePath": { "$ref": "#/$defs/sourcePath" }, "sha256": { "$ref": "#/$defs/sha256" } }
+    },
+    "recipeProof": {
+      "description": "The recipe plugin's exact `plugin.json` and `recipe.json` text and the planner choices and options, so Core can re-run `planRecipe` (8.2). Core supplies `scope` and `source` itself.",
+      "type": "object", "additionalProperties": false, "required": ["pluginJson", "recipeJson", "choices"],
+      "properties": {
+        "pluginJson": { "type": "string", "minLength": 2 },
+        "recipeJson": { "type": "string", "minLength": 2 },
+        "choices": { "type": "object", "additionalProperties": { "type": "array", "maxItems": 4096, "items": { "$ref": "#/$defs/id" } } },
+        "options": { "type": "object", "propertyNames": { "not": { "enum": ["scope", "source"] } } }
+      }
+    },
+    "scan": {
+      "description": "One Scan summary to show (contract 13): its exact text and Sigstore bundle, any withdrawals each with its own bundle at the same position, and optionally the complete inventory of the scanned tree, used only for matching. In the Node API each inventory entry also carries `bytes`; a saved document never does. Scan informs and never blocks.",
+      "type": "object", "additionalProperties": false, "required": ["summary", "bundle"],
+      "properties": {
+        "summary": { "type": "string", "minLength": 1, "maxLength": 1048576 },
+        "bundle": { "$ref": "#/$defs/scanBundle" },
+        "withdrawn": { "oneOf": [{ "type": "null" }, { "type": "string", "minLength": 1, "maxLength": 1048576 },
+          { "type": "array", "maxItems": 64, "items": { "type": "string", "minLength": 1, "maxLength": 1048576 } }] },
+        "withdrawnBundle": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/scanBundle" },
+          { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/scanBundle" } }] },
+        "inventory": { "oneOf": [{ "type": "null" }, { "type": "array", "maxItems": 65536, "items": {
+          "type": "object", "additionalProperties": false, "required": ["path", "mode"],
+          "properties": { "path": { "$ref": "#/$defs/sourcePath" }, "mode": { "enum": ["100644", "100755"] } } } }] }
+      }
+    },
+    "scanBundle": { "oneOf": [{ "type": "object" }, { "type": "string", "minLength": 2, "maxLength": 1048576 }] },
+    "resolution": {
+      "type": "object", "additionalProperties": false, "required": ["managementId", "step", "choice", "observedSha256"],
+      "properties": { "managementId": { "$ref": "#/$defs/id" }, "step": { "type": "integer", "minimum": 0 },
+        "choice": { "enum": ["replace", "adopt", "skip"] }, "observedSha256": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256" }] } }
+    }
+  }
+}

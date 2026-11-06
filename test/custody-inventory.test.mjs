@@ -7,9 +7,9 @@ import { createHash } from 'node:crypto';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import runResultSchema from '../dist/core/schemas/run-result/1.4.0.json' with { type: 'json' };
 import inventorySchema from '../dist/core/schemas/managed-inventory-result/1.1.0.json' with { type: 'json' };
-import { apply, listManagedSelections, prepare } from '../dist/core/index.js';
+import { apply, listManagedSelections, prepare } from '../dist/core/engine-api.js';
 import { readReceipt } from './fixtures/ownership-receipt.mjs';
-import { deriveRecipeIdentity, runMemberClaims } from '../dist/core/contracts.js';
+import { runMemberClaims } from '../dist/core/engine-contracts.js';
 
 // Seam: the built package's public Prepare/Apply entry. Post-apply member checks
 // in run result 1.4.0, in a disposable home and project.
@@ -73,7 +73,7 @@ test('after Apply every touched member is checked directly: written and present-
 
 test('inventory 1.1 names each selection from receipts alone and reports member file states', async () => {
   const root = project('inventory');
-  const origins = [{ reasonIncluded: 'chosen' }, { reasonIncluded: 'in-set', set: { framework: 'example-framework', setId: 'starter', setSha256: sha('starter') } },
+  const origins = [{ reasonIncluded: 'chosen' }, { reasonIncluded: 'required-by', requiredBy: { framework: 'example-framework', itemId: 'starter' } },
     { reasonIncluded: 'required-by', requiredBy: { framework: 'example-framework', itemId: 'parent' } }];
   const kit = wholeItem(); kit.origins = origins;
   assert.equal((await run(root, policy([kit]))).result.completion, 'complete');
@@ -161,37 +161,6 @@ test('an incomplete run is never confirmed on disk, and inventory reports the in
   assert.deepEqual(runMemberClaims({ completion: 'complete' }), { confirmedOnDisk: false, removed: false }, 'no member checks support no claim');
 });
 
-test('inventory 1.1 derives update, policy and approval states only from supplied data, without a Catalog', async () => {
-  const root = project('states');
-  const server = selection('server', [op('file', 'file.write', { target: { root: 'project', segments: [{ literal: 'SERVER.md' }] }, content: { literal: 'server\n' } })],
-    { selection: { kind: 'mcp-server', name: 'GitHub server' } });
-  assert.equal((await run(root, policy([server]))).result.completion, 'complete');
-  const states = async index => (await inventory(root, index === undefined ? {} : { index })).selections[0];
-  const recorded = item('server');
-  assert.equal((await states()).updateState, 'unknown', 'no index, no claim');
-  assert.equal((await states({ offered: [recorded] })).updateState, 'current');
-  assert.equal((await states({ offered: [{ ...recorded, contentSha256: sha('newer') }] })).updateState, 'update-available');
-  const gone = await states({ offered: [] });
-  assert.equal(gone.updateState, 'no-longer-offered');
-  assert.equal(gone.name, 'GitHub server', 'a framework no longer offered still reads from receipts');
-  assert.equal((await states({ offered: [recorded], superseded: [{ item: { framework: recorded.framework, itemId: 'server' },
-    by: { framework: recorded.framework, itemId: 'server-2' } }] })).updateState, 'superseded');
-  assert.equal((await states({ offered: [recorded], revoked: [{ framework: recorded.framework, itemId: 'server', contentSha256: recorded.contentSha256 }] })).updateState, 'revoked');
-  assert.equal((await states({ offered: [recorded], revoked: [{ framework: recorded.framework, itemId: 'server', contentSha256: sha('other') }] })).updateState, 'current',
-    'a revocation of another version does not apply');
-  assert.equal((await states()).approval, 'needed', 'the binding names a permission step');
-  const bad = await inventory(root, { index: { offered: [{ framework: 'x' }] } });
-  assert.equal(bad.status, 'invalid'); validInventory(bad);
-
-  const { value: { recipeIdentity } } = await deriveRecipeIdentity({ recipe: server.recipe.inline });
-  const organization = obligation => ({ document: { schema: 'urn:aihq:core:organization-policy:1.1.0', id: 'org',
-    selections: [{ selectionId: 'server', recipeIdentity, scopes: ['project'], inputs: {}, obligation }] } });
-  for (const obligation of ['required', 'recommended', 'permitted', 'prohibited'])
-    assert.equal((await inventory(root, { organization: organization(obligation) })).selections[0].policyState, obligation);
-  const other = { document: { schema: 'urn:aihq:core:organization-policy:1.1.0', id: 'org', selections: [] } };
-  const enterprise = await inventory(root, { organization: other });
-  assert.equal(enterprise.selections[0].policyState, 'not-admitted'); validInventory(enterprise);
-});
 
 test('the custody migration keeps every existing claim, edge, selector, marker, mode, table and directory record', async () => {
   const root = project('migration');
@@ -213,7 +182,7 @@ test('the custody migration keeps every existing claim, edge, selector, marker, 
   assert.equal((await run(root, older)).result.completion, 'complete');
   const receipt = join(home, '.aih', 'core', 'ownership', `${sha(root)}.json`);
   const before = readReceipt(receipt);
-  assert.equal(before.schema, 'urn:aihq:core:ownership:1.7.0', 'directory evidence, a created table, a hook, a marker block and the hook-created file');
+  assert.equal(before.schema, 'urn:aihq:core:receipt:0.1.0', 'directory evidence, a created table, a hook, a marker block and the hook-created file');
 
   // Read through the migration: every claim appears as an unnamed 1.1 selection with typed members.
   const unnamed = await inventory(root);
@@ -227,17 +196,17 @@ test('the custody migration keeps every existing claim, edge, selector, marker, 
 
   // Describing the same selections under policy 1.4 records item facts and changes nothing else.
   const described = selections.map(entry => ({ ...entry, item: item(entry.id), tool: 'claude', name: `Item ${entry.id}`, kind: entry.id === 'guard' ? 'hook' : 'skill',
-    origins: [{ reasonIncluded: 'in-set', set: { framework: 'example-framework', setId: 'bundle', setSha256: sha('bundle') } }] }));
+    origins: [{ reasonIncluded: 'required-by', requiredBy: { framework: 'example-framework', itemId: 'bundle' } }] }));
   const { result } = await run(root, { ...older, schema: 'urn:aihq:core:execution-policy:1.4.0', selections: described });
   assert.equal(result.completion, 'complete', JSON.stringify(result.diagnostics));
   assert.equal(result.operations.every(operation => operation.application === 'already-satisfied'), true);
   const after = readReceipt(receipt);
-  assert.equal(after.schema, 'urn:aihq:core:ownership:1.7.0');
+  assert.equal(after.schema, 'urn:aihq:core:receipt:0.1.0');
   const { items, schema: _new, ...kept } = after; const { schema: _old, ...prior } = before;
   assert.deepEqual(kept, prior, 'members, claims, sets, requires, selectors, markers, modes, tables and directories are unchanged');
   assert.equal(Object.keys(items).length, 4);
   const named = await inventory(root);
-  assert.deepEqual(named.selections.map(entry => [entry.managementId, entry.name, entry.origins[0].set.setId, entry.members.length]), [
+  assert.deepEqual(named.selections.map(entry => [entry.managementId, entry.name, entry.origins[0].requiredBy.itemId, entry.members.length]), [
     ['guard-managed', 'Item guard', 'bundle', 1], ['guide-managed', 'Item guide', 'bundle', 1], ['notes-managed', 'Item notes', 'bundle', 1], ['tool-managed', 'Item tool', 'bundle', 1]]);
 
   // Protected custody stays authoritative: the existing set and dependency removal still governs cleanup.

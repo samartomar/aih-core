@@ -12,7 +12,7 @@ mkdirSync(home);
 process.env.HOME = home;
 process.env.USERPROFILE = home;
 // Set the fixture home before loading Core; no client process is involved.
-const { prepare, apply, checkFileState, prepareManagedRemoval } = await import('../dist/core/index.js');
+const { prepare, apply, checkFileState, prepareManagedRemoval } = await import('../dist/core/engine-api.js');
 after(() => {
   for (const [key, value] of Object.entries(previousHome)) {
     if (value === undefined) delete process.env[key]; else process.env[key] = value;

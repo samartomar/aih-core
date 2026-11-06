@@ -6,8 +6,10 @@ import { join } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { channel } from 'node:diagnostics_channel';
-import { verifyNativeClient } from '@aihq/core';
-import { validateNativeVerificationBundle, validateNativeVerificationResult } from '@aihq/core/contracts';
+import { verifyNative } from '../dist/core/native-verification.js';
+// The retained 1.0.0 request path behind verifyClient, reached through the internal verifier.
+const verifyNativeClient = (request, controls) => verifyNative(request, controls, { bundleSchema: 'urn:aihq:core:native-verification-bundle:1.0.0' });
+import { validateNativeVerificationBundle, validateNativeVerificationResult } from '../dist/core/engine-contracts.js';
 
 const request = { schema: 'urn:aihq:core:native-verification-request:1.0.0', client: 'claude' };
 test('finite limits require closed numeric totals before any session and preserve owned cleanup', async t => {
@@ -368,7 +370,7 @@ async function controlled(t, scenario, controls = {}, clock) {
   writeFileSync(join(native, 'runtime.mjs'), fixtureRuntime(scenario));
   const requestedRoot = join(directory, 'cells'); mkdirSync(requestedRoot);
   const sandboxRoot = realpathSync.native(requestedRoot);
-  writeFileSync(join(directory, 'entry.mjs'), "export { verifyNativeClient } from '@aihq/core';\nexport { snapshotReady, setCleanupClock } from './dist/harness/native/runtime.mjs';\n");
+  writeFileSync(join(directory, 'entry.mjs'), "import { verifyNative } from './dist/core/native-verification.js'; export const verifyNativeClient = (request, controls) => verifyNative(request, controls, { bundleSchema: 'urn:aihq:core:native-verification-bundle:1.0.0' });\nexport { snapshotReady, setCleanupClock } from './dist/harness/native/runtime.mjs';\n");
   const api = await import(pathToFileURL(join(directory, 'entry.mjs')).href);
   if (clock) {
     api.setCleanupClock(clock);
@@ -676,7 +678,7 @@ export function createNativeRuntime(_module, dependencies) {
     resolveNativeClient: async () => ({ outcome: 'unavailable', reason: 'client-absent' }) };
 }
 `);
-  writeFileSync(join(directory, 'entry.mjs'), "export { verifyNativeClient } from '@aihq/core';\n");
+  writeFileSync(join(directory, 'entry.mjs'), "import { verifyNative } from './dist/core/native-verification.js'; export const verifyNativeClient = (request, controls) => verifyNative(request, controls, { bundleSchema: 'urn:aihq:core:native-verification-bundle:1.0.0' });\n");
   const api = await import(pathToFileURL(join(directory, 'entry.mjs')).href);
   const cells = join(directory, 'cells'); mkdirSync(cells);
   const result = await api.verifyNativeClient(request, { admission: 'candidate-smoke', sandboxRoot: realpathSync.native(cells) });

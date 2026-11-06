@@ -14,7 +14,7 @@ import {
   projectClaims,
   readClaimSet,
   validateClaimSet,
-} from '@aihq/core/report';
+} from '../../dist/harness/report/data.mjs';
 
 const T1 = '2026-10-14T10:00:00Z';
 const T2 = '2026-10-14T10:05:00Z';
@@ -216,7 +216,7 @@ test('every absolute home path the snapshot projection masks is refused in a cla
 
 test('the refusal is semantic: the claims JSON Schemas are unchanged and still accept the shape', async () => {
   for (const version of ['1.0.0', '1.1.0']) {
-    const schema = (await import(`@aihq/core/report/schemas/claims/${version}.json`, { with: { type: 'json' } })).default;
+    const schema = (await import(version === "1.0.0" ? "../../dist/harness/report/claims-schema.json" : "../../dist/harness/report/claims-schema-1.1.0.json", { with: { type: "json" } })).default;
     const validate = new Ajv2020({ strict: true, allErrors: true }).compile(schema);
     const set = portableSet(`urn:aihq:report:claims:${version}`);
     set.claims[0].subject.id = '/srv/private/evidence.json';

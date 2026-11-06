@@ -14,7 +14,8 @@ import type { Claim } from './recipe-lifecycle.js';
 import type { Ownership, Owner } from './state.js';
 import { itemMembersOf } from './custody-items.js';
 
-export const OWNERSHIP_17 = 'urn:aihq:core:ownership:1.7.0';
+/** The receipt format (contract 5, C15): its stored form leaves out what the record derives from itself. */
+export const OWNERSHIP_17 = 'urn:aihq:core:receipt:0.1.0';
 const FACTS = ['name', 'kind', 'framework', 'item', 'origins'] as const;
 type Stored = Record<string, unknown>;
 

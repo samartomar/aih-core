@@ -3,7 +3,7 @@
 // files starts the same small number of checks as one that writes a few.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { apply, prepare } from '../dist/core/index.js';
+import { apply, prepare } from '../dist/core/engine-api.js';
 import { stateProtectionCounts } from '../dist/core/internal/state.js';
 import { sandbox } from './hook-group-fixture.mjs';
 

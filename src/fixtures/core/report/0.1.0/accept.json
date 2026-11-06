@@ -1,0 +1,61 @@
+{
+  "schema": "urn:aihq:core:report:0.1.0",
+  "compatibility": "experimental",
+  "producer": {
+    "name": "@aihq/core",
+    "version": "0.1.0",
+    "revision": null
+  },
+  "capture": {
+    "observedAt": "2026-11-04T00:00:00.000Z",
+    "acquisition": "newly-acquired"
+  },
+  "evidence": {
+    "originalSha256": null,
+    "authentication": "not-authenticated",
+    "structuralValidation": "passed",
+    "projection": "redacted"
+  },
+  "status": "completed",
+  "tools": [
+    {
+      "id": "node",
+      "label": "Node.js",
+      "state": "runnable",
+      "selection": "requested"
+    }
+  ],
+  "observations": [
+    {
+      "id": "node/resolution",
+      "target": "node",
+      "detail": "Selected host node.exe; PATH entry 1 for the host. 1 other candidate resolves on PATH."
+    },
+    {
+      "id": "node/version",
+      "target": "node",
+      "detail": "Node.js 26.12.1 observed from the selected executable."
+    }
+  ],
+  "checks": [
+    {
+      "id": "node/version",
+      "target": "node",
+      "outcome": "passed",
+      "reason": "version-ok",
+      "detail": "The version command exited successfully; its raw output was not retained."
+    }
+  ],
+  "diagnostics": [],
+  "metrics": {
+    "budgetMs": 180000,
+    "elapsedMs": 640,
+    "maxActiveProbes": 2,
+    "counts": {
+      "passed": 1,
+      "failed": 0,
+      "unavailable": 0,
+      "skipped": 0
+    }
+  }
+}

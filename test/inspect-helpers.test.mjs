@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, chmodSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
-import { inspect } from '../dist/core/index.js';
-import { targets, helperMetadata } from '@aihq/core/harness';
+import { inspect } from '../dist/core/engine-api.js';
+import { targets, helperMetadata } from '../dist/harness/contracts.mjs';
 
 const HELPERS = ['rg', 'fd', 'jq', 'curl', 'keytool', 'bash'];
 const CLIENTS = ['antigravity', 'zed'];

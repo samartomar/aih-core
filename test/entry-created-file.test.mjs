@@ -3,10 +3,25 @@
 // keeps its own content.
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
-import { apply, prepare, prepareManagedRemoval } from '../dist/core/index.js';
+import { createHash } from 'node:crypto';
+import { existsSync, readdirSync, readFileSync as readTreeFile, statSync } from 'node:fs';
+import { join } from 'node:path';
+import { apply, prepare, prepareManagedRemoval } from '../dist/core/engine-api.js';
 import { sandbox, sha } from './hook-group-fixture.mjs';
-import { fileTree } from './real-catalog-fixture.mjs';
+
+/** Every file under `directory`, path-relative, by exact bytes digest. */
+function fileTree(directory) {
+  const result = {};
+  const walk = current => {
+    for (const name of readdirSync(current)) {
+      const path = join(current, name), rel = path.slice(directory.length + 1).replaceAll('\\', '/');
+      if (statSync(path).isDirectory()) walk(path);
+      else result[rel] = createHash('sha256').update(readTreeFile(path)).digest('hex');
+    }
+  };
+  if (existsSync(directory)) walk(directory);
+  return result;
+}
 
 const PATH = '.tool/mcp.json';
 let live = [];
@@ -21,7 +36,7 @@ const selection = { id: 'mcp', managementId: 'mcp', scope: 'project', configurat
   tool: 'claude', name: 'Example server', kind: 'mcp-server', origins: [{ reasonIncluded: 'chosen' }] };
 
 async function install(s) {
-  const prepared = await prepare({ useCase: 'policy', policy: { schema: 'urn:aihq:core:execution-policy:1.5.0', mode: 'vibe', selections: [selection] },
+  const prepared = await prepare({ useCase: 'policy', policy: { schema: 'urn:aihq:core:execution-policy:1.4.0', mode: 'vibe', selections: [selection] },
     target: { project: s.project } }, { logging: 'off' });
   assert.equal(prepared.status, 'ready', JSON.stringify(prepared.diagnostics));
   const run = await apply(prepared.prepared, approve(prepared.review), { logging: 'off' });

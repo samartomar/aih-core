@@ -1,0 +1,11 @@
+{
+  "schema": "urn:aihq:core:review:0.1.0",
+  "request": "plan",
+  "scope": "project",
+  "target": { "project": "/work/app" },
+  "steps": [],
+  "conflicts": [],
+  "failureRule": "A failed step stops the rest of its item and every item that depends on it; unrelated items continue.",
+  "warnings": [],
+  "reviewDigest": "not a digest"
+}

@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aihq:core:inventory:0.1.0",
+  "title": "What list returns: each management id in a place, with its items, origin, CLIs and member states",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "status", "target", "scope", "observation", "entries"],
+  "properties": {
+    "schema": { "const": "urn:aihq:core:inventory:0.1.0" },
+    "status": { "const": "ok" },
+    "target": { "type": "object", "additionalProperties": false, "required": ["project"],
+      "properties": { "project": { "type": ["string", "null"] } } },
+    "scope": { "enum": ["project", "user", "both"] },
+    "observation": { "enum": ["complete", "incomplete"] },
+    "entries": { "type": "array", "items": {
+      "type": "object", "additionalProperties": false,
+      "required": ["managementId", "scope", "items", "origin", "data", "clis", "installState", "members"],
+      "properties": {
+        "managementId": { "type": "string" },
+        "scope": { "enum": ["project", "user"] },
+        "items": { "type": "array", "items": { "type": "string" } },
+        "origin": { "oneOf": [{ "type": "null" }, { "const": "chosen" }, { "type": "object", "additionalProperties": false, "required": ["recipe", "data"],
+          "description": "A proven recipe origin (8.2)",
+          "properties": {
+            "recipe": { "type": "object", "additionalProperties": false, "required": ["id", "sha256", "repository", "commit"],
+              "properties": { "id": { "type": "string" }, "sha256": { "type": "string" }, "repository": { "type": "string" }, "commit": { "type": "string" } } },
+            "data": { "oneOf": [{ "type": "null" }, { "type": "object", "additionalProperties": false, "required": ["repository", "commit"],
+              "properties": { "repository": { "type": "string" }, "commit": { "type": "string" } } }] } } }] },
+        "kind": { "type": ["string", "null"] }, "framework": { "type": ["string", "null"] },
+        "catalog": { "oneOf": [{ "type": "string" }, { "type": "null" }], "description": "The caller's Catalog version recorded at install, or null" },
+        "profiles": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["id", "version"],
+          "properties": { "id": { "type": "string" }, "version": { "oneOf": [{ "type": "string" }, { "type": "integer" }] } } } },
+        "data": { "oneOf": [{ "type": "null" }, { "type": "object", "additionalProperties": false, "required": ["repository", "commit"],
+          "properties": { "repository": { "type": "string" }, "commit": { "type": "string" } } }] },
+        "clis": { "type": "array", "items": { "type": "string" } },
+        "claims": { "type": "array", "description": "Every claim on this management id here: its CLI (null when its steps recorded none) and the project that made it (C28)",
+          "items": { "type": "object", "additionalProperties": false, "required": ["cli", "project"],
+            "properties": { "cli": { "type": ["string", "null"] }, "project": { "type": ["string", "null"] } } } },
+        "installState": { "enum": ["complete", "interrupted"] },
+        "lastRun": { "type": "object", "additionalProperties": false, "required": ["runId", "outcome"], "description": "An interrupted install that a run reached its end on without finishing: that run and its outcome for this entry (failed with the step reason, or not-attempted)",
+          "properties": { "runId": { "type": "string" }, "outcome": { "enum": ["failed", "not-attempted"] }, "reason": { "type": "string" } } },
+        "aiSetup": { "type": "object", "additionalProperties": false, "required": ["branch", "interpreter", "fallback", "fallbackReason"],
+          "properties": { "branch": { "enum": ["installed", "fallback", null] },
+            "tree": { "description": "The sha256 of the tree manifest the acquisition recorded in its folder.", "type": "string", "pattern": "^[a-f0-9]{64}$" },
+            "interpreter": { "oneOf": [{ "type": "null" }, { "type": "object", "additionalProperties": false, "required": ["path", "version"],
+              "properties": { "path": { "type": "string" }, "version": { "type": "string" } } }] },
+            "fallback": { "type": "boolean" }, "fallbackReason": { "type": ["string", "null"] },
+            "executable": { "type": "object", "additionalProperties": false, "required": ["path", "placed"],
+              "description": "The acquire step's named executable (home-relative) and how Core put it there: the native member, the environment's own entry point, or that entry point linked there (symlink, hardlink) or started by Core's launcher script",
+              "properties": { "path": { "type": "string" }, "placed": { "enum": ["member", "environment", "symlink", "hardlink", "launcher"] } } },
+            "downloads": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["role", "file", "sha256", "origin"],
+              "description": "Where one acquired file came from (C78): supplied, downloaded from a URL, or built from pinned source. `file` and `sha256` are always the qualification's identity for the file; a built wheel's installed bytes are `built.file` and `built.sha256`, never byte-qualified",
+              "properties": { "role": { "enum": ["artifact", "closure", "interpreter", "build-source", "build-dependency"] }, "file": { "type": "string" }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+                "origin": { "enum": ["supplied", "downloaded", "built"] }, "url": { "type": "string", "pattern": "^https://" },
+                "built": { "type": "object", "additionalProperties": false, "required": ["file", "sha256", "byteQualified", "source", "dependencies", "tools"],
+                  "properties": { "file": { "type": "string" }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "byteQualified": { "const": false }, "source": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+                    "dependencies": { "type": "array", "items": { "type": "string", "pattern": "^[a-f0-9]{64}$" } },
+                    "tools": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["name", "qualified", "observed"],
+                      "properties": { "name": { "type": "string" },
+                        "qualified": { "type": "object", "additionalProperties": false, "required": ["version", "sha256"], "properties": { "version": { "type": "string" }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } } },
+                        "observed": { "type": "object", "additionalProperties": false, "required": ["version", "sha256"], "properties": { "version": { "type": "string" }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } } } } } },
+                    "env": { "type": "object", "additionalProperties": false, "required": ["CC"], "description": "The compiler variables Core set for this build when its record names a C compiler: CC (and CXX, and LDSHARED on Linux) as found on PATH",
+                      "properties": { "CC": { "type": "string" }, "CXX": { "type": "string" }, "LDSHARED": { "type": "string" } } } } } },
+              "allOf": [
+                { "if": { "properties": { "origin": { "const": "downloaded" } } }, "then": { "required": ["url"], "properties": { "url": { "type": "string" }, "built": false } } },
+                { "if": { "properties": { "origin": { "const": "supplied" } } }, "then": { "properties": { "url": false, "built": false } } },
+                { "if": { "properties": { "origin": { "const": "built" } } }, "then": { "required": ["built"], "properties": { "built": { "type": "object" }, "url": false, "role": { "const": "closure" } } } }] } } } },
+        "localPlugin": { "type": "object", "additionalProperties": false, "required": ["contains", "files"], "properties": {
+          "contains": { "oneOf": [{ "type": "null" }, { "type": "array", "items": { "type": "string" } }] },
+          "files": { "type": "array", "items": { "type": "string" } } } },
+        "switchOff": { "type": "object", "additionalProperties": false, "required": ["framework", "item", "cli", "name"], "properties": {
+          "framework": { "type": "string" }, "item": { "type": "string" }, "cli": { "type": "string" }, "name": { "type": "string" } } },
+        "change": { "type": "object", "additionalProperties": false, "required": ["identity"], "description": "A change: the identity it was installed with (deriveChangeIdentity)",
+          "properties": { "identity": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" } } },
+        "members": { "type": "array", "items": {
+          "type": "object", "additionalProperties": false, "required": ["kind", "path", "state"],
+          "properties": {
+            "kind": { "type": "string" }, "path": { "type": "string" }, "pointer": { "type": "string" }, "blockId": { "type": "string" },
+            "linkType": { "enum": ["junction", "symlink", "copy"] },
+            "clis": { "type": "array", "items": { "type": "string" }, "description": "The CLIs whose claims hold this member" },
+            "state": { "enum": ["matching", "changed-by-you", "missing", "unchecked", "displaced-by", "generated"] },
+            "displacedBy": { "type": "array", "items": { "type": "string" }, "description": "displaced-by (C61): the installs whose value is there now; this claim holds nothing on disk until they go" }
+          } } },
+        "scans": { "type": "array", "description": "The last Scan results seen, as the receipts recorded them", "items": {"type":"object","additionalProperties":false,"required":["scanKey","revision","signer","label","coverage","withdrawn","match"],"properties":{"scanKey":{"type":"string"},"revision":{"type":"integer","minimum":1},"signer":{"type":"object","additionalProperties":false,"required":["identity","trusted","issuer","subject"],"properties":{"identity":{"type":"string"},"trusted":{"type":"boolean"},"issuer":{"type":"string"},"subject":{"type":"string"}}},"label":{"type":"string"},"coverage":{"enum":["complete","partial"]},"withdrawn":{"type":"boolean"},"match":{"enum":["matches","differs","refused","not-checked"]}}} },
+        "plugins": { "type": "array", "items": {
+          "type": "object", "additionalProperties": false, "required": ["step", "cli", "plugin", "commit", "contains", "undo", "presenceCheck"],
+          "properties": {
+            "step": { "type": "integer", "minimum": 0 }, "cli": { "type": "string" }, "plugin": { "type": "string" }, "commit": { "type": "string" },
+            "contains": { "type": "array", "items": { "type": "string" } },
+            "skills": { "type": "object", "additionalProperties": { "type": "string" } },
+            "undo": { "oneOf": [{ "type": "null" }, { "type": "array", "items": { "type": "array", "minItems": 1, "items": { "type": "string" } } }] },
+            "presenceCheck": { "oneOf": [{ "const": "none" }, { "type": "object", "additionalProperties": false, "required": ["argv", "expect"],
+              "properties": { "argv": { "type": "array", "minItems": 1, "items": { "type": "string" } }, "expect": { "type": "string" } } }] }
+          } } },
+        "programs": { "type": "array", "items": {
+          "type": "object", "additionalProperties": false, "required": ["step", "op", "argv", "executable", "managed", "undo"],
+          "properties": {
+            "step": { "type": "integer", "minimum": 0 }, "op": { "enum": ["tool-command", "upstream-installer", "upstream-setup"] },
+            "argv": { "type": "array", "minItems": 1, "items": { "type": "string" } }, "executable": { "type": ["string", "null"] }, "managed": { "type": "boolean" },
+            "undo": { "oneOf": [{ "type": "null" }, { "type": "object", "additionalProperties": false, "required": ["argv", "readback"],
+              "properties": { "argv": { "type": "array", "minItems": 1, "items": { "type": "string" } }, "readback": { "type": "object", "additionalProperties": false, "required": ["argv", "expected"], "properties": { "argv": { "type": "array", "minItems": 1, "items": { "type": "string" } }, "expected": { "type": "string" } } } } }] },
+            "prior": { "enum": ["read", "withheld"] },
+            "clone": { "type": "object", "additionalProperties": false, "required": ["repository", "commit", "into"],
+              "properties": { "repository": { "type": "string" }, "commit": { "type": "string" }, "into": { "type": "string" } } },
+            "root": { "description": "Where the command ran: its root.", "enum": ["project", "user"] },
+            "cwd": { "description": "The folder under the root the command ran in; empty for the root itself.", "type": "string" },
+            "env": { "description": "The environment the command ran with: an ordinary value, or a secret by the input that gave it.", "type": "array", "items": { "oneOf": [
+              { "type": "object", "additionalProperties": false, "required": ["name", "value"], "properties": { "name": { "type": "string" }, "value": { "type": "string" } } },
+              { "type": "object", "additionalProperties": false, "required": ["name", "input"], "properties": { "name": { "type": "string" },
+                "input": { "type": "object", "additionalProperties": false, "required": ["item", "input"], "properties": { "item": { "type": "string" }, "input": { "type": "string" } } } } }] } }
+          } } }
+      } } }
+  }
+}

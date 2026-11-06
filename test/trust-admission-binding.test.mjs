@@ -24,8 +24,8 @@ test(`${subject} ${mutation} ${phase} rejects before output effects`,{skip:!admi
     const changedPath=subject==='admission module'?JSON.stringify('dist/harness/trust-capabilities.mjs'):'cell.evidence.reference';
     const mutate=mutation==='delete'?'unlinkSync(path);':'writeFileSync(path,Buffer.concat([readFileSync(path),Buffer.from([10,32])]));';
     writeFileSync(script,`
-import {prepare,apply} from ${imports('core/index.js')};
-import {validateRunResult12,validatePreparedWork12} from ${imports('core/contracts.js')};
+import {prepare,apply} from ${imports('core/engine-api.js')};
+import {validateRunResult12,validatePreparedWork12} from ${imports('core/engine-contracts.js')};
 import {trustCapabilities,selectTrustCell} from ${imports('harness/contracts.mjs')};
 import {detectCertificateExportPlatform as detectTrustPlatform} from ${imports('harness/trust-export-platform.mjs')};
 import {readFileSync,writeFileSync,unlinkSync,existsSync} from 'node:fs';
@@ -61,8 +61,8 @@ import {trustCapabilities} from ${url('harness/contracts.mjs')};
 import {writeFileSync,existsSync} from 'node:fs';
 if(!trustCapabilities.cells.length)throw new Error('Cached fixture has no admitted cells');
 writeFileSync(${JSON.stringify(join(installed,'dist/harness/trust-capabilities.mjs'))},'export const trustCellRecords = Object.freeze([]);');
-const {prepare}=await import(${url('core/index.js')});
-const {validatePreparedWork12}=await import(${url('core/contracts.js')});
+const {prepare}=await import(${url('core/engine-api.js')});
+const {validatePreparedWork12}=await import(${url('core/engine-contracts.js')});
 const result=await prepare({schema:'urn:aihq:core:certificate-export-request:1.0.0',useCase:'certificate-export',
  sources:{os:false,supplied:[{id:'team',file:${JSON.stringify(file)}}]}},{logging:'off'});
 console.log(JSON.stringify({status:result.status,diagnostics:result.diagnostics,valid:validatePreparedWork12(result.review).valid,

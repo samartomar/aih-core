@@ -7,6 +7,7 @@ import { assertStrictJsonValueV1, assertWellFormedNfcV1, parseStrictJsonObjectV1
 import { fileTransaction, pathPins, pinsMatch, sha256, userHomeRoot, validSegment } from './host-files.js';
 import { validCreatedDirectories, type CreatedDirectory } from './created-directories.js';
 import { containedPath } from './contained-path.js';
+import { windowsDirectory, windowsPowerShell } from './system-root.js';
 import { claimIdentity, validClaim, memberKey, validDescriptor, type MemberDescriptor, type Claim } from './recipe-lifecycle.js';
 import { tomlTableCustody, tomlTableOf, type TomlTableCustody } from './recipe-editors.js';
 import { sharedBlockRole } from './shared-blocks.js';
@@ -14,6 +15,7 @@ import type { RecordStatus } from '../host-types.js';
 import { stateLocation } from '../state-location.js';
 import { refreshItems, resolvePending, validItems, type CustodyItem } from './custody-items.js';
 import { canonicalJson } from './canonical.js';
+import { validDisplaced, type DisplacedValue } from './displaced.js';
 import { OWNERSHIP_17, expandOwnership, ownershipText } from './ownership-storage.js';
 
 export const stateRoot = (): string => join(userHomeRoot(), ...stateLocation.root.segments);
@@ -28,19 +30,16 @@ export interface Owner { managementId: string; recipeIdentity: string; sha256: s
   /** JSON object/array prefixes this run created on the way to an entry or hook group, deepest last. */
   createdContainers?: string[][];
   /** Project basics: the exact text Core wrote inside an aih:shared block, so an update can rescue a person's own lines. */
-  sharedContent?: string }
-export const OWNERSHIP_10 = 'urn:aihq:core:ownership:1.0.0';
-export const OWNERSHIP_11 = 'urn:aihq:core:ownership:1.1.0';
-export const OWNERSHIP_12 = 'urn:aihq:core:ownership:1.2.0';
-export const OWNERSHIP_13 = 'urn:aihq:core:ownership:1.3.0';
-export const OWNERSHIP_14 = 'urn:aihq:core:ownership:1.4.0';
-export const OWNERSHIP_15 = 'urn:aihq:core:ownership:1.5.0';
-export const OWNERSHIP_16 = 'urn:aihq:core:ownership:1.6.0';
+  sharedContent?: string;
+  /** Plan claims a reviewed replace displaced (C61): the value they share, for the one level of restore. */
+  displaced?: DisplacedValue }
+/** Receipts have one version (C15): every record is `urn:aihq:core:receipt:0.1.0`; an older dev record is not read. */
+export const RECEIPT = OWNERSHIP_17;
 export { OWNERSHIP_17, ownershipText };
-const OWNERSHIP_VERSIONS: string[] = [OWNERSHIP_10, OWNERSHIP_11, OWNERSHIP_12, OWNERSHIP_13, OWNERSHIP_14, OWNERSHIP_15, OWNERSHIP_16, OWNERSHIP_17];
-/** Each version admits every record of the versions before it. */
-const atLeast = (schema: unknown, minimum: string): boolean => OWNERSHIP_VERSIONS.indexOf(schema as string) >= OWNERSHIP_VERSIONS.indexOf(minimum);
-export interface Ownership { directories?: CreatedDirectory[]; schema: typeof OWNERSHIP_10 | typeof OWNERSHIP_11 | typeof OWNERSHIP_12 | typeof OWNERSHIP_13 | typeof OWNERSHIP_14 | typeof OWNERSHIP_15 | typeof OWNERSHIP_16 | typeof OWNERSHIP_17; target: string; members: Record<string, Owner>; selections?: Record<string, Claim>; items?: Record<string, CustodyItem> }
+const OWNERSHIP_VERSIONS: string[] = [RECEIPT];
+/** One version admits every recorded feature. */
+const atLeast = (schema: unknown, _minimum?: string): boolean => schema === RECEIPT;
+export interface Ownership { directories?: CreatedDirectory[]; schema: typeof RECEIPT; target: string; members: Record<string, Owner>; selections?: Record<string, Claim>; items?: Record<string, CustodyItem> }
 /** A TOML entry whose path has a non-bare (quoted) segment. */
 const quotedToml = (descriptor?: MemberDescriptor): boolean => descriptor?.kind === 'entry' && descriptor.format === 'toml' &&
   descriptor.entry.some(segment => !/^[A-Za-z0-9_-]+$/u.test(segment));
@@ -48,14 +47,11 @@ const quotedToml = (descriptor?: MemberDescriptor): boolean => descriptor?.kind 
 const tomlTableAllowed = (descriptor?: MemberDescriptor): boolean => descriptor?.kind === 'entry' && descriptor.format === 'toml' && tomlTableOf(descriptor.entry) !== undefined;
 /** Array members, approvals and shared-block content are recorded from 1.6. */
 const needs16 = (owner: Owner): boolean => owner.descriptor?.kind === 'member' || owner.approval !== undefined || owner.sharedContent !== undefined ||
-  owner.createdFile !== undefined || owner.createdContainers !== undefined;
-/** Item custody, array members and approvals require 1.6, stored as 1.7 (see ownership-storage); directory evidence 1.5; created TOML tables 1.4; quoted TOML names 1.3; bounded entries 1.2; hooks 1.1; otherwise 1.0. */
+  owner.createdFile !== undefined || owner.createdContainers !== undefined || owner.displaced !== undefined;
+/** Every receipt is stored in its one version, `urn:aihq:core:receipt:0.1.0` (see ownership-storage). */
 export function sealOwnership(value: Ownership): Ownership {
   const items = refreshItems(value, (scope, managementId) => claimIdentity(scope, managementId, value.target));
-  const schema = items || Object.values(value.members).some(needs16) ? OWNERSHIP_17 : value.directories?.length ? OWNERSHIP_15 : Object.values(value.members).some(owner => owner.tomlTable !== undefined) ? OWNERSHIP_14 :
-    Object.values(value.members).some(owner => quotedToml(owner.descriptor)) ? OWNERSHIP_13 :
-    Object.values(value.members).some(owner => owner.descriptor?.kind === 'entry' && ['ini', 'yaml', 'properties'].includes(owner.descriptor.format)) ? OWNERSHIP_12 :
-    Object.values(value.members).some(owner => owner.descriptor?.kind === 'hook') ? OWNERSHIP_11 : OWNERSHIP_10;
+  const schema = RECEIPT;
   const { directories, items: _items, ...rest } = value;
   return { ...rest, ...(directories?.length ? { directories } : {}), ...(items ? { items } : {}), schema };
 }
@@ -76,34 +72,86 @@ export function stateFiles(maxFileBytes = STATE_FILE_BYTES): OwnedFileTransactio
   });
 }
 
-// No policy-supplied script or path interpolation. The fixed script receives
-// the state path as an argument and validates the actual Windows ACL.
+// No policy-supplied script or path interpolation. The fixed script receives the state path as an argument and the
+// paths to check on standard input (one base64 UTF-8 path per line), reads access rules by SID so no name lookup can
+// reach a domain controller, and ends with one verdict token: `ok`, `refused` for an access list that admits someone
+// else, or `error` when it could not decide.
 const aclScript = `param([string]$StatePath,[string]$Create)
 $ErrorActionPreference='Stop'
-$user=[System.Security.Principal.WindowsIdentity]::GetCurrent().User
-$allowed=@($user.Value,'S-1-5-18','S-1-5-32-544')
-if($Create -eq 'yes') {
-  $acl=New-Object System.Security.AccessControl.DirectorySecurity
-  # Preserve the filesystem-assigned owner; validate it against the allowed owners below.
-  $acl.SetAccessRuleProtection($true,$false)
-  foreach($sid in $allowed) {
-    $identity=New-Object System.Security.Principal.SecurityIdentifier($sid)
-    $rule=New-Object System.Security.AccessControl.FileSystemAccessRule($identity,'FullControl','ContainerInherit,ObjectInherit','None','Allow')
-    $acl.AddAccessRule($rule)
+try {
+  $user=[System.Security.Principal.WindowsIdentity]::GetCurrent().User
+  $allowed=@($user.Value,'S-1-5-18','S-1-5-32-544')
+  $sidType=[System.Security.Principal.SecurityIdentifier]
+  if($Create -eq 'yes') {
+    $acl=New-Object System.Security.AccessControl.DirectorySecurity
+    # Preserve the filesystem-assigned owner; validate it against the allowed owners below.
+    $acl.SetAccessRuleProtection($true,$false)
+    foreach($sid in $allowed) {
+      $identity=New-Object System.Security.Principal.SecurityIdentifier($sid)
+      $rule=New-Object System.Security.AccessControl.FileSystemAccessRule($identity,'FullControl','ContainerInherit,ObjectInherit','None','Allow')
+      $acl.AddAccessRule($rule)
+    }
+    [System.IO.Directory]::SetAccessControl($StatePath,$acl)
   }
-  [System.IO.Directory]::SetAccessControl($StatePath,$acl)
+  foreach($line in ([Console]::In.ReadToEnd() -split '\\r?\\n')) {
+    if(-not $line) { continue }
+    $path=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($line))
+    try {
+      if([System.IO.Directory]::Exists($path)) { $actual=[System.IO.Directory]::GetAccessControl($path) }
+      else { $actual=[System.IO.File]::GetAccessControl($path) }
+    } catch { [Console]::Out.Write('aihq-state:refused'); exit 0 }
+    # Elevated Windows creates children owned by Administrators, already trusted with FullControl.
+    if($allowed -notcontains $actual.GetOwner($sidType).Value) { [Console]::Out.Write('aihq-state:refused'); exit 0 }
+    foreach($rule in $actual.GetAccessRules($true,$true,$sidType)) {
+      if($rule.AccessControlType -eq 'Allow' -and $allowed -notcontains $rule.IdentityReference.Value) { [Console]::Out.Write('aihq-state:refused'); exit 0 }
+    }
+  }
+  [Console]::Out.Write('aihq-state:ok')
+} catch { [Console]::Out.Write('aihq-state:error'); exit 1 }`;
+
+/** The verdict of one Windows access-list check: `unverified` means it could not decide (a timeout, a launch failure). */
+export type StateProtectionVerdict = 'ok' | 'refused' | 'unverified';
+/** Classify one check's process result. Only the exact `ok` token with exit 0 admits; an explicit refusal always refuses. */
+export function classifyStateProtection(result: { error?: unknown; status: number | null; stdout?: string | Uint8Array | null }): StateProtectionVerdict {
+  if (result.error) return 'unverified';
+  const out = (typeof result.stdout === 'string' ? result.stdout : result.stdout ? new TextDecoder().decode(result.stdout) : '').trim();
+  if (out === 'aihq-state:refused') return 'refused';
+  return result.status === 0 && out === 'aihq-state:ok' ? 'ok' : 'unverified';
 }
-foreach($path in ($env:AIHQ_STATE_CHECK -split '\\n')) {
-  if([System.IO.Directory]::Exists($path)) { $actual=[System.IO.Directory]::GetAccessControl($path) }
-  else { $actual=[System.IO.File]::GetAccessControl($path) }
-  # Elevated Windows creates children owned by Administrators, already trusted with FullControl.
-  $owner=$actual.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
-  if($allowed -notcontains $owner) { throw 'state-owner' }
-  foreach($rule in $actual.Access) {
-    $sid=$rule.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value
-    if($rule.AccessControlType -eq 'Allow' -and $allowed -notcontains $sid) { throw 'state-protection' }
+/** How long one check may take: a first attempt and, after a timeout or launch failure, one longer retry. */
+export const STATE_PROTECTION_BUDGETS: readonly number[] = Object.freeze([10_000, 60_000]);
+/**
+ * Run the fixed access-list check over `paths`, retrying once when it could not decide. The operation's signal, when
+ * aborted, stops before the retry (`cancelled`). `program` and `programArgs` are a test seam; Core runs the Windows
+ * PowerShell named by the kernel's `\SystemRoot` link, never one found through `%SystemRoot%` or `PATH`.
+ */
+export function checkStateAcl(root: string, created: boolean, paths: readonly string[], options: { program?: string; programArgs?: readonly string[];
+  budgets?: readonly number[]; signal?: AbortSignal } = {}): StateProtectionVerdict {
+  let program: string;
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  try {
+    program = options.program ?? windowsPowerShell();
+    // PowerShell itself starts from `%SystemRoot%`, so the child gets the folder the kernel link names.
+    if (process.platform === 'win32') {
+      for (const key of Object.keys(env)) if (key.toLowerCase() === 'systemroot') delete env[key];
+      env.SystemRoot = windowsDirectory();
+    }
+  } catch { return 'unverified'; }
+  const args = [...(options.programArgs ?? []), '-NoLogo', '-NoProfile', '-NonInteractive', '-Command', `& { ${aclScript} } $env:AIHQ_STATE_PATH $env:AIHQ_STATE_CREATE`];
+  const input = paths.map(path => Buffer.from(path, 'utf8').toString('base64')).join('\n') + '\n';
+  let verdict: StateProtectionVerdict = 'unverified';
+  for (const budget of options.budgets ?? STATE_PROTECTION_BUDGETS) {
+    if (options.signal?.aborted) throw new Error('cancelled');
+    stateProtectionCounts.aclChecks += 1;
+    verdict = classifyStateProtection(spawnSync(program, args, { windowsHide: true, timeout: budget, maxBuffer: 4096, input,
+      env: { ...env, AIHQ_STATE_PATH: root, AIHQ_STATE_CREATE: created ? 'yes' : 'no' } }));
+    if (verdict !== 'unverified') return verdict;
   }
-}`;
+  return verdict;
+}
+let operationSignal: AbortSignal | undefined;
+/** The current operation's cancellation signal, consulted between state protection attempts. */
+export function useStateSignal(signal: AbortSignal | undefined): void { operationSignal = signal; }
 
 /** How often this process ran state protection, and how many Windows ACL checks (PowerShell processes) that started. */
 export const stateProtectionCounts = { calls: 0, aclChecks: 0 };
@@ -130,7 +178,7 @@ let proven: { root: string; paths: Map<string, string> } | undefined;
  * operation rather than trusting one proven earlier. Steps inside one operation, such as Apply's review recheck, keep
  * what the operation proved.
  */
-export function forgetProvenState(): void { proven = undefined; }
+export function forgetProvenState(): void { proven = undefined; operationSignal = undefined; }
 /**
  * The identity a path is proven under: its pin (`dev:ino:mode`) and, for a file, its change time. A folder's change time
  * moves whenever an entry is added inside it, so a folder keeps its pin alone; its own access list cannot change
@@ -164,15 +212,12 @@ export function protectState(relativePaths: string[] = []): void {
     const known = proven.paths;
     const unproven = [...protectedPaths].filter(([path, identity]) => known.get(path) !== identity);
     if (unproven.length === 0) return;
-    // -Command uses fixed source; variable values are passed through the environment,
-    // never concatenated into executable PowerShell text.
-    stateProtectionCounts.aclChecks += 1;
-    const result = spawnSync(join(process.env.SystemRoot ?? 'C:\\Windows', 'System32/WindowsPowerShell/v1.0/powershell.exe'), ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command',
-      `& { ${aclScript} } $env:AIHQ_STATE_PATH $env:AIHQ_STATE_CREATE`], {
-      windowsHide: true, timeout: 10_000, maxBuffer: 4096,
-      env: { ...process.env, AIHQ_STATE_PATH: root, AIHQ_STATE_CREATE: created ? 'yes' : 'no', AIHQ_STATE_CHECK: unproven.map(([path]) => path).join('\n') }
-    });
-    if (result.error || result.status !== 0) throw new Error('state-protection');
+    // -Command uses fixed source; the state path is passed through the environment and the paths on standard input,
+    // never concatenated into executable PowerShell text. A check that could not decide stays a refusal, but a
+    // retryable one (`state-protection-unverified`); an access list that admits someone else is `state-protection`.
+    const verdict = checkStateAcl(root, created, unproven.map(([path]) => path), { ...(operationSignal ? { signal: operationSignal } : {}) });
+    if (verdict === 'refused') throw new Error('state-protection');
+    if (verdict !== 'ok') throw new Error('state-protection-unverified');
     // Remember a path only if it is still the object that was checked, unchanged: anything replaced or changed meanwhile
     // (a swap and swap back moves the file's change time) is checked next time.
     for (const [path, identity] of unproven) {
@@ -276,17 +321,17 @@ export function admitOwnership(bytes: Uint8Array, target: string): Ownership {
   const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
   return admitParsed(parseStrictJsonObjectV1(text, 'ownership'), text, target);
 }
-/** Admit a strictly parsed receipt: its expanded record is valid, and a 1.7.0 receipt is that record's one stored form. */
+/** Admit a strictly parsed receipt: its expanded record is valid, and the receipt is that record's one stored form. */
 function admitParsed(parsed: Record<string, unknown>, text: string, target: string): Ownership {
   const value = expandOwnership(parsed);
   validateOwnership(value, target);
-  if (value.schema === OWNERSHIP_17 && ownershipText(value) !== text) throw new Error('ownership-invalid');
+  if (ownershipText(value) !== text) throw new Error('ownership-invalid');
   return value;
 }
 /** Read a stored receipt's bytes (`null` when absent). */
 const ownershipBytes = (path: string) => stateFiles(OWNERSHIP_RECORD_BYTES).read(path);
 export function readOwnership(target: string, settle = true): { value: Ownership; digest: string | null; bytes: number } {
-  const empty: Ownership = { schema: OWNERSHIP_10, target, members: {} };
+  const empty: Ownership = { schema: RECEIPT, target, members: {} };
   try { lstatSync(stateRoot()); } catch (error) {
     if (['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) return { value: empty, digest: null, bytes: 0 };
     throw error;
@@ -307,16 +352,15 @@ export function readOwnershipBatch(targets: readonly string[]): Map<string, { va
   if (unique.length === 0) return result;
   try { lstatSync(stateRoot()); } catch (error) {
     if (!['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error;
-    for (const target of unique) result.set(target, { value: { schema: OWNERSHIP_10, target, members: {} }, digest: null, bytes: 0 });
+    for (const target of unique) result.set(target, { value: { schema: RECEIPT, target, members: {} }, digest: null, bytes: 0 });
     return result;
   }
-  // Keep both process launch count and Windows environment size bounded.
-  for (let offset = 0; offset < unique.length; offset += 32)
-    protectState(unique.slice(offset, offset + 32).map(ownershipPath));
+  // One check for the whole batch: the paths go on standard input, so their number doesn't bound the environment.
+  protectState(unique.map(ownershipPath));
   for (const target of unique) {
     const bytes = ownershipBytes(ownershipPath(target));
     if (!bytes) {
-      result.set(target, { value: { schema: OWNERSHIP_10, target, members: {} }, digest: null, bytes: 0 });
+      result.set(target, { value: { schema: RECEIPT, target, members: {} }, digest: null, bytes: 0 });
       continue;
     }
     const value = admitOwnership(bytes, target);
@@ -374,31 +418,34 @@ export function validateOwnership(input: unknown, target: string): asserts input
   const value = input as Record<string, unknown>;
   if (!OWNERSHIP_VERSIONS.includes(value.schema as string) || value.target !== target || !value.members || typeof value.members !== 'object' || Array.isArray(value.members)) throw new Error('ownership-invalid');
   if (Object.keys(value).some(key => !['schema', 'target', 'members', 'selections', 'directories', 'items'].includes(key)) || Object.keys(value.members).length > 8192) throw new Error('ownership-invalid');
-  if (value.directories !== undefined && (!atLeast(value.schema, OWNERSHIP_15) || !validCreatedDirectories(value.directories))) throw new Error('ownership-invalid');
+  if (value.directories !== undefined && (!atLeast(value.schema, RECEIPT) || !validCreatedDirectories(value.directories))) throw new Error('ownership-invalid');
   // Reuse the resolved home only within this synchronous validation call.
   let resolvedHome: string | undefined;
   const homeRoot = (): string => resolvedHome ??= userHomeRoot();
   for (const [key, member] of Object.entries(value.members)) {
     if (!member || typeof member !== 'object') throw new Error('ownership-invalid');
     const m = member as Owner;
-    if (Object.keys(member).some(key => !['managementId', 'recipeIdentity', 'sha256', 'mode', 'descriptor', 'claims', 'canonicalSha256', 'tomlTable', 'approval', 'createdContainer', 'createdFile', 'createdContainers', 'sharedContent'].includes(key))) throw new Error('ownership-invalid');
-    if (needs16(m) && !atLeast(value.schema, OWNERSHIP_16) ||
+    if (Object.keys(member).some(key => !['managementId', 'recipeIdentity', 'sha256', 'mode', 'descriptor', 'claims', 'canonicalSha256', 'tomlTable', 'approval', 'createdContainer', 'createdFile', 'createdContainers', 'sharedContent', 'displaced'].includes(key))) throw new Error('ownership-invalid');
+    if (m.displaced !== undefined && (!validDisplaced(m.displaced) || m.claims === undefined || !(m.descriptor?.kind === 'entry' || m.descriptor?.kind === 'block') ||
+      m.displaced.claims.some(claim => m.claims!.some(live => live.scope === claim.scope && live.managementId === claim.managementId) ||
+        claim.scope === 'user' && target !== homeRoot()))) throw new Error('ownership-invalid');
+    if (needs16(m) && !atLeast(value.schema, RECEIPT) ||
         m.approval !== undefined && (!m.approval || typeof m.approval !== 'object' || Object.keys(m.approval).length !== 1 || typeof m.approval.tool !== 'string' ||
           !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(m.approval.tool) || !(m.descriptor?.kind === 'member' || m.descriptor?.kind === 'entry' && ['json', 'jsonc'].includes(m.descriptor.format))) ||
         Object.hasOwn(m, 'createdContainer') && (m.createdContainer !== true || m.descriptor?.kind !== 'member') ||
         Object.hasOwn(m, 'createdFile') && m.createdFile !== true ||
         Object.hasOwn(m, 'createdContainers') && (!Array.isArray(m.createdContainers) || m.createdContainers.length === 0 || m.createdContainers.length > 32 ||
           !m.createdContainers.every(path => Array.isArray(path) && path.length > 0 && path.length <= 32 && path.every(part => typeof part === 'string' && part.length > 0 && part.length <= 256))) ||
-        Object.hasOwn(m, 'sharedContent') && (!atLeast(value.schema, OWNERSHIP_16) || m.descriptor?.kind !== 'block' ||
+        Object.hasOwn(m, 'sharedContent') && (!atLeast(value.schema, RECEIPT) || m.descriptor?.kind !== 'block' ||
           sharedBlockRole(m.descriptor.startMarker, m.descriptor.endMarker) === null ||
           typeof m.sharedContent !== 'string' || m.sharedContent.length > 65536)) throw new Error('ownership-invalid');
     // Hook custody exists only in a 1.1 or newer root, and always carries its canonical digest.
     if ((m.descriptor?.kind === 'hook') !== (m.canonicalSha256 !== undefined) ||
         m.canonicalSha256 !== undefined && (typeof m.canonicalSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(m.canonicalSha256)) ||
-        m.descriptor?.kind === 'hook' && !atLeast(value.schema, OWNERSHIP_11) ||
-        m.descriptor?.kind === 'entry' && ['ini', 'yaml', 'properties'].includes(m.descriptor.format) && !atLeast(value.schema, OWNERSHIP_12) ||
-        quotedToml(m.descriptor) && !atLeast(value.schema, OWNERSHIP_13) ||
-        Object.hasOwn(m, 'tomlTable') && (!atLeast(value.schema, OWNERSHIP_14) || !tomlTableAllowed(m.descriptor) ||
+        m.descriptor?.kind === 'hook' && !atLeast(value.schema, RECEIPT) ||
+        m.descriptor?.kind === 'entry' && ['ini', 'yaml', 'properties'].includes(m.descriptor.format) && !atLeast(value.schema, RECEIPT) ||
+        quotedToml(m.descriptor) && !atLeast(value.schema, RECEIPT) ||
+        Object.hasOwn(m, 'tomlTable') && (!atLeast(value.schema, RECEIPT) || !tomlTableAllowed(m.descriptor) ||
           !(tomlTableCustody as readonly unknown[]).includes(m.tomlTable))) throw new Error('ownership-invalid');
     if ((m.descriptor === undefined) !== (m.claims === undefined)) throw new Error('ownership-invalid');
     if (m.descriptor ? !validDescriptor(m.descriptor) || memberKey(m.descriptor) !== key : !validDescriptor({ kind: 'file', path: key })) throw new Error('ownership-invalid');
@@ -414,7 +461,7 @@ export function validateOwnership(input: unknown, target: string): asserts input
     }
   }
   // Items describe claims already held here; the target-keyed members above stay authoritative.
-  if (value.items !== undefined && (!atLeast(value.schema, OWNERSHIP_16) ||
+  if (value.items !== undefined && (!atLeast(value.schema, RECEIPT) ||
     !validItems(value as unknown as Ownership, (scope, managementId) => claimIdentity(scope, managementId, target)))) throw new Error('ownership-invalid');
   validatePending(value.items as Record<string, CustodyItem> | undefined, value.schema as Ownership['schema'], target);
 }
@@ -524,7 +571,7 @@ export function admitWrittenOwnership(previous: AdmittedImage | undefined, next:
     }
     for (const key of previous.selectionEntries.keys()) if (!Object.hasOwn(next.selections ?? {}, key)) affected.add(key);
     if (next.items !== undefined) {
-      if (!plainObject(next.items) || !atLeast(next.schema, OWNERSHIP_16)) return undefined;
+      if (!plainObject(next.items) || !atLeast(next.schema, RECEIPT)) return undefined;
       const count = Object.keys(next.items).length;
       if (count === 0 || count > 4096) return undefined;
       const items: Record<string, CustodyItem> = {};
@@ -553,16 +600,35 @@ export function writeHistory(runId: string, result: unknown, logging: 'on' | 'of
     const bytes = Buffer.from(JSON.stringify({ ...(result as object), record: written }));
     if (bytes.length > 1_048_576) return { status: 'failed', reason: 'record-limit', diagnosticId: 'record-limit' };
     protectState([reference]); writeStateFile(reference, bytes, 0o600);
+    rotateHistory(reference);
     return written;
   } catch { return { status: 'failed', reason: 'record-write', diagnosticId: 'record-write' }; }
 }
 
+/** Routine history keeps at most this many run records; the oldest go first. */
+export const HISTORY_LIMIT = 1000;
+function rotateHistory(keep: string): void {
+  try {
+    // The folder is checked once; each old record is only unlinked (a link entry, never its target), so a record whose
+    // own protection can't be shown is rotated like any other instead of stopping the rotation.
+    protectState(['runs']);
+    const folder = join(stateRoot(), 'runs');
+    const names = readdirSync(folder).filter(name => /^[a-f0-9-]{36}\.json$/.test(name) && `runs/${name}` !== keep);
+    if (names.length < HISTORY_LIMIT) return;
+    const aged = names.map(name => { try { return { name, at: lstatSync(join(folder, name)).mtimeMs }; } catch { return { name, at: 0 }; } })
+      .sort((a, b) => a.at - b.at || (a.name < b.name ? -1 : 1));
+    for (const { name } of aged.slice(0, names.length - HISTORY_LIMIT + 1))
+      try { unlinkSync(join(folder, name)); } catch { /* left for the next run */ }
+  } catch { /* history rotation never fails a run */ }
+}
 const LOCK_HOLDER = 'holder.json';
+/** How old an empty lock folder (no holder record) or a reclaim guard must be before it counts as a crash leftover. */
+export const STALE_LOCK_MS = 120_000;
 /**
  * Take a target's state lock. The lock names its holder (process and host), so a lock left by a process that no longer
- * runs on this host can be reclaimed after a crash. A lock without a readable holder, from another host, or held by a
- * running process is never taken over; leftovers need deliberate inspection. Reclaiming assumes one process namespace
- * per host name.
+ * runs on this host can be reclaimed after a crash. An empty lock folder older than `STALE_LOCK_MS` (a crash between
+ * creating the lock and naming its holder) is reclaimable too. A lock from another host, or held by a running process,
+ * is never taken over. Reclaiming assumes one process namespace per host name.
  */
 export function lockTarget(target: string): () => void {
   const root = stateRoot(); const lock = join(root, `lock-${sha256(target)}`);
@@ -573,7 +639,12 @@ export function lockTarget(target: string): () => void {
   }
   const pins = pathPins(lock);
   const holder = join(lock, LOCK_HOLDER);
-  try { writeFileSync(holder, JSON.stringify({ pid: process.pid, host: hostname() }), { flag: 'wx', mode: 0o600 }); } catch { /* An unnamed lock is only ever released by its own process. */ }
+  try { writeFileSync(holder, JSON.stringify({ pid: process.pid, host: hostname() }), { flag: 'wx', mode: 0o600 }); }
+  catch (error) {
+    // A lock that cannot name its holder is released at once rather than left for others to wait on.
+    try { rmdirSync(lock); } catch { /* An empty leftover is reclaimable once stale. */ }
+    throw error;
+  }
   return () => {
     // Never recursively delete locks; leftovers need deliberate inspection.
     if (pathPins(lock).at(-1)?.identity !== pins.at(-1)?.identity) return;
@@ -581,12 +652,41 @@ export function lockTarget(target: string): () => void {
     rmdirSync(lock);
   };
 }
-/** The lock's recorded holder is on this host and no longer runs. */
+/**
+ * `lockTarget`, waiting while another Apply holds the root's lock, in this process or another (at most `waitMs`, and
+ * never past `signal`), so competing applies on one root run one after the other and the later one re-checks what it
+ * reviewed once it holds the lock. The wait backs off from 20 ms to 250 ms between attempts; each attempt re-checks
+ * whether the holder is gone.
+ */
+export async function waitLockTarget(target: string, signal?: AbortSignal, waitMs = 60_000): Promise<() => void> {
+  const deadline = Date.now() + waitMs;
+  for (let pause = 20; ; pause = Math.min(pause * 2, 250)) {
+    try { return lockTarget(target); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST' || Date.now() >= deadline || signal?.aborted) throw error;
+    }
+    await new Promise<void>(resolve => {
+      const done = () => { clearTimeout(timer); signal?.removeEventListener('abort', done); resolve(); };
+      const timer = setTimeout(done, Math.max(1, Math.min(pause, deadline - Date.now())));
+      signal?.addEventListener('abort', done, { once: true });
+    });
+  }
+}
+/** A crash leftover: an empty folder of this user's, older than `STALE_LOCK_MS`. */
+function staleEmptyFolder(path: string): boolean {
+  try {
+    const stats = lstatSync(path);
+    if (!stats.isDirectory() || readdirSync(path).length !== 0 || Date.now() - stats.mtimeMs < STALE_LOCK_MS) return false;
+    return process.platform === 'win32' || typeof process.getuid !== 'function' || stats.uid === process.getuid();
+  } catch { return false; }
+}
+/** The lock's recorded holder is on this host and no longer runs, or the lock is an empty crash leftover. */
 function holderGone(lock: string): boolean {
   let holder: { pid: unknown; host: unknown };
   try {
     pathPins(lock);
     if (!lstatSync(lock).isDirectory() || readdirSync(lock).some(name => name !== LOCK_HOLDER)) return false;
+    if (staleEmptyFolder(lock)) return true;
     holder = JSON.parse(readFileSync(join(lock, LOCK_HOLDER), 'utf8')) as typeof holder;
   } catch { return false; }
   if (!Number.isSafeInteger(holder.pid) || (holder.pid as number) <= 0 || holder.host !== hostname() || holder.pid === process.pid) return false;
@@ -602,11 +702,17 @@ function holderGone(lock: string): boolean {
 function reclaimLock(lock: string): boolean {
   if (!holderGone(lock)) return false;
   const guard = `${lock}.reclaim`;
-  try { mkdirSync(guard, { mode: 0o700 }); } catch { return false; }
+  try { mkdirSync(guard, { mode: 0o700 }); }
+  catch {
+    // A guard left by a reclaimer that crashed is an empty, stale folder: clear it once and try again.
+    if (!staleEmptyFolder(guard)) return false;
+    try { rmdirSync(guard); mkdirSync(guard, { mode: 0o700 }); } catch { return false; }
+  }
   try {
     try { lstatSync(lock); } catch (error) { return (error as NodeJS.ErrnoException).code === 'ENOENT'; }
     if (!holderGone(lock)) return false;
-    unlinkSync(join(lock, LOCK_HOLDER)); rmdirSync(lock);
+    try { unlinkSync(join(lock, LOCK_HOLDER)); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+    rmdirSync(lock);
     return true;
   } catch { return false; }
   finally { rmdirSync(guard); }

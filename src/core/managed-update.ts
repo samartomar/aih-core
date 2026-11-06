@@ -51,9 +51,9 @@ const UNVERIFIABLE = 'Protected custody for this update could not be verified.';
  * its policy reads the Scan evidence and release index that policy's checks use, as an install in that version does.
  */
 const forbiddenControls = (controls: HostControls, named: boolean): boolean =>
-  (named ? ['authentication'] : ['authentication', 'evidence']).some(name => Object.hasOwn(controls, name));
+  ['authentication', 'evidence', 'index'].some(name => Object.hasOwn(controls, name));
 const forwardedControls = (controls: HostControls, named: boolean): HostControls => Object.fromEntries(
-  (['signal', 'logging', 'privateInputs', 'materialRoots', ...(named ? ['evidence', 'index'] as const : [])] as const)
+  (['signal', 'logging', 'privateInputs', 'materialRoots'] as const)
     .filter(name => controls[name] !== undefined).map(name => [name, controls[name]]));
 const plainObject = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
 
@@ -153,8 +153,8 @@ export async function prepareUpdate(request: ManagedUpdateRequest, controls: Hos
   catch { return unavailable('ownership-unverifiable', UNVERIFIABLE); }
   // The replacements are prepared in the policy version the request names, with its Catalog releases and Scan evidence,
   // so Prepare renders, binds and checks each exactly as it would at install.
-  const { schema, catalogReleases, evidence }: UpdatePolicy = clone(request.policy ?? { schema: POLICY_14 });
-  const policy = { schema, mode: 'vibe', ...(catalogReleases === undefined ? {} : { catalogReleases }), ...(evidence === undefined ? {} : { evidence }),
+  const { schema, catalogReleases }: UpdatePolicy = clone(request.policy ?? { schema: POLICY_14 });
+  const policy = { schema, mode: 'vibe', ...(catalogReleases === undefined ? {} : { catalogReleases }),
     selections: prepared.map(item => item.replacement) } as ExecutionPolicy;
   let rows: PlannedMember[] = [];
   let preparation = await preparePolicy({ useCase: 'policy', policy, target: { project } }, forwardedControls(controls, named),

@@ -1,7 +1,8 @@
 import type { Diagnostic, ExecutionPolicy, GitMaterialProvenance, SelectionMetadata, Json, JsonObject, OrganizationAdvisoryResult, OrganizationFulfillmentResult,
   OrganizationTargetDeclaration } from './types.js';
 import type { GitHubPolicySource, LocalPolicySource } from '../harness/runtime.mjs';
-import type { AuthenticationTrust, AssociationResult, AssociateEvidenceControls } from './evidence/types.js';
+/** Retained review and run results carry `evidence`; association is retired (C18), so it is always `not-supplied`. */
+export interface AssociationResult { status: 'skipped'; reason: 'not-supplied' }
 import type { TrustInputs, TrustRunTrust } from './trust-contracts.js';
 import type { MacosSessionReview, MacosSessionRun } from './macos-session-contracts.js';
 export type { GitHubPolicySource, LocalPolicySource } from '../harness/runtime.mjs';
@@ -9,21 +10,6 @@ declare const liveHandle: unique symbol;
 export interface PreparedHandle { readonly [liveHandle]: true }
 export interface PolicyRequest {
   useCase: 'policy'; policy: ExecutionPolicy; target: { project: string };
-  /**
-   * Required exactly when `policy.mode` is `enterprise`; selected independently of the policy document. A local source
-   * is read offline and needs execution policy 1.4.0, whose review names the file.
-   */
-  organizationSource?: GitHubPolicySource | LocalPolicySource;
-  /**
-   * Enterprise only: Catalog-resolved members of the sets organization 1.2.0 selectors name, supplied as data. Without a
-   * set's members its selector is `unavailable` and admission fails closed; Core never expands a set.
-   */
-  organizationSetMembers?: import('./types.js').OrganizationSetMembers[];
-  /**
-   * Optional caller-declared client and repository for an Enterprise policy. It is reported as declared, never inferred
-   * or verified, and is rejected for a Vibe policy.
-   */
-  organizationTarget?: OrganizationTargetDeclaration;
   resolutions?: { selectionId: string; operationId: string; choice: 'replace' | 'adopt'; observedSha256: string | null }[];
 }
 export interface HostControls {
@@ -31,16 +17,8 @@ export interface HostControls {
   logging?: 'on' | 'off';
   privateInputs?: Record<string, Record<string, Json>>;
   materialRoots?: Record<string, string>;
-  /** Used only to read the organization source; never serialized into reviews, state, history or diagnostics. */
+  /** Accepted for the retained repair hosts; never serialized into reviews, state, history or diagnostics. */
   authentication?: { kind: 'none' } | { kind: 'bearer'; token: string };
-  /** Explicit optional evidence acquisition and independently selected trust. Defaults to no acquisition. */
-  evidence?: { acquire?: boolean; trust?: AuthenticationTrust; authentication?: AssociateEvidenceControls['authentication'] };
-  /**
-   * Prepared work 1.7.0: the consumer's current release index, in the inventory's shape. Prepare records each named
-   * item's status in it and Apply compares that status again; without an index the status is `unknown`. Core never
-   * reads a Catalog or index itself.
-   */
-  index?: import('./internal/release-index.js').ManagedInventoryIndex;
 }
 export interface Authorization {
   reviewDigest: string;

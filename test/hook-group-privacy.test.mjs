@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { prepare } from '../dist/core/index.js';
+import { prepare } from '../dist/core/engine-api.js';
 import { SETTINGS, request, sandbox } from './hook-group-fixture.mjs';
 import { compact, groupsOf, guard, neighbor, prep, run } from './hook-group-harness.mjs';
 import { getGuidance, renderSupportMarkdown } from '../dist/core/support.js';

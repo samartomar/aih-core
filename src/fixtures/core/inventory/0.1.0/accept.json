@@ -1,0 +1,20 @@
+{
+  "schema": "urn:aihq:core:inventory:0.1.0",
+  "status": "ok",
+  "target": { "project": "/work/app" },
+  "scope": "project",
+  "observation": "complete",
+  "entries": [ { "managementId": "local-my-skills.skill.notes", "scope": "project", "items": ["local-my-skills.skill.notes"],
+    "origin": "chosen", "data": null, "clis": ["claude-code"], "installState": "interrupted",
+    "lastRun": { "runId": "6428a649-a17c-44c1-8140-5f9369c9a35e", "outcome": "not-attempted" },
+    "members": [ { "kind": "file", "path": "/work/app/.claude/skills/notes/SKILL.md", "state": "matching" } ] },
+    { "managementId": "crg.ai-setup.example-tool",
+      "scope": "user",
+      "items": ["crg.ai-setup.example-tool"],
+      "origin": "chosen",
+      "data": null,
+      "clis": ["claude-code"],
+      "installState": "complete",
+      "members": [{"kind":"file","path":"/home/example/.aihq/ai-setup/example-tool/2.3.9/linux-x64/.aih-acquired","state":"matching"}],
+      "aiSetup": {"branch":"installed","interpreter":{"path":"/usr/bin/python3","version":"3.13.1"},"fallback":false,"fallbackReason":null,"executable":{"path":".aihq/ai-setup/example-tool/2.3.9/linux-x64/bin/example-tool","placed":"symlink"},"downloads":[{"role":"artifact","file":"example_tool-2.3.9-py3-none-any.whl","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","origin":"supplied"},{"role":"closure","file":"networkx-3.4.2-py3-none-any.whl","sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","origin":"downloaded","url":"https://files.pythonhosted.org/packages/networkx-3.4.2-py3-none-any.whl"},{"role":"build-source","file":"pyyaml-6.0.3.tar.gz","sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","origin":"downloaded","url":"https://files.pythonhosted.org/packages/pyyaml-6.0.3.tar.gz"},{"role":"build-dependency","file":"setuptools-84.2.1-py3-none-any.whl","sha256":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","origin":"supplied"},{"role":"closure","file":"pyyaml-6.0.3-cp315-cp315-linux_x86_64.whl","sha256":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","origin":"built","built":{"file":"pyyaml-6.0.3-cp313-cp313-linux_x86_64.whl","sha256":"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff","byteQualified":false,"source":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","dependencies":["dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"],"tools":[{"name":"gcc","qualified":{"version":"gcc 13.3.0","sha256":"1111111111111111111111111111111111111111111111111111111111111111"},"observed":{"version":"gcc 14.2.0","sha256":"2222222222222222222222222222222222222222222222222222222222222222"}}],"env":{"CC":"/usr/bin/gcc","CXX":"/usr/bin/g++","LDSHARED":"/usr/bin/gcc -shared"}}}]} } ]
+}

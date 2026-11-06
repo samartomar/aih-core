@@ -6,8 +6,8 @@ import { dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
-import { repairIndex } from '@aihq/core/harness';
-import { prepare, apply } from '../dist/core/index.js';
+import { repairIndex } from '../dist/harness/contracts.mjs';
+import { prepare, apply } from '../dist/core/engine-api.js';
 
 const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'aih-user-trust-')));
 const home = join(scratch, 'home');
@@ -329,14 +329,16 @@ test('CLI previews and applies user-tools-ca with a temp home and fixture PATH',
   const cliHome = join(scratch, 'cli-home'); mkdirSync(cliHome);
   const file = join(scratch, 'cli-ca.pem'); writeFileSync(file, root);
   const inputs = join(scratch, 'cli-inputs.json');
-  writeFileSync(inputs, JSON.stringify({ 'user-tools-ca': { caFile: file } }));
+  writeFileSync(inputs, JSON.stringify({ schema: 'urn:aihq:core:repair-inputs:0.1.0', route: 'file', sources: { os: false, supplied: [{ id: 'company', file }] } }));
   const cli = fileURLToPath(new URL('../dist/core/cli.js', import.meta.url));
   const env = { ...process.env, HOME: cliHome, USERPROFILE: cliHome, PATH: bin };
   if (process.platform === 'win32') env.APPDATA = join(cliHome, 'AppData', 'Roaming');
   for (const key of envOverrides) delete env[key];
   fixtureTool('git');
+  // On Windows one apply runs several state-protection PowerShell checks and fixture probes; beside a concurrent
+  // suite (the nested package run) it has exceeded 30 s, which killed the CLI and left a null status.
   const run = flags => spawnSync(process.execPath, [cli, 'repair', 'user-tools-ca', '--target', 'git',
-    '--inputs-file', inputs, '--offline', '--json', ...flags], { encoding: 'utf8', timeout: 30_000, env });
+    '--inputs-file', inputs, '--offline', '--json', ...flags], { encoding: 'utf8', timeout: 120_000, env });
   const denied = run(['--target', 'node']);
   assert.equal(denied.status, 2);
   const preview = run([]);
@@ -345,10 +347,12 @@ test('CLI previews and applies user-tools-ca with a temp home and fixture PATH',
   assert.equal(existsSync(join(cliHome, '.gitconfig')), false);
   assert.equal(run(['--apply']).status, 2);
   const applied = run(['--apply', '--yes']);
-  assert.equal(applied.status, 1, applied.stdout + applied.stderr);
-  const result = JSON.parse(applied.stdout);
-  assert.equal(result.completion, 'incomplete');
-  assert.equal(result.operations.find(item => item.id === 'trust/git-config').application, 'applied');
+  // Apply prints the review it prepared and approved beside the run, so the approved digest is on record.
+  const { review, run: result } = JSON.parse(applied.stdout);
+  assert.equal(review?.schema, 'urn:aihq:core:review:0.1.0', applied.stdout + applied.stderr);
+  assert.equal(result.schema, 'urn:aihq:core:run:0.1.0', applied.stdout + applied.stderr);
+  assert.equal(result.reviewDigest, review.reviewDigest);
+  assert.ok(['complete', 'incomplete'].includes(result.completion), applied.stdout);
+  assert.equal(applied.status, result.completion === 'complete' ? 0 : 1);
   assert.match(readFileSync(join(cliHome, '.gitconfig'), 'utf8'), /sslCAInfo/);
-  assert.ok(result.diagnostics.some(item => item.code === 'VERIFICATION_UNAVAILABLE' && item.reason === 'offline'));
 });

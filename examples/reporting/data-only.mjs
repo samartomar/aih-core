@@ -1,8 +1,10 @@
 import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
-import { importSnapshot } from '@aihq/core/report';
+import { importSnapshot } from '@aihq/core/contracts';
 export function summarizeReport(snapshot) {
-  const report = importSnapshot(snapshot);
+  const read = importSnapshot(snapshot);
+  if (read.status !== 'ok') throw new Error('The report did not read: ' + JSON.stringify(read.problems ?? read));
+  const report = read.snapshot;
   return {
     schema: report.schema,
     producer: report.producer,

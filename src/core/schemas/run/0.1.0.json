@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aihq:core:run:0.1.0",
+  "title": "The result of Apply: each step's application, the members checked on disk, and the run's completion",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "status", "runId", "completion", "reviewDigest", "steps", "members", "history"],
+  "properties": {
+    "schema": { "const": "urn:aihq:core:run:0.1.0" },
+    "status": { "const": "ok" },
+    "runId": { "type": "string", "minLength": 1 },
+    "completion": { "enum": ["complete", "incomplete", "cancelled", "rejected"] },
+    "code": { "type": "string" },
+    "changed": { "enum": ["policy", "binding", "target-file", "ownership", "input", "host"] },
+    "reason": { "type": "string" },
+    "reviewDigest": { "oneOf": [{ "type": "null" }, { "type": "string", "pattern": "^[a-f0-9]{64}$" }] },
+    "steps": { "type": "array", "items": {
+      "type": "object", "additionalProperties": false, "required": ["step", "managementId", "application", "verification"],
+      "properties": {
+        "step": { "oneOf": [{ "type": "integer", "minimum": 0 }, { "type": "string", "minLength": 1 }] },
+        "update": { "type": "integer", "minimum": 0, "description": "Several updates in one review: the index of the update this belongs to" },
+        "managementId": { "type": "string" },
+        "application": { "enum": ["applied", "already-satisfied", "failed", "not-attempted"] },
+        "verification": { "type": "object", "additionalProperties": false, "required": ["status", "reason"],
+          "properties": { "status": { "type": "string" }, "reason": { "type": "string" } } },
+        "effectsUncertain": { "const": true },
+        "reason": { "type": "string" },
+        "interpreter": { "type": "object", "additionalProperties": false, "required": ["branch", "path", "version", "fallback", "fallbackReason"],
+          "properties": { "branch": { "enum": ["installed", "fallback"] }, "path": { "type": "string" }, "version": { "type": "string" },
+            "fallback": { "type": "boolean" }, "fallbackReason": { "type": ["string", "null"] } } },
+        "buildFailures": { "type": "array", "minItems": 1, "description": "An AI setup step: each source build that failed (C78), in order, whether or not the step then failed",
+          "items": { "type": "object", "additionalProperties": false, "required": ["wheel", "phase", "branch", "reason", "log"],
+            "properties": { "wheel": { "description": "The wheel that failed; for an install after a build, the one pip reported, or closure when it named none",
+                "oneOf": [{ "type": "object", "additionalProperties": false, "required": ["name", "version"],
+                "properties": { "name": { "type": "string" }, "version": { "type": "string" } } }, { "const": "closure" }] },
+              "phase": { "enum": ["obtain-source", "build-deps", "build", "install"] }, "branch": { "enum": ["installed", "fallback"] },
+              "reason": { "type": "string" },
+              "log": { "type": "array", "maxItems": 40, "description": "The last lines of the build's output, secret values read [REDACTED]", "items": { "type": "string", "maxLength": 1000 } } } } }
+      } } },
+    "members": { "type": "array", "items": {
+      "type": "object", "additionalProperties": false, "required": ["managementId", "scope", "kind", "path", "intent", "outcome", "check"],
+      "properties": {
+        "managementId": { "type": "string" }, "scope": { "enum": ["project", "user"] }, "kind": { "type": "string" },
+        "path": { "type": "string" }, "pointer": { "type": "string" }, "blockId": { "type": "string" },
+        "intent": { "enum": ["write", "remove", "keep"] },
+        "outcome": { "enum": ["written", "claim-removed", "restored", "kept"] },
+        "check": { "enum": ["present-matching", "present-different", "absent", "unchecked"] }
+      } } },
+    "history": { "type": "object", "additionalProperties": false, "required": ["status"],
+      "properties": { "status": { "enum": ["recorded", "disabled", "not-recorded"] }, "limit": { "type": "string" } } },
+    "organization": {"type":"object","additionalProperties":false,"description":"Enterprise runs: actual fulfilment over the claims the run left (C71)","required":["id","fulfilment"],"properties":{"id":{"type":"string"},"fulfilment":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["entry","status","unknown","managementIds"],"properties":{"entry":{"type":"string"},"status":{"enum":["fulfilled","not-fulfilled","not-applicable","unknown"]},"unknown":{"type":"array","items":{"enum":["client","repository","content","origin"]}},"managementIds":{"type":"array","items":{"type":"string"}}}}}}},
+    "environment": {
+      "description": "What a repair, certificate export or macOS session run wrote and verified (contract 10)",
+      "type": "object", "additionalProperties": false, "required": ["job", "outputs", "targets", "diagnostics"],
+      "properties": {
+        "job": { "enum": ["repair", "export", "macos-session"] },
+        "outputs": { "type": "array", "items": { "type": "object" } },
+        "targets": { "type": "array", "items": { "type": "object" } },
+        "session": { "type": "object" },
+        "diagnostics": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["code", "reason", "message"],
+          "properties": { "code": { "type": "string" }, "reason": { "type": "string" }, "message": { "type": "string" }, "path": { "type": "string" } } } }
+      }
+    }
+  }
+}

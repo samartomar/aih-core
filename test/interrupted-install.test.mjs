@@ -4,10 +4,10 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, rmdirSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, rmdirSync, utimesSync, writeFileSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
-import { apply, listManagedSelections, prepare, prepareManagedRemoval } from '../dist/core/index.js';
+import { apply, listManagedSelections, prepare, prepareManagedRemoval } from '../dist/core/engine-api.js';
 import { readReceipt as storedRecord, recordOf, receiptText } from './fixtures/ownership-receipt.mjs';
 
 const scratch = mkdtempSync(join(tmpdir(), 'aih-interrupted-'));
@@ -149,7 +149,7 @@ test('a pending owner must belong to its item, or the receipt is not trusted', a
   assert.equal(listed.diagnostics[0].reason, 'ownership-unverifiable');
 });
 
-test('an undescribed selection keeps its earlier receipt format once complete', async () => {
+test('an undescribed selection records no item facts, in the one receipt format', async () => {
   const target = project('undescribed');
   const { item: _item, tool: _tool, name: _name, kind: _kind, origins: _origins, ...bare } = policy(false).selections[0];
   const document = { ...policy(false), schema: 'urn:aihq:core:execution-policy:1.3.0', selections: [bare] };
@@ -158,26 +158,32 @@ test('an undescribed selection keeps its earlier receipt format once complete', 
   assert.equal((await apply(prepared.prepared, approve(prepared.review), { logging: 'off' })).completion, 'complete');
   const receipt = readReceipt(target);
   assert.equal(receipt.items, undefined);
-  assert.notEqual(receipt.schema, 'urn:aihq:core:ownership:1.6.0');
+  assert.equal(receipt.schema, 'urn:aihq:core:receipt:0.1.0');
 });
 
-test('a lock left by a process that no longer runs on this host is reclaimed; any other lock is kept', async () => {
+test('a lock left by a process that no longer runs on this host, or an empty leftover, is reclaimed; any other lock is kept', async () => {
   const target = project('locks');
   const lock = join(state(), `lock-${sha256(target)}`);
   mkdirSync(state(), { recursive: true, mode: 0o700 });
   const ended = spawnSync(process.execPath, ['-e', '0']).pid;
-  // The last case: another reclaimer holds the guard, so this run neither waits for nor races it.
-  for (const [holder, reclaimed, guarded] of [[{ pid: ended, host: hostname() }, true], [{ pid: process.ppid, host: hostname() }, false],
-    [{ pid: ended, host: `${hostname()}-elsewhere` }, false], [null, false], [{ pid: ended, host: hostname() }, false, true]]) {
+  const longAgo = new Date(Date.now() - 3_600_000);
+  // A guarded case: another reclaimer holds the guard, so this run does not race it. A stale empty guard is a leftover.
+  // A kept lock is waited on until the run's signal ends the wait.
+  for (const [holder, reclaimed, guarded, stale] of [[{ pid: ended, host: hostname() }, true], [{ pid: process.ppid, host: hostname() }, false],
+    [{ pid: ended, host: `${hostname()}-elsewhere` }, false], [null, false], [null, true, false, 'lock'],
+    [{ pid: ended, host: hostname() }, false, true], [{ pid: ended, host: hostname() }, true, true, 'guard']]) {
     rmSync(join(target, 'notes'), { recursive: true, force: true });
     mkdirSync(lock, { mode: 0o700 });
     if (guarded) mkdirSync(`${lock}.reclaim`, { mode: 0o700 });
     if (holder) writeFileSync(join(lock, 'holder.json'), JSON.stringify(holder), { mode: 0o600 });
+    if (stale === 'lock') utimesSync(lock, longAgo, longAgo);
+    if (stale === 'guard') utimesSync(`${lock}.reclaim`, longAgo, longAgo);
     const prepared = await prepare({ useCase: 'policy', policy: policy(false), target: { project: target } }, { logging: 'off' });
-    const result = await apply(prepared.prepared, approve(prepared.review), { logging: 'off' });
+    const result = await apply(prepared.prepared, approve(prepared.review), { logging: 'off', ...(reclaimed ? {} : { signal: AbortSignal.timeout(1500) }) });
     assert.equal(result.completion === 'complete', reclaimed, JSON.stringify([holder, result.completion, result.diagnostics]));
     assert.equal(existsSync(lock), !reclaimed, 'a reclaimed lock is released after the run; a kept lock stays');
-    if (guarded) rmdirSync(`${lock}.reclaim`);
+    if (guarded && !stale) rmdirSync(`${lock}.reclaim`);
+    assert.equal(existsSync(`${lock}.reclaim`), false, 'no reclaim guard is left behind');
     if (!reclaimed) { rmSync(join(lock, 'holder.json'), { force: true }); rmdirSync(lock); }
     else {
       const removal = await prepare({ useCase: 'policy', policy: { schema: 'urn:aihq:core:execution-policy:1.4.0', mode: 'vibe', selections: [],
@@ -185,6 +191,21 @@ test('a lock left by a process that no longer runs on this host is reclaimed; an
       assert.equal((await apply(removal.prepared, approve(removal.review), { logging: 'off' })).completion, 'complete');
     }
   }
+});
+
+test('an Apply waits while another process holds the lock, then runs once it is released', async () => {
+  const target = project('lock-wait');
+  const lock = join(state(), `lock-${sha256(target)}`);
+  mkdirSync(state(), { recursive: true, mode: 0o700 });
+  mkdirSync(lock, { mode: 0o700 });
+  writeFileSync(join(lock, 'holder.json'), JSON.stringify({ pid: process.ppid, host: hostname() }), { mode: 0o600 });
+  const prepared = await prepare({ useCase: 'policy', policy: policy(false), target: { project: target } }, { logging: 'off' });
+  const release = setTimeout(() => { rmSync(join(lock, 'holder.json')); rmdirSync(lock); }, 500);
+  try {
+    const result = await apply(prepared.prepared, approve(prepared.review), { logging: 'off' });
+    assert.equal(result.completion, 'complete', JSON.stringify(result.diagnostics));
+  } finally { clearTimeout(release); }
+  assert.equal(existsSync(lock), false);
 });
 
 test('the identity a write announces before publishing is the published file\'s', async () => {

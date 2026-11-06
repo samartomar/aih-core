@@ -1,0 +1,682 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aihq:core:inspection:0.1.0",
+  "title": "Inspection",
+  "description": "What inspect (subject machine) and inspectToolHost (subject tool-host) return with status ok. Observation only: nothing is installed, written or refused because of a version; a CLI older than the version its profile was checked with is a warning (D110).",
+  "type": "object",
+  "required": [
+    "schema",
+    "subject",
+    "status",
+    "observation"
+  ],
+  "properties": {
+    "schema": {
+      "const": "urn:aihq:core:inspection:0.1.0"
+    },
+    "subject": {
+      "enum": [
+        "machine",
+        "tool-host"
+      ]
+    },
+    "status": {
+      "const": "ok"
+    },
+    "observation": {
+      "enum": [
+        "complete",
+        "incomplete",
+        "cancelled"
+      ]
+    }
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/machine"
+    },
+    {
+      "$ref": "#/$defs/toolHost"
+    },
+    {
+      "$ref": "#/$defs/toolHostCancelled"
+    }
+  ],
+  "$defs": {
+    "diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "reason",
+        "message"
+      ],
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    },
+    "checkedWith": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "app",
+        "version"
+      ],
+      "properties": {
+        "app": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      }
+    },
+    "profileRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "version"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "version": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            }
+          ]
+        }
+      }
+    },
+    "machine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "subject",
+        "status",
+        "observation",
+        "package",
+        "options",
+        "tools",
+        "versions",
+        "warnings",
+        "observations",
+        "checks",
+        "repairChoices",
+        "diagnostics",
+        "followUp",
+        "limits"
+      ],
+      "properties": {
+        "schema": true,
+        "status": true,
+        "subject": {
+          "const": "machine"
+        },
+        "observation": {
+          "enum": [
+            "complete",
+            "incomplete",
+            "cancelled"
+          ]
+        },
+        "package": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "version"
+          ],
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            }
+          }
+        },
+        "options": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "target",
+            "offline",
+            "profiles"
+          ],
+          "properties": {
+            "target": {
+              "oneOf": [
+                {
+                  "const": "detected"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              ]
+            },
+            "offline": {
+              "type": "boolean"
+            },
+            "profiles": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "target",
+              "tool",
+              "label",
+              "state",
+              "selection"
+            ],
+            "properties": {
+              "target": {
+                "type": "string"
+              },
+              "tool": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "label": {
+                "type": "string"
+              },
+              "state": {
+                "enum": [
+                  "binary",
+                  "runnable",
+                  "broken",
+                  "config-only",
+                  "absent"
+                ]
+              },
+              "selection": {
+                "enum": [
+                  "requested",
+                  "detected",
+                  "unselected"
+                ]
+              },
+              "config": {
+                "type": "string"
+              },
+              "version": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "versions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "tool",
+              "installed",
+              "comparison",
+              "message"
+            ],
+            "properties": {
+              "tool": {
+                "type": "string"
+              },
+              "installed": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "comparison": {
+                "enum": [
+                  "older",
+                  "not-older",
+                  "not-compared"
+                ]
+              },
+              "reason": {
+                "enum": [
+                  "no-profile",
+                  "not-installed",
+                  "not-inspected",
+                  "version-unknown",
+                  "version-unparsed",
+                  "checked-app-unmatched"
+                ]
+              },
+              "profile": {
+                "$ref": "#/$defs/profileRef"
+              },
+              "checkedWith": {
+                "$ref": "#/$defs/checkedWith"
+              },
+              "message": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "code",
+              "tool",
+              "installed",
+              "checkedWith",
+              "profile",
+              "message"
+            ],
+            "properties": {
+              "code": {
+                "const": "cli-older-than-profile"
+              },
+              "tool": {
+                "type": "string"
+              },
+              "installed": {
+                "type": "string"
+              },
+              "checkedWith": {
+                "$ref": "#/$defs/checkedWith"
+              },
+              "profile": {
+                "$ref": "#/$defs/profileRef"
+              },
+              "message": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "observations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "target",
+              "detail"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "target": {
+                "type": "string"
+              },
+              "detail": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "target",
+              "outcome",
+              "reason",
+              "detail"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "target": {
+                "type": "string"
+              },
+              "outcome": {
+                "enum": [
+                  "passed",
+                  "failed",
+                  "unavailable",
+                  "skipped"
+                ]
+              },
+              "reason": {
+                "type": "string"
+              },
+              "detail": {
+                "type": "string",
+                "maxLength": 4096
+              }
+            }
+          }
+        },
+        "repairChoices": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "target",
+              "kind",
+              "reason",
+              "guidance"
+            ],
+            "properties": {
+              "target": {
+                "type": "string"
+              },
+              "kind": {
+                "const": "manual-guidance"
+              },
+              "reason": {
+                "type": "string"
+              },
+              "guidance": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/diagnostic"
+          }
+        },
+        "followUp": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "budgetMs",
+            "elapsedMs",
+            "maxActiveProbes"
+          ],
+          "properties": {
+            "budgetMs": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "elapsedMs": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "maxActiveProbes": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+    "toolHostLimits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "budgetMs",
+        "elapsedMs",
+        "reads",
+        "maxReads"
+      ],
+      "properties": {
+        "budgetMs": {
+          "type": "integer"
+        },
+        "elapsedMs": {
+          "type": "integer"
+        },
+        "reads": {
+          "type": "integer"
+        },
+        "maxReads": {
+          "type": "integer"
+        }
+      }
+    },
+    "toolHost": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "subject",
+        "status",
+        "observation",
+        "tool",
+        "binding",
+        "installedVersion",
+        "stale",
+        "items",
+        "hostBlockers",
+        "warnings",
+        "unchecked",
+        "diagnostics",
+        "limits"
+      ],
+      "properties": {
+        "schema": true,
+        "status": true,
+        "subject": {
+          "const": "tool-host"
+        },
+        "observation": {
+          "enum": [
+            "complete",
+            "incomplete"
+          ]
+        },
+        "tool": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "label"
+          ],
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "label": {
+              "type": "string"
+            }
+          }
+        },
+        "binding": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "digest"
+          ],
+          "properties": {
+            "digest": {
+              "type": "string"
+            }
+          }
+        },
+        "platform": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "os",
+            "arch"
+          ],
+          "properties": {
+            "os": {
+              "enum": [
+                "windows",
+                "macos",
+                "linux"
+              ]
+            },
+            "arch": {
+              "enum": [
+                "x64",
+                "arm64"
+              ]
+            }
+          }
+        },
+        "installedVersion": {
+          "type": "object",
+          "required": [
+            "state"
+          ],
+          "properties": {
+            "state": {
+              "enum": [
+                "known",
+                "unknown"
+              ]
+            }
+          }
+        },
+        "stale": {
+          "oneOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "const": "unchecked"
+            }
+          ]
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "framework",
+              "itemId",
+              "kind",
+              "stale",
+              "executables",
+              "inputs",
+              "copies"
+            ],
+            "properties": {
+              "framework": true,
+              "itemId": true,
+              "kind": true,
+              "stale": true,
+              "executables": true,
+              "inputs": true,
+              "copies": true
+            }
+          }
+        },
+        "hostBlockers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "code"
+            ],
+            "properties": {
+              "code": true
+            }
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "code"
+            ],
+            "properties": {
+              "code": true
+            }
+          }
+        },
+        "unchecked": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "fact",
+              "reason"
+            ],
+            "properties": {
+              "fact": true,
+              "reason": true
+            }
+          }
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/diagnostic"
+          }
+        },
+        "limits": {
+          "$ref": "#/$defs/toolHostLimits"
+        }
+      }
+    },
+    "toolHostCancelled": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "subject",
+        "status",
+        "observation",
+        "diagnostics",
+        "limits"
+      ],
+      "properties": {
+        "schema": true,
+        "status": true,
+        "subject": {
+          "const": "tool-host"
+        },
+        "observation": {
+          "const": "cancelled"
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/diagnostic"
+          }
+        },
+        "limits": {
+          "$ref": "#/$defs/toolHostLimits"
+        }
+      }
+    }
+  }
+}

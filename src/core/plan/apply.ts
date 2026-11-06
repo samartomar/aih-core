@@ -1,0 +1,311 @@
+// Apply for a 0.1.0 review (contract 7, 14.1): check the exact approval, re-check the request the review was made
+// from, then let the engine re-check and carry out its reviewed steps. Never throws for a stale or lost handle.
+import { randomUUID } from 'node:crypto';
+import { apply as applyEngine } from '../recipe-engine.js';
+import { forgetProvenState, ownershipInventory, readOwnership, useStateSignal } from '../internal/state.js';
+import { take, takeComposite, type CompositeState, type HandleState, type ProgramCheck } from './handles.js';
+import { runApprovedProcess } from '../internal/approved-process.js';
+import { homedir } from 'node:os';
+import { basename, dirname, isAbsolute, relative } from 'node:path';
+import { readbackMatches, removeClone } from './program/effect.js';
+import { SETUP_MARKER } from './steps/upstream-setup.js';
+import { projectRoot } from '../internal/host-files.js';
+import { removeAcquiredFolder } from './acquire/effect.js';
+import { directoryMap, type CreatedDirectories } from '../internal/created-directories.js';
+import { MANIFEST } from './acquire/types.js';
+import { linkRecordPath, removeLink } from './links.js';
+import type { LinkFacts } from '../internal/custody-items.js';
+import { engineControls, planControls } from './prepare.js';
+import { requestDigests } from './request.js';
+import { privateInputsHold } from './inputs.js';
+import { checkSwitchOff } from './switch-off.js';
+import { changeControls } from '../change/prepare.js';
+import { recordUpdate } from './update.js';
+import { actualFulfilment, stillHolds } from '../enterprise/host.js';
+import type { RunResult } from '../host-types.js';
+import { RUN, type PlanControls, type Run, type RunMember, type RunStep, type StaleChange } from './types.js';
+
+const rejected = (reason: string, extra: Partial<Run> = {}): Run => ({ schema: RUN, status: 'ok', runId: randomUUID(), completion: 'rejected',
+  reason, reviewDigest: null, steps: [], members: [], history: { status: 'disabled' }, ...extra });
+const stale = (changed: StaleChange, reviewDigest: string): Run =>
+  rejected('binding-changed', { code: 'REVIEW_STALE', changed, reviewDigest });
+/** The engine's reviewed bindings, named from the 0.1.0 closed list. */
+const CHANGED: Record<string, StaleChange> = { policy: 'binding', recipe: 'binding', binding: 'binding', 'index-status': 'binding',
+  'scan-state': 'binding', 'target-file': 'target-file', ownership: 'ownership', input: 'input', host: 'host', trust: 'host' };
+
+export async function applyPlan(handle: unknown, approval: unknown, rawControls?: unknown): Promise<Run> {
+  forgetProvenState();
+  // A change request's own controls (material roots) are accepted too; Apply reads only cancellation and logging.
+  const controls = planControls(rawControls) ?? changeControls(rawControls);
+  useStateSignal(controls?.signal);
+  const composite = takeComposite(handle);
+  if (composite) return applyComposite(composite, approval, rawControls, !!controls);
+  const state = take(handle);
+  if (!state) return rejected('handle-unavailable', { code: 'REVIEW_STALE' });
+  if (!controls) return rejected('controls-invalid', { reviewDigest: state.reviewDigest });
+  const value = approval as { approved?: unknown; origin?: unknown; reviewDigest?: unknown; allowPartial?: unknown } | null;
+  if (!value || typeof value !== 'object' || Object.keys(value).some(key => !['approved', 'origin', 'reviewDigest', 'allowPartial'].includes(key)) ||
+      value.approved !== true || !['interactive', 'automation'].includes(value.origin as string) ||
+      value.allowPartial !== undefined && typeof value.allowPartial !== 'boolean') return rejected('approval-required', { reviewDigest: state.reviewDigest });
+  if (value.reviewDigest !== state.reviewDigest) return rejected('digest-mismatch', { code: 'REVIEW_STALE', reviewDigest: state.reviewDigest });
+  if (state.partial && value.allowPartial !== true) return rejected('partial-approval-required', { reviewDigest: state.reviewDigest });
+  if (state.request) {
+    const now = requestDigests(state.request.value);
+    if (!now || now.documentDigest !== state.request.documentDigest || now.bytesDigest !== state.request.bytesDigest)
+      return stale('binding', state.reviewDigest);
+  }
+  // Exact private-input changes invalidate the approval: Apply's values, or the object Prepare read when it passes none.
+  if (state.privateInputs && !privateInputsHold(state.privateInputs, controls.privateInputs)) return stale('input', state.reviewDigest);
+  if (state.progress && controls.onProgress) state.progress.onProgress = controls.onProgress;
+  if (controls.signal?.aborted) return { ...rejected('cancelled', { reviewDigest: state.reviewDigest }), completion: 'cancelled' };
+  // Fresh authority for this Apply (contract 11): the same source must still hold the same organization document.
+  if (state.enterprise && !await stillHolds(state.enterprise.bound, controls.signal)) return stale('policy', state.reviewDigest);
+  const origin = value.origin as 'interactive' | 'automation';
+  // A removal's plugin commands run first; the receipt is released only after every one of them ran and no presence
+  // check still lists its plugin, so a failed removal keeps the undo facts for another try.
+  let before: Run | undefined;
+  if (state.before) {
+    const programs = state.before;
+    const pseudo = { ...state, operations: programs.operations };
+    before = programs.engine ? runOf(await applyEngine(programs.engine, { reviewDigest: programs.engineDigest, approved: true, origin },
+      engineControls(controls), undefined, progress(controls, pseudo)), pseudo) : { ...rejected('none', { reviewDigest: state.reviewDigest }), completion: 'complete' };
+    for (const ref of programs.unremovable) {
+      const step: RunStep = { step: ref.step, managementId: ref.managementId, application: 'not-attempted',
+        verification: { status: 'unverified', reason: 'no-remove-command' } };
+      programSteps.add(step); before.steps.push(step);
+    }
+    before.steps.sort((a, b) => (a.step as number) - (b.step as number));
+    await checkPresence(before, programs.programs, 'absent', controls);
+    const held = before.steps.some(step => (programStep(step) || commandSteps.has(step)) && step.verification.reason !== 'no-remove-command' &&
+      (step.application !== 'applied' || step.verification.status === 'failed'));
+    if (before.completion === 'rejected' || before.completion === 'cancelled' || held) {
+      const skipped: RunStep[] = [...new Map([...state.operations.values()].map(ref => [`${ref.step}\0${ref.managementId}`, ref])).values()]
+        .map(ref => ({ step: ref.step, managementId: ref.managementId, application: 'not-attempted' as const,
+          verification: { status: 'not-checked', reason: 'not-attempted' } }));
+      const kept: Run = { ...before, completion: before.completion === 'complete' ? 'incomplete' : before.completion, reviewDigest: state.reviewDigest,
+        steps: [...before.steps, ...skipped].sort((a, b) => (a.step as number) - (b.step as number)) };
+      // Nothing was released, so the actual fulfilment is over the claims still held (C71).
+      if (state.enterprise && kept.completion !== 'rejected') kept.organization = actualFulfilment(state.enterprise);
+      return kept;
+    }
+  }
+  const result = await applyEngine(state.engine, { reviewDigest: state.engineDigest, approved: true, origin: value.origin as 'interactive' | 'automation',
+    // Plan work never stops at a failed step: its item and dependants are not attempted, unrelated items continue (C60).
+    ...(state.enginePartial || state.request ? { allowPartial: true } : {}) }, engineControls(controls), undefined, progress(controls, state));
+  const run = runOf(result, state);
+  if (state.readback) checkSwitchOff(run, state.readback);
+  removeReleasedSetups(run);
+  if (state.links) removeReleasedLinks(run, state.links);
+  if (!state.before) await checkPresence(run, state.programs ?? new Map(), 'present', controls);
+  if (state.record) await recordUpdate(run, state.record, controls.signal);
+  if (before) {
+    run.steps = [...before.steps, ...run.steps].sort((a, b) => (a.step as number) - (b.step as number));
+    if (run.completion === 'complete' && before.completion !== 'complete') run.completion = 'incomplete';
+  }
+  // The actual fulfilment over the claims this run left (C71); it differs from the projection when steps fail.
+  if (state.enterprise) run.organization = actualFulfilment(state.enterprise);
+  return run;
+}
+
+/**
+ * Several updates in one review (contract 12): the approval binds the combined digest; each update's own reviewed work is
+ * then applied in order, each re-checked by its own Apply. A part rejected before anything ran rejects the run; a part
+ * that can't run after others did leaves the run `incomplete`, its steps `not-attempted`.
+ */
+async function applyComposite(state: CompositeState, approval: unknown, rawControls: unknown, controlsValid: boolean): Promise<Run> {
+  if (!controlsValid) return rejected('controls-invalid', { reviewDigest: state.reviewDigest });
+  const value = approval as { approved?: unknown; origin?: unknown; reviewDigest?: unknown; allowPartial?: unknown } | null;
+  const release = () => { for (const part of state.parts) if (part.handle) take(part.handle); };
+  if (!value || typeof value !== 'object' || Object.keys(value).some(key => !['approved', 'origin', 'reviewDigest', 'allowPartial'].includes(key)) ||
+      value.approved !== true || !['interactive', 'automation'].includes(value.origin as string) ||
+      value.allowPartial !== undefined && typeof value.allowPartial !== 'boolean') { release(); return rejected('approval-required', { reviewDigest: state.reviewDigest }); }
+  if (value.reviewDigest !== state.reviewDigest) { release(); return rejected('digest-mismatch', { code: 'REVIEW_STALE', reviewDigest: state.reviewDigest }); }
+  if (state.partial && value.allowPartial !== true) { release(); return rejected('partial-approval-required', { reviewDigest: state.reviewDigest }); }
+  const runs: { update: number; run: Run }[] = [];
+  let stopped: Run | undefined;
+  for (const part of state.parts) {
+    if (stopped) { if (part.handle) take(part.handle); continue; }
+    const current = part.handle ? { handle: part.handle, reviewDigest: part.reviewDigest, partial: part.partial } : await part.renew?.();
+    if (!current) { stopped = rejected('binding-changed', { code: 'REVIEW_STALE', changed: 'target-file', reviewDigest: state.reviewDigest }); continue; }
+    const run = await applyPlan(current.handle, { approved: true, origin: value.origin, reviewDigest: current.reviewDigest,
+      ...(current.partial || part.partial ? { allowPartial: true } : {}) }, rawControls);
+    if (run.completion === 'rejected' || run.completion === 'cancelled') stopped = run;
+    else runs.push({ update: part.update, run });
+  }
+  if (stopped && !runs.length) return { ...stopped, reviewDigest: state.reviewDigest };
+  const ran = new Set(runs.map(item => item.update));
+  const steps: RunStep[] = [...runs.flatMap(({ update, run }) => run.steps.map(step => ({ ...step, update }))),
+    ...state.parts.filter(part => !ran.has(part.update)).flatMap(part => [...new Map(part.steps.map(step => [`${step.step}\0${step.managementId}`, step])).values()]
+      .map(step => ({ step: step.step, managementId: step.managementId, update: part.update, application: 'not-attempted' as const,
+        verification: { status: 'not-checked', reason: 'not-attempted' } })))];
+  const completion: Run['completion'] = stopped?.completion === 'cancelled' ? 'cancelled' : stopped || runs.some(({ run }) => run.completion !== 'complete') ? 'incomplete' : 'complete';
+  const histories = runs.map(({ run }) => run.history);
+  return { schema: RUN, status: 'ok', runId: randomUUID(), completion, reviewDigest: state.reviewDigest, steps,
+    members: runs.flatMap(({ run }) => run.members), ...(stopped?.code ? { code: stopped.code } : {}), ...(stopped?.changed ? { changed: stopped.changed } : {}),
+    ...(stopped?.reason ? { reason: stopped.reason } : {}),
+    history: histories.find(item => item.status === 'not-recorded') ?? histories.find(item => item.status === 'recorded') ?? { status: 'disabled' } };
+}
+
+/** `onProgress` events for program steps: each command's start and finish, by plan step. */
+export function progress(controls: PlanControls, state: HandleState) {
+  const report = controls.onProgress;
+  if (!report) return undefined;
+  return (operationId: string, phase: 'start' | 'finish', application?: string) => {
+    const ref = state.operations.get(operationId);
+    if (ref) report({ step: ref.step, managementId: ref.managementId, operation: operationId.slice(operationId.indexOf('/') + 1), phase,
+      ...(application ? { application } : {}) });
+  };
+}
+
+/**
+ * The plugin presence check after the CLI's own commands (C56): only a declared readback decides. `present` after an
+ * install, `absent` after a removal, verifies the step; the opposite fails it. A check that cannot run fails it too.
+ * Exit status or output alone never verify anything; without a declared check the step stays unverified.
+ */
+export async function checkPresence(run: Run, programs: ReadonlyMap<number, ProgramCheck>, wanted: 'present' | 'absent',
+    controls: PlanControls, only?: (step: RunStep) => boolean): Promise<void> {
+  for (const step of run.steps) {
+    if (run.completion === 'cancelled' || run.completion === 'rejected') break;
+    const readback = commandSteps.has(step) && programs.get(step.step as number)?.readback === true;
+    if (!programStep(step) && !readback || only && !only(step)) continue;
+    if (step.application !== 'applied') continue;
+    const check = programs.get(step.step as number);
+    if (!check) { step.verification = { status: 'unverified', reason: 'no-presence-check' }; continue; }
+    if (controls.signal?.aborted) { run.completion = 'cancelled'; break; }
+    controls.onProgress?.({ step: step.step, managementId: step.managementId, operation: readback ? 'readback' : 'presence-check', phase: 'start' });
+    const outcome = await runApprovedProcess({ executable: check.executable, args: check.argv.slice(1), cwd: check.cwd, env: check.env ?? {},
+      timeoutMs: 60_000, maxOutputBytes: 1_048_576, acceptedExitCodes: [0], capture: true, ...(controls.signal ? { signal: controls.signal } : {}) });
+    let found: 'present' | 'absent' | undefined;
+    if (outcome.status === 'passed' && outcome.stdout)
+      found = (readback ? readbackMatches(outcome.stdout, check.expect) :
+        outcome.stdout.toString('utf8').split(/\r?\n/).some(line => line.trim() === check.expect)) ? 'present' : 'absent';
+    step.verification = found === undefined ? { status: 'failed', reason: outcome.status === 'cancelled' ? 'cancelled' : `check-${outcome.reason}` } :
+      readback ? found === 'present' ? { status: 'passed', reason: 'readback-matched' } : { status: 'failed', reason: 'readback-mismatch' } :
+      found === wanted ? { status: 'passed', reason: found } : { status: 'failed', reason: `readback-${found}` };
+    controls.onProgress?.({ step: step.step, managementId: step.managementId, operation: readback ? 'readback' : 'presence-check', phase: 'finish',
+      verification: step.verification.status });
+    if (outcome.status === 'cancelled') { run.completion = 'cancelled'; break; }
+  }
+  if (run.completion === 'complete' && run.steps.some(step => (programStep(step) || commandSteps.has(step)) && step.verification.status === 'failed')) run.completion = 'incomplete';
+}
+const programSteps = new WeakSet<RunStep>();
+const programStep = (step: RunStep): boolean => programSteps.has(step);
+const commandSteps = new WeakSet<RunStep>();
+
+export function runOf(result: RunResult, state: HandleState): Run {
+  // One run step per plan step and management id; a plugin step's several commands make one step.
+  const steps: RunStep[] = [];
+  const byStep = new Map<string, { step: RunStep; applications: string[] }>();
+  for (const operation of result.operations) {
+    const ref = state.operations.get(operation.id);
+    if (!ref) continue;
+    const key = `${ref.step}\0${ref.managementId}`;
+    let entry = byStep.get(key);
+    if (!entry) {
+      const facts = state.acquired?.get(ref.step as number);
+      entry = { step: { step: ref.step, managementId: ref.managementId, application: operation.application,
+        verification: { status: operation.verification.status, reason: operation.verification.reason },
+        ...(operation.application === 'failed' && operation.reason ? { reason: operation.reason } : {}),
+        ...(facts?.branch && facts.interpreter ? { interpreter: { branch: facts.branch, path: facts.interpreter.path, version: facts.interpreter.version,
+          fallback: facts.fallback, fallbackReason: facts.fallbackReason } } : {}),
+        ...(state.buildFailures?.get(ref.step as number)?.length ? { buildFailures: state.buildFailures.get(ref.step as number)! } : {}) }, applications: [] };
+      byStep.set(key, entry); steps.push(entry.step);
+      if (ref.program) programSteps.add(entry.step);
+      if (ref.command) commandSteps.add(entry.step);
+    }
+    entry.applications.push(operation.application);
+    if (operation.application === 'failed' && operation.reason && !entry.step.reason) entry.step.reason = operation.reason;
+    if (operation.effectsUncertain) entry.step.effectsUncertain = true;
+  }
+  for (const { step, applications } of byStep.values()) {
+    if (applications.length < 2) continue;
+    step.application = applications.includes('failed') ? 'failed' : applications.every(item => item === 'not-attempted') ? 'not-attempted' :
+      applications.every(item => item === 'already-satisfied') ? 'already-satisfied' : applications.includes('not-attempted') ? 'failed' : 'applied';
+    if (step.application === 'failed' && applications.includes('applied')) step.effectsUncertain = true;
+  }
+  // A program step's check: its readback, or that its effects can't be checked; never "confirmed" by an exit code.
+  for (const step of steps) if (commandSteps.has(step)) step.verification = state.verifications?.get(step.step as number) ??
+    (step.application === 'applied' ? { status: 'unverified', reason: 'command-effects-unknown' } :
+      { status: 'not-checked', reason: step.application === 'failed' ? 'application-failed' : step.application });
+  for (const step of steps) if (programStep(step) && step.application !== 'applied')
+    step.verification = { status: 'not-checked', reason: step.application === 'failed' ? 'application-failed' : 'not-attempted' };
+  // A plan claim's engine key names its management id; one member several claims (CLIs, projects) hold is listed once.
+  const listed = new Set<string>();
+  const members: RunMember[] = (result.members ?? []).flatMap(member => {
+    const entry: RunMember = { managementId: state.claims?.get(member.managementId) ?? member.managementId, scope: member.scope,
+      kind: member.kind, path: member.path, ...(member.pointer === undefined ? {} : { pointer: member.pointer }),
+      ...(member.blockId === undefined ? {} : { blockId: member.blockId }), intent: member.intent, outcome: member.outcome, check: member.check };
+    const key = JSON.stringify(entry);
+    if (listed.has(key)) return [];
+    listed.add(key);
+    return [entry];
+  });
+  const history: Run['history'] = result.record.status === 'written' ? { status: 'recorded' } : result.record.status === 'disabled' ?
+    { status: 'disabled' } : { status: 'not-recorded', ...(result.record.reason === 'record-limit' ? { limit: 'history-bytes' } : {}) };
+  const run: Run = { schema: RUN, status: 'ok', runId: result.runId, completion: result.completion, reviewDigest: state.reviewDigest,
+    steps, members, history };
+  if (result.completion === 'rejected') {
+    const cause = result.diagnostics.find(item => item.code === 'REVIEW_STALE') ?? result.diagnostics[0];
+    if (cause?.code === 'REVIEW_STALE') {
+      run.code = 'REVIEW_STALE';
+      if (cause.changed) run.changed = CHANGED[cause.changed] ?? 'binding';
+    }
+    run.reason = cause?.reason ?? 'rejected';
+  }
+  return run;
+}
+
+/**
+ * A folder link goes with its last claim: once a run released a claim's record and no other recorded claim, of any CLI or
+ * project, still names that link, the link and the parents Core made for it go (C28).
+ */
+function removeReleasedLinks(run: Run, links: LinkFacts[]): void {
+  let home: string;
+  try { home = projectRoot(homedir()); } catch { return; }
+  const fold = (path: string) => process.platform === 'win32' || process.platform === 'darwin' ? path.toLowerCase() : path;
+  const released = run.members.filter(member => member.scope === 'user' && member.intent === 'remove' && member.check === 'absent')
+    .map(member => fold(member.path.replaceAll('\\', '/')));
+  const held = new Set<string>();
+  try {
+    for (const root of [home, ...ownershipInventory().targets]) for (const item of Object.values(readOwnership(root).value.items ?? {}))
+      for (const link of item.plan?.links ?? []) held.add(fold(link.path));
+  } catch { return; /* receipts unreadable: leave every link in place */ }
+  const done = new Set<string>();
+  for (const link of links) if (link.linkType !== 'copy' && !done.has(link.path) && !held.has(fold(link.path)) &&
+      released.some(path => path.endsWith('/' + fold(linkRecordPath(link.path))))) {
+    done.add(link.path);
+    try { removeLink(home, link); } catch { /* left for the person; list no longer claims it */ }
+  }
+}
+/**
+ * An AI setup folder goes with its marker: once a run removed the last claim's marker, the acquired files go too (C28).
+ * Only what Core recorded placing goes (contract 14): each file kept because it was added or changed, or because the
+ * folder has no record, is reported as a `kept-unrecorded` member of the run.
+ */
+function removeReleasedSetups(run: Run): void {
+  const pattern = new RegExp(`^(\\.aihq/ai-setup/[^/]+/[^/]+/[^/]+)/${MANIFEST.replace('.', '\\.')}$`);
+  let home: string;
+  try { home = projectRoot(homedir()); } catch { return; }
+  // The folders the home's receipt records as Core-created (read once, after the run released the marker).
+  let recorded: CreatedDirectories | undefined;
+  const created = (): CreatedDirectories => {
+    try { recorded ??= directoryMap(readOwnership(home).value.directories); } catch { recorded = {}; }
+    return recorded;
+  };
+  const kept: RunMember[] = [];
+  const report = (member: RunMember, folder: string, paths: string[]) => {
+    for (const path of paths) kept.push({ managementId: member.managementId, scope: member.scope, kind: 'kept-unrecorded',
+      path: path === '.' ? folder : `${folder}/${path}`, intent: 'keep', outcome: 'kept', check: 'unchecked' });
+  };
+  for (const member of run.members) {
+    if (member.intent !== 'remove' || member.check !== 'absent') continue;
+    // An upstream setup's clone goes with its marker (contract 12): Core wrote it, so Core removes what it placed.
+    if (isAbsolute(member.path) && basename(member.path) === SETUP_MARKER) {
+      report(member, dirname(member.path).replaceAll('\\', '/'), removeClone(member.path).kept); continue;
+    }
+    if (member.scope !== 'user') continue;
+    const into = pattern.exec((isAbsolute(member.path) ? relative(home, member.path) : member.path).replaceAll('\\', '/'))?.[1];
+    if (into) try { report(member, into, removeAcquiredFolder(home, into, created()).kept); } catch { /* left for the person; list no longer claims it */ }
+  }
+  run.members.push(...kept);
+}

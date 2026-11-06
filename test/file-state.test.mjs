@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { Ajv2020 } from 'ajv/dist/2020.js';
-import { checkFileState, prepare } from '../dist/core/index.js';
+import { checkFileState, prepare } from '../dist/core/engine-api.js';
 import { contractSupport } from '../dist/core/contracts.js';
 import fileStateSchema from '../dist/core/schemas/file-state-result/1.1.0.json' with { type: 'json' };
 import { policy } from './fixture.mjs';
@@ -387,7 +387,7 @@ test('file.sha256 checks compare the live target and failures change the outcome
   assert.equal(absent.fileState, 'changed');
 });
 
-test('enterprise policies, evidence, managed sets and removals are observed without authority or custody', async () => {
+test('enterprise policies, managed sets and removals are observed without authority or custody', async () => {
   const dir = project();
   writeFileSync(join(dir, 'TEAM.md'), "Read the project's contribution guide.\n");
   const document = policy();
@@ -395,8 +395,6 @@ test('enterprise policies, evidence, managed sets and removals are observed with
   document.selections[0].organizationSelectionId = 'org-guidance';
   document.managedSelections = [{ id: 'team-set', scope: 'project', members: ['team-guidance'] }];
   document.removals = [{ managementId: 'retired-thing', scope: 'project' }];
-  document.evidence = [{ schema: 'urn:aihq:scan:evidence-association:1.0.0',
-    scanId: `scan:sha256:${'a'.repeat(64)}`, location: { kind: 'file', path: join(fixtureRoot, 'missing.scan.json') } }];
   let fetches = 0;
   const realFetch = globalThis.fetch;
   globalThis.fetch = (...args) => { fetches++; return realFetch(...args); };
@@ -407,8 +405,7 @@ test('enterprise policies, evidence, managed sets and removals are observed with
     assert.equal(result.authority, 'not-evaluated');
     assert.deepEqual(result.notChecked, [
       { kind: 'managed-set', id: 'project/team-set', reason: 'custody-not-evaluated' },
-      { kind: 'removal', id: 'project/retired-thing', reason: 'custody-not-evaluated' },
-      { kind: 'evidence', id: `scan:sha256:${'a'.repeat(64)}`, reason: 'evidence-not-evaluated' }]);
+      { kind: 'removal', id: 'project/retired-thing', reason: 'custody-not-evaluated' }]);
     assert.equal(fetches, 0, 'no organization or evidence read');
   } finally { globalThis.fetch = realFetch; }
 });
@@ -458,7 +455,7 @@ test('invalid requests fail before any target read with safe diagnostics', async
     const unsupportedResult = await check({ policy: unsupported, target: { project: dir } });
     assert.equal(unsupportedResult.diagnostics[0].code, 'SCHEMA_UNSUPPORTED');
     assert.equal(unsupportedResult.diagnostics[0].encountered, 'urn:aihq:core:execution-policy:99.0.0');
-    assert.deepEqual(unsupportedResult.diagnostics[0].supported, ['urn:aihq:core:execution-policy:1.0.0', 'urn:aihq:core:execution-policy:1.1.0', 'urn:aihq:core:execution-policy:1.2.0', 'urn:aihq:core:execution-policy:1.3.0', 'urn:aihq:core:execution-policy:1.4.0', 'urn:aihq:core:execution-policy:1.5.0', 'urn:aihq:core:execution-policy:1.6.0']);
+    assert.deepEqual(unsupportedResult.diagnostics[0].supported, ['urn:aihq:core:execution-policy:1.0.0', 'urn:aihq:core:execution-policy:1.1.0', 'urn:aihq:core:execution-policy:1.2.0', 'urn:aihq:core:execution-policy:1.3.0', 'urn:aihq:core:execution-policy:1.4.0']);
   } finally { fs.openSync = original; syncBuiltinESMExports(); }
   assert.equal(opened.filter(path => path.startsWith(dir)).length, 0,
     `invalid requests read no targets: ${opened.join(', ')}`);
@@ -636,12 +633,6 @@ test('file.write compares the explicit POSIX mode only on POSIX', { skip: proces
   // No explicit mode preserves the live mode: same bytes match at any mode.
   const preserved = await check({ policy: writePolicy([writeOp('write', 'MODE.md', 'mode content')]), target: { project: dir } });
   assert.equal(preserved.targets[0].outcome, 'match');
-});
-
-test('the installed distribution still declares the produced file-state schema', () => {
-  assert.partialDeepStrictEqual(contractSupport.contracts.find(entry => entry.id === 'urn:aihq:core:file-state-result:1.1.0'),
-    { id: 'urn:aihq:core:file-state-result:1.1.0', role: 'produces',
-      schemaExport: '@aihq/core/schemas/file-state-result/1.1.0.json' });
 });
 
 test('shipped representative results validate against the public schema', () => {

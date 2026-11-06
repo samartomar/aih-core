@@ -1,4 +1,6 @@
-// Runs inside a disposable consumer with the packed @aihq/core installed; public entries only.
+// Runs inside a disposable consumer with the packed @aihq/core installed.
+// Retained engine seam: the execution-policy engine is internal to the installed artifact (not a package export),
+// so this consumer imports its modules by path inside the installed package.
 // Interrupted installs: a pending receipt before the first effect, `installState: interrupted` with the members actually
 // written (also after the process is killed and restarted), and a reviewed finish or removal through the ordinary path.
 import assert from 'node:assert/strict';
@@ -8,8 +10,9 @@ import { createRequire } from 'node:module';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { Ajv2020 } from 'ajv/dist/2020.js';
-import { removalClaims, runMemberClaims } from '@aihq/core/contracts';
-import { apply, listManagedSelections, prepare, prepareManagedRemoval } from '@aihq/core';
+import { removalClaims, runMemberClaims } from './node_modules/@aihq/core/dist/core/engine-contracts.js';
+import { apply, listManagedSelections, prepare, prepareManagedRemoval } from './node_modules/@aihq/core/dist/core/engine-api.js';
+import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
 const sha256 = value => createHash('sha256').update(value).digest('hex');
@@ -36,7 +39,7 @@ const kill = 'process.kill(Number(process.env.AIH_HOST_PID), "SIGKILL"); await n
  */
 function document(work, crash, hostPid = 0) {
   const probe = join(work, 'probe.json');
-  const env = { AIH_HOST_PID: String(hostPid), AIH_PROBE: probe, AIH_CORE: import.meta.resolve('@aihq/core'),
+  const env = { AIH_HOST_PID: String(hostPid), AIH_PROBE: probe, AIH_CORE: new URL('./engine-api.js', import.meta.resolve('@aihq/core')).href,
     AIH_PROJECT: join(work, 'project'), HOME: process.env.HOME, USERPROFILE: process.env.HOME };
   const probeAction = `const { listManagedSelections } = await import(process.env.AIH_CORE);
     writeFileSync(process.env.AIH_PROBE, JSON.stringify(await listManagedSelections({ target: { project: process.env.AIH_PROJECT }, scope: 'project',
@@ -69,7 +72,7 @@ if (process.argv[2] === 'host') {
 const ajv = new Ajv2020({ allErrors: true, strict: true });
 for (const id of ['prepared-work/1.0.0', 'prepared-work/1.1.0', 'prepared-work/1.4.0', 'prepared-work/1.5.0', 'prepared-work/1.6.0', 'run-result/1.0.0', 'run-result/1.1.0', 'run-result/1.4.0',
   'managed-inventory-result/1.1.0', 'managed-removal-preparation/1.0.0', 'managed-removal-preparation/1.2.0'])
-  ajv.addSchema(JSON.parse(readFileSync(require.resolve(`@aihq/core/schemas/${id}.json`))));
+  ajv.addSchema(JSON.parse(readFileSync(fileURLToPath(new URL(`./schemas/${id}.json`, import.meta.resolve('@aihq/core'))))));
 const projection = value => value?.preparation?.prepared ? { ...value, preparation: (({ prepared: _handle, ...rest }) => rest)(value.preparation) } : value;
 const conforms = (value, id) => {
   const validate = ajv.getSchema(id);

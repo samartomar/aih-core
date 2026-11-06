@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { prepare, apply } from '../dist/core/index.js';
+import { prepare, apply } from '../dist/core/engine-api.js';
+import { readReceipt, writeReceipt } from './fixtures/ownership-receipt.mjs';
 
 const scratch = mkdtempSync(join(tmpdir(), 'aih-recipe-lifecycle-'));
 const previous = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
@@ -178,8 +179,8 @@ test('disjoint entries share a destination and retained dependencies survive set
   reduced.managedSelections.push({ id: 'beta-set', scope: 'project', members: [] });
   const final = await prepare({ useCase: 'policy', policy: reduced, target: { project } }, { logging: 'off' });
   assert.equal((await apply(final.prepared, approve(final), { logging: 'off' })).completion, 'complete');
-  text = readFileSync(join(project, 'settings.jsonc'), 'utf8');
-  assert.doesNotMatch(text, /"beta"|"shared"/);
+  // The file the install created holds nothing else once its last entry goes, so it goes too.
+  assert.equal(existsSync(join(project, 'settings.jsonc')), false);
 });
 
 test('recipe updates subtract disappeared members and preserve matching unowned files until reviewed adoption', async () => {
@@ -359,8 +360,8 @@ test('stale adoption and malformed custody cannot authorize managed effects', as
     observedSha256: createHash('sha256').update('matching').digest('hex') }]), { logging: 'off' });
   assert.equal((await apply(fresh.prepared, approve(fresh), { logging: 'off' })).completion, 'complete');
   const receipt = join(process.env.USERPROFILE, '.aih/core/ownership', createHash('sha256').update(realpathSync.native(project)).digest('hex') + '.json');
-  const record = JSON.parse(readFileSync(receipt, 'utf8'));
-  Object.values(record.members)[0].descriptor.path = '../human.txt'; writeFileSync(receipt, JSON.stringify(record));
+  const record = readReceipt(receipt);
+  Object.values(record.members)[0].descriptor.path = '../human.txt'; writeReceipt(receipt, record);
   const invalid = await prepare(request(project, op('file.remove', 'project', 'owned.txt')), { logging: 'off' });
   assert.equal(invalid.status, 'invalid'); assert.equal(invalid.prepared, undefined);
   assert.equal(readFileSync(join(project, 'owned.txt'), 'utf8'), 'matching');

@@ -14,24 +14,23 @@ export type { RepairDefinition12 } from './macos-session-definitions.mjs';
 export { macosSessionProfiles, macosSessionProfilesSchema } from './macos-session-profiles.mjs';
 import type { RepairDefinition12 } from './macos-session-definitions.mjs';
 export { toolRegistry, listTools, selectTool, validateToolRegistry } from './tool-registry.mjs';
-export type { RegistryTool, ToolRegistry, ToolSelection, ToolSurface } from './tool-registry.mjs';
-export { toolBindings, toolBindingKinds, deriveCellSupport, selectBindingCell, validateToolBinding } from './tool-binding.mjs';
-export type { ApprovalLocation, BindingKind, BindingObservation, BindingSelection, CellSupport, ToolBinding, ToolLayout } from './tool-binding.mjs';
-export { renderDelivery, renderSelectionDelivery, checkCompatibility, deliveryMaterialRoot } from './delivery.mjs';
-export type { CatalogItem, CompatibilityEntry, CompatibilityResult, DeliveryRefusal, ItemCompatibility, ItemRef, RenderedDelivery,
-  PluginRouteGuidance, SetCompatibility, SetRef, StaticBlockerCode } from './delivery.mjs';
-export { nativeClientIds, nativeVerificationDefinitions, validateNativeVerificationDefinition,
-  validateNativeTestIdentity } from './native/contracts.mjs';
+export { signerRecords } from './signer-records.mjs';
+export type { SignerRecord, SignerRecords } from './signer-records.mjs';
+export type { RegistryTool, ToolRegistry, ToolSelection, ToolSurface, ToolList, ToolRegistryResult, RegistryProblem } from './tool-registry.mjs';
+export { nativeClientIds, nativeVerificationDefinitions } from './native/contracts.mjs';
+export { nativeClientDefinitions, validateNativeVerificationDefinition, validateNativeTestIdentity } from './native/tool-names.mjs';
 export type { NativeValidationResult, NativeValidationDiagnostic } from './native/contracts.mjs';
+export type { NativeClientDefinition } from './native/tool-names.mjs';
 export interface SupportedContract {
   readonly id: string; readonly role: 'accepts' | 'produces' | 'both'; readonly schemaExport: string;
   readonly versions: readonly string[]; readonly fixtures: readonly { readonly export: string; readonly expect: 'accept' | 'refuse'; readonly code?: string }[];
 }
 export type PublicEntry = { readonly export: string; readonly runtime: 'portable' } |
   { readonly export: string; readonly runtime: 'node'; readonly nodeRange: string };
+/** Internal: the installed package identity and the repair definition version the retained repair helpers read. */
 export declare const contractSupport: {
-  readonly schema: 'urn:aihq:package-support:1.1.0'; readonly package: { readonly name: string; readonly version: string };
-  readonly contracts: readonly SupportedContract[]; readonly entries: readonly PublicEntry[];
+  readonly package: { readonly name: string; readonly version: string };
+  readonly contracts: readonly { readonly id: string; readonly role: 'accepts' | 'produces' | 'both' }[];
 };
 export declare const repairIndex: readonly { id: string; description: string;
   schema: 'urn:aihq:harness:repair:1.0.0'; scope: 'user'; managementId: string; materialName: string;
@@ -104,31 +103,6 @@ export declare function selectTrustCell(query: { definitionId: string; route: 'n
   capabilities: TrustCapabilities | undefined, definitions?: readonly RepairDefinition11[]):
   { status: 'admitted'; cell: TrustCapabilityCell } |
   { status: 'unavailable'; code: 'PREREQUISITE_UNAVAILABLE'; reason: string };
-export interface VerificationKeyRecord {
-  keyId: string; algorithm: 'Ed25519'; publicKeySpkiBase64: string; identity: string; purposes: readonly string[];
-}
-export interface VerificationKeyDiagnostic { code: 'INPUT_INVALID'; reason: string; message: string; path: string }
-export declare const verificationKeys: readonly VerificationKeyRecord[];
-export declare const verificationKeyPurposes: readonly ['scan-report'];
-export declare function validateVerificationKeyRecords(records: unknown):
-  Promise<{ valid: boolean; diagnostics: VerificationKeyDiagnostic[] }>;
-export declare function selectVerificationKeys(purpose: string, records?: readonly unknown[]):
-  Promise<{ status: 'selected'; keys: readonly { identity: string; keyId: string; publicKeySpkiBase64: string }[] } |
-    { status: 'invalid'; diagnostics: VerificationKeyDiagnostic[] }>;
-export interface VerificationPublisherRecord {
-  readonly profile: 'sigstore-public'; readonly identity: string; readonly purposes: readonly ['scan-report'];
-  readonly trustedRoot: Readonly<Record<string, unknown>>;
-  readonly policy: {
-    readonly issuer: string; readonly subjectAlternativeName: string;
-    readonly requiredCertificateExtensions: readonly { readonly oid: readonly number[]; readonly valueDerBase64: string }[];
-  };
-}
-export declare const verificationPublishers: readonly VerificationPublisherRecord[];
-export declare function validateVerificationPublisherRecords(records: unknown):
-  { valid: boolean; diagnostics: VerificationKeyDiagnostic[] };
-export declare function selectVerificationPublishers(purpose: string, records?: readonly unknown[]):
-  { status: 'selected'; publishers: readonly VerificationPublisherRecord[] } |
-  { status: 'invalid'; diagnostics: VerificationKeyDiagnostic[] };
 export declare const helperMetadata: {
   readonly repairs: readonly { id: string; helper: string; targets: readonly string[] }[];
   readonly diagnostics: readonly { id: string; kind: string; purpose: string; targets: readonly string[];

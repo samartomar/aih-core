@@ -1,5 +1,4 @@
-import support10 from '../harness/schemas/package-support/1.0.0.json' with { type: 'json' };
-import support11 from '../harness/schemas/package-support/1.1.0.json' with { type: 'json' };
+import support from './schemas/package-support/0.1.0.json' with { type: 'json' };
 import { registerSchemas, schemaCheck, validateAcceptedDocument } from './internal/contract-validation.js';
 import type { Diagnostic, ValidationResult } from './types.js';
 
@@ -12,7 +11,7 @@ export interface SupportedContract {
   readonly fixtures?: readonly ContractFixture[];
 }
 export interface PackageSupport {
-  readonly schema: 'urn:aihq:package-support:1.0.0' | 'urn:aihq:package-support:1.1.0';
+  readonly schema: 'urn:aihq:core:package-support:0.1.0';
   readonly package: { readonly name: string; readonly version: string };
   readonly contracts: readonly SupportedContract[];
   readonly entries: readonly ({ readonly export: string; readonly runtime: 'portable' } |
@@ -40,8 +39,8 @@ export interface ContractCheck {
 }
 export interface ContractCheckResult { ok: boolean; checks: ContractCheck[]; diagnostics: Diagnostic[] }
 
-registerSchemas(support10, support11);
-const accepted = { [support10.$id]: schemaCheck(support10.$id), [support11.$id]: schemaCheck(support11.$id) };
+registerSchemas(support);
+const accepted = { [support.$id]: schemaCheck(support.$id) };
 export const validatePackageSupport = (value: unknown): ValidationResult => validateAcceptedDocument(value, accepted, () => []);
 
 /** Runs supplied readers against other packages' declared bytes, without host effects. */

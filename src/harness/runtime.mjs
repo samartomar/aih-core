@@ -35,7 +35,7 @@ export { readGitHubPolicy } from './github-policy.mjs';
 export { readLocalPolicy } from './local-policy.mjs';
 export { inspectToolHost } from './tool-host.mjs';
 export { inspectUserToolTrust } from './user-trust.mjs';
-import { inspectUserToolTrust } from './user-trust.mjs';
+import { inspectUserToolTrust, windowsDirectory, windowsDirectorySource } from './user-trust.mjs';
 export { detectProjectFacts } from './project-facts.mjs';
 export { renderMacosSessionLaunchAgent,
   observeMacosGuiSession, observeMacosApplication, readMacosGuiDomainKey } from './macos-session-public.mjs';
@@ -94,11 +94,11 @@ const windowsEnvCheckScript = "const cp=require('node:child_process'),p=require(
   "const script=\"$v=[Environment]::GetEnvironmentVariable('NODE_EXTRA_CA_CERTS','User');" +
   "if($null -eq $v){[Console]::Out.Write('ABSENT')}else{[Console]::Out.Write('VALUE:'+" +
   "[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($v)))}\";" +
-  "const file=p.join(process.env.SystemRoot||'C:\\\\Windows','System32','WindowsPowerShell','v1.0','powershell.exe');" +
+  "const file=p.join(" + windowsDirectorySource + ",'System32','WindowsPowerShell','v1.0','powershell.exe');" +
   "const r=cp.spawnSync(file,['-NoLogo','-NoProfile','-NonInteractive','-Command',script],{encoding:'utf8',timeout:10000,maxBuffer:4096,windowsHide:true});" +
   "process.exit(r.status===0&&r.stdout==='VALUE:'+Buffer.from(process.argv[1]).toString('base64')?0:1)";
 const windowsSetxScript = "const cp=require('node:child_process'),p=require('node:path');" +
-  "const file=p.join(process.env.SystemRoot||'C:\\\\Windows','System32','setx.exe');" +
+  "const file=p.join(" + windowsDirectorySource + ",'System32','setx.exe');" +
   "const r=cp.spawnSync(file,['NODE_EXTRA_CA_CERTS',process.argv[1]]," +
   "{shell:false,timeout:10000,maxBuffer:4096,windowsHide:true});" +
   "process.exit(r.status===0?0:1)";
@@ -416,6 +416,15 @@ export function prepareRepairDefinition(request) {
     evaluatedAt: accepted.evaluatedAt, count: accepted.certificates.length, duplicates: accepted.duplicates };
 }
 
+/**
+ * The Windows user environment values (`HKCU\Environment`, set with setx) that go with a repair's recorded shell
+ * profile blocks on Windows. Removing the repair leaves them as they are, so its removal review names them.
+ */
+export function windowsUserEnvironmentKept(blockIds) {
+  const values = { 'node-ca': ['NODE_EXTRA_CA_CERTS'], 'node-system-ca': ['NODE_USE_SYSTEM_CA'], 'python-ca': ['SSL_CERT_FILE', 'REQUESTS_CA_BUNDLE'] };
+  return [...new Set(blockIds.flatMap(id => Object.hasOwn(values, id) ? values[id] : []))];
+}
+
 /** Fixed, read-only host observations selected by the installed repair definition. */
 export function repairObservationRequests(request) {
   if (request.id === 'jvm-ca') return [];
@@ -423,7 +432,7 @@ export function repairObservationRequests(request) {
   if (!['node-npm-ca', 'node-os-trust'].includes(request.id)) throw new Error('repair-unsupported');
   if (process.platform !== 'win32' || !request.targets.includes('node')) return [];
   const system = request.id === 'node-os-trust' && request.variantRef?.endsWith('/system-ca');
-  return [{ id: 'node-user-env', operationId: 'node-persist', executable: join(process.env.SystemRoot || 'C:\\Windows',
+  return [{ id: 'node-user-env', operationId: 'node-persist', executable: join(windowsDirectory(),
     'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
     args: ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command',
       `$v=[Environment]::GetEnvironmentVariable('${system ? 'NODE_USE_SYSTEM_CA' : 'NODE_EXTRA_CA_CERTS'}','User');` +
@@ -515,6 +524,8 @@ function executable(name) {
 const versionArgs = Object.freeze({ keytool: Object.freeze(['-J-version']) });
 const resolutionTargets = new Set(['node', 'npm', 'rg', 'fd', 'jq', 'curl', 'keytool', 'bash', 'antigravity', 'zed']);
 const clientTargets = new Set(clientGuidanceTargets);
+// AI tool targets whose version command output inspect 0.1.0 reads for the profile `checkedWith` hint.
+const aiToolTargets = new Set(['claude', 'codex', 'cursor', 'gemini', 'copilot', 'windsurf', 'opencode', 'kimi', 'kiro', 'antigravity', 'zed']);
 // Guidance rules accept only their published platforms; other hosts get platform-neutral steps.
 const guidancePlatform = ['win32', 'darwin', 'linux'].includes(process.platform) ? process.platform : 'unknown';
 
@@ -923,11 +934,12 @@ export async function diagnose(request, controls = {}) {
     diagnostics: [diagnostic('INPUT_INVALID', reason, 'Use a published diagnostic and bounded controls.')],
     repairChoices: [], limits: { budgetMs: profile.phaseMs, elapsedMs: 0, maxActiveProbes: profile.maxActiveProbes }
   });
-  if (!plain(request, ['requestId', 'targets', 'network', 'probeConfiguredMcp', 'project', 'persistedTrust']) ||
+  if (!plain(request, ['requestId', 'targets', 'network', 'probeConfiguredMcp', 'project', 'persistedTrust', 'toolVersions']) ||
       !plain(controls, ['signal', 'budgetMs'])) return invalid('request-field');
   if (typeof request.requestId !== 'string' || request.requestId.length < 1 || request.requestId.length > 128 ||
       !validDiagnosticTargets(request.targets) || request.network !== undefined && !['declared', 'off'].includes(request.network) ||
       request.probeConfiguredMcp !== undefined && typeof request.probeConfiguredMcp !== 'boolean' ||
+      request.toolVersions !== undefined && typeof request.toolVersions !== 'boolean' ||
       request.project !== undefined && (typeof request.project !== 'string' || !request.project || request.project.length > 4096) ||
       controls.signal !== undefined && !(controls.signal instanceof AbortSignal) ||
       controls.budgetMs !== undefined && (!Number.isInteger(controls.budgetMs) || controls.budgetMs < 1 || controls.budgetMs > profile.phaseMs))
@@ -941,6 +953,10 @@ export async function diagnose(request, controls = {}) {
   const budgetMs = controls.budgetMs ?? profile.phaseMs;
   const deadline = started + budgetMs;
   const checks = []; const observations = []; const diagnostics = []; const tools = []; const repairChoices = [];
+  // `toolVersions` (inspect 0.1.0): the version an AI client's own version command printed, for the checkedWith hint.
+  const toolVersions = [];
+  const versionOf = request.toolVersions === true ? (id, stdout) => aiToolTargets.has(id) ?
+    (typeof stdout === 'string' ? stdout.match(/(?<![0-9A-Za-z.])v?(\d{1,9}\.\d{1,9}(?:\.\d{1,9})?(?:-[0-9A-Za-z.]{1,64})?)(?![0-9A-Za-z])/)?.[1] : undefined) : undefined : undefined;
   const selected = new Set(request.targets ?? targets.map(target => target.id));
   const explicit = Array.isArray(request.targets);
   const network = request.network ?? 'declared';
@@ -1021,7 +1037,7 @@ export async function diagnose(request, controls = {}) {
     if (wsl) { push(`${target.id}/version`, target.id, 'skipped', 'wsl-launcher',
       'The resolved bash is the Windows WSL launcher; its version command was not run.'); continue; }
     const version = await runProcess(binary, versionArgs[target.id] ?? ['--version'], deadline, profile.localProcessMs, controls.signal,
-      profile.outputBytes, process.env, ['node', 'npm'].includes(target.id));
+      profile.outputBytes, process.env, ['node', 'npm'].includes(target.id) || versionOf !== undefined && aiToolTargets.has(target.id));
     if (version.terminationUnresolved) {
       diagnostics.push(diagnostic('EXECUTION_FAILED', 'termination-unresolved', 'A diagnostic child did not confirm termination.'));
       if (version.initialReason === 'deadline') diagnostics.push(diagnostic('DIAGNOSTIC_LIMIT', 'deadline', 'The diagnostic child exceeded its deadline before cancellation.'));
@@ -1036,6 +1052,8 @@ export async function diagnose(request, controls = {}) {
       if (version.code === 0) {
         push(`${target.id}/version`, target.id, 'passed', 'version-ok', 'The version command exited successfully; its raw output was not retained.');
         tools.at(-1).state = 'runnable';
+        if (versionOf && aiToolTargets.has(target.id)) toolVersions.push({ target: target.id, binary: basename(binary).replace(/\.(?:exe|cmd|bat|com)$/i, ''),
+          version: versionOf(target.id, version.stdout) ?? null });
         const observed = ['node', 'npm'].includes(target.id) && /^v?\d+\.\d+\.\d+$/.test(version.stdout?.trim() ?? '') ?
           version.stdout.trim().replace(/^v/, '') : undefined;
         observations.push({ id: `${target.id}/version`, target: target.id, detail: observed ?
@@ -1154,7 +1172,7 @@ export async function diagnose(request, controls = {}) {
   }
   return { requestId: request.requestId, helper: contractSupport.package,
     status: cancelled ? 'cancelled' : 'completed', tools, observations, checks, diagnostics, repairChoices,
+    ...(versionOf ? { toolVersions } : {}),
     limits: { budgetMs, elapsedMs: Math.ceil(performance.now() - started), maxActiveProbes: profile.maxActiveProbes } };
 }
 
-export { getTrustSnapshot, getVerificationTrust, createTufTrustClient, getCurrentTrustStatus, getCatalogIndexTrust } from './trust-update.mjs';

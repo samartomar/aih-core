@@ -1,0 +1,258 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aihq:core:review:0.1.0",
+  "title": "A frozen review: every effect Apply may have, bound by its reviewDigest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "request", "scope", "target", "steps", "conflicts", "failureRule", "warnings", "reviewDigest"],
+  "properties": {
+    "schema": { "const": "urn:aihq:core:review:0.1.0" },
+    "request": { "enum": ["plan", "removal", "change", "update", "repair", "export", "macos-session"] },
+    "scope": { "enum": ["project", "user"] },
+    "target": { "type": "object", "additionalProperties": false, "required": ["project"],
+      "properties": { "project": { "type": ["string", "null"] } } },
+    "plan": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "data", "missing", "unavailable", "clashes", "duplicates", "references", "warnings"],
+      "properties": {
+        "status": { "enum": ["ok", "incomplete"] },
+        "data": { "oneOf": [{ "type": "null" }, { "type": "object", "additionalProperties": false, "required": ["repository", "commit"],
+          "properties": { "repository": { "type": "string" }, "commit": { "type": "string" } } }] },
+        "recipe": { "type": "object", "additionalProperties": false, "required": ["id", "sha256", "repository", "commit"],
+          "properties": { "id": { "type": "string" }, "sha256": { "type": "string" }, "repository": { "type": "string" }, "commit": { "type": "string" } } },
+        "profiles": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["id", "version"],
+          "properties": { "id": { "type": "string" }, "version": { "oneOf": [{ "type": "string" }, { "type": "integer" }] } } } },
+        "missing": { "type": "array" }, "unavailable": { "type": "array" }, "clashes": { "type": "array" },
+        "duplicates": { "type": "array" }, "references": { "type": "array" }, "warnings": { "type": "array" }
+      }
+    },
+    "updates": { "type": "array", "description": "Several updates in one review: each one's request kind, plan reports, origin and own review digest", "items": { "type": "object", "additionalProperties": false, "required": ["update", "request", "reviewDigest"], "properties": { "update": { "type": "integer", "minimum": 0 }, "request": { "enum": ["plan", "change"] }, "plan": { "$ref": "#/properties/plan" }, "origin": { "$ref": "#/properties/origin" }, "originNote": { "type": ["string", "null"] }, "reviewDigest": { "type": "string" } } } },
+    "origin": { "oneOf": [{ "const": "chosen" }, { "type": "object", "additionalProperties": false, "required": ["recipe", "data"],
+          "description": "A proven recipe origin (8.2)",
+          "properties": {
+            "recipe": { "type": "object", "additionalProperties": false, "required": ["id", "sha256", "repository", "commit"],
+              "properties": { "id": { "type": "string" }, "sha256": { "type": "string" }, "repository": { "type": "string" }, "commit": { "type": "string" } } },
+            "data": { "oneOf": [{ "type": "null" }, { "type": "object", "additionalProperties": false, "required": ["repository", "commit"],
+              "properties": { "repository": { "type": "string" }, "commit": { "type": "string" } } }] } } }] },
+    "originNote": { "type": ["string", "null"] },
+    "steps": { "type": "array", "items": { "$ref": "#/$defs/step" } },
+    "conflicts": { "type": "array", "items": { "$ref": "#/$defs/conflict" } },
+    "ignoredFiles": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["sourceId", "sourcePath"],
+      "properties": { "sourceId": { "type": "string" }, "sourcePath": { "type": "string" } } } },
+    "groups": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["id", "members"],
+      "properties": { "id": { "type": "string" }, "members": { "type": "array", "items": { "type": "string" } } } } },
+    "failureRule": { "type": "string" },
+    "warnings": { "type": "array", "items": { "type": "string" } },
+    "versions": { "description": "D110: each served CLI's installed version against its profile's checkedWith; an older CLI is a warning, never a stop.",
+      "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["tool", "installed", "comparison", "message"],
+      "properties": { "tool": { "type": "string" }, "installed": { "type": ["string", "null"] },
+        "comparison": { "enum": ["older", "not-older", "not-compared"] },
+        "reason": { "enum": ["no-profile", "not-installed", "not-inspected", "version-unknown", "version-unparsed", "checked-app-unmatched"] },
+        "profile": { "type": "object", "additionalProperties": false, "required": ["id", "version"],
+          "properties": { "id": { "type": "string" }, "version": { "oneOf": [{ "type": "string" }, { "type": "integer" }] } } },
+        "checkedWith": { "type": "object", "additionalProperties": false, "required": ["app", "version"],
+          "properties": { "app": { "type": "string" }, "version": { "type": "string" } } },
+        "message": { "type": "string" } } } },
+    "scans": {"type":"array","description":"The Scan results seen (contract 13, C18): signer, revision, label, coverage and match. Informative only; nothing here decides what runs","items":{"type":"object","additionalProperties":false,"required":["index","status","sentence","scanKey","revision","label","coverage","score","signer","withdrawn","older","lastSeen","withdrawals","managementIds","match"],"properties":{"index":{"type":"integer","minimum":0},"status":{"enum":["verified","not-verified","unavailable"]},"reason":{"type":"string"},"sentence":{"type":"string"},"scanKey":{"type":["string","null"]},"revision":{"type":["integer","null"]},"label":{"type":["string","null"]},"coverage":{"enum":["complete","partial",null]},"score":{"type":["integer","null"]},"signer":{"oneOf":[{"type":"null"},{"type":"object","additionalProperties":false,"required":["identity","trusted","issuer","subject"],"properties":{"identity":{"type":"string"},"trusted":{"type":"boolean"},"issuer":{"type":"string"},"subject":{"type":"string"}}}]},"withdrawn":{"type":"boolean"},"older":{"type":"boolean"},"lastSeen":{"type":["integer","null"]},"withdrawals":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["status"],"properties":{"status":{"type":"string"},"reason":{"type":"string"},"throughRevision":{"type":"integer"}}}},"managementIds":{"type":"array","items":{"type":"string"}},"match":{"type":"object","additionalProperties":false,"required":["status"],"properties":{"status":{"enum":["matches","differs","refused","not-checked"]},"reason":{"type":"string"},"source":{"enum":["files","inventory"]},"differences":{"type":"object","additionalProperties":false,"required":["missing","extra","changed","modeChanged"],"properties":{"missing":{"type":"array","items":{"type":"string"}},"extra":{"type":"array","items":{"type":"string"}},"changed":{"type":"array","items":{"type":"string"}},"modeChanged":{"type":"array","items":{"type":"string"}}}}}}}}},
+    "notScanned": {"type":"array","description":"With Scan results: steps whose output no source scan covers","items":{"type":"object","additionalProperties":false,"required":["step","op","reason","sentence"],"properties":{"step":{"type":"integer","minimum":0},"op":{"type":"string"},"reason":{"enum":["rendered","fetched","program","not-scanned"]},"sentence":{"type":"string"}}}},
+    "organization": {"type":"object","additionalProperties":false,"description":"Enterprise admission (contract 11): who decided, for which declared target, enforced denials, advisory and projected fulfilment","required":["id","source","contentDigest","target","admitted","denials","advisory","fulfilment","scanSigners"],"properties":{"id":{"type":"string"},"source":{"type":"object"},"contentDigest":{"type":"string"},"target":{"type":"object","additionalProperties":false,"required":["scope","client","repository"],"properties":{"scope":{"enum":["project","user"]},"client":{"oneOf":[{"type":"null"},{"type":"object","additionalProperties":false,"required":["id","surface"],"properties":{"id":{"type":"string"},"surface":{"enum":["cli","ide"]}}}]},"repository":{"type":["string","null"]}}},"admitted":{"type":"boolean"},"denials":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["code","reason","message"],"properties":{"code":{"const":"AUTHORITY_DENIED"},"reason":{"type":"string"},"message":{"type":"string"},"entry":{"type":"string"},"rule":{"enum":["sources.published","sources.own"]},"managementId":{"type":"string"},"step":{"type":"integer","minimum":0},"input":{"type":"string"}}}},"advisory":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["entry","status","applicability","unknown","managementIds"],"properties":{"entry":{"type":"string"},"status":{"enum":["taken","not-taken"]},"applicability":{"enum":["applies","not-applicable","unknown"]},"unknown":{"type":"array","items":{"type":"string"}},"managementIds":{"type":"array","items":{"type":"string"}}}}},"fulfilment":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["entry","status","unknown","managementIds"],"properties":{"entry":{"type":"string"},"status":{"enum":["fulfilled","not-fulfilled","not-applicable","unknown"]},"unknown":{"type":"array","items":{"enum":["client","repository","content","origin"]}},"managementIds":{"type":"array","items":{"type":"string"}}}}},"scanSigners":{"oneOf":[{"type":"null"},{"type":"object"}]}}},
+    "environment": { "$ref": "#/$defs/environment" },
+    "reviewDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  },
+  "$defs": {
+    "downloadSource": { "oneOf": [
+      { "type": "object", "additionalProperties": false, "required": ["kind", "folder"], "properties": { "kind": { "const": "supplied" }, "folder": { "type": "string" } } },
+      { "type": "object", "additionalProperties": false, "required": ["kind", "url"], "properties": { "kind": { "const": "url" }, "url": { "type": "string", "pattern": "^https://" } } },
+      { "type": "object", "additionalProperties": false, "required": ["kind", "index", "name", "version"], "properties": { "kind": { "const": "index" }, "index": { "const": "pypi" }, "name": { "type": "string" }, "version": { "type": "string" } } },
+      { "type": "object", "additionalProperties": false, "required": ["kind", "index", "release"], "properties": { "kind": { "const": "index" }, "index": { "const": "python-build-standalone" }, "release": { "type": "string", "pattern": "^[0-9]{8}$" } } },
+      { "type": "object", "additionalProperties": false, "required": ["kind"], "properties": { "kind": { "const": "none" } } }] },
+    "shownDownload": { "type": "object", "additionalProperties": false, "required": ["role", "file", "sha256", "source"],
+      "properties": { "role": { "enum": ["artifact", "closure", "interpreter", "build-source", "build-dependency"] }, "file": { "type": "string" }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "source": { "$ref": "#/$defs/downloadSource" },
+        "name": { "type": "string" }, "version": { "type": "string" } } },
+    "download": { "type": "object", "additionalProperties": false, "required": ["role", "file", "sha256", "source"],
+      "properties": { "role": { "enum": ["artifact", "closure", "interpreter", "build-source", "build-dependency"] }, "file": { "type": "string" }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "source": { "$ref": "#/$defs/downloadSource" },
+        "build": { "type": "object", "additionalProperties": false, "required": ["source", "dependencies", "tools"],
+          "description": "The wheel's recorded build (C78): when its qualified bytes are not obtainable or not installable here, Core builds it from this pinned source and these pinned dependencies. `file` and `sha256` stay the qualification's identity; the built wheel is never byte-qualified",
+          "properties": { "source": { "$ref": "#/$defs/shownDownload" }, "dependencies": { "type": "array", "items": { "$ref": "#/$defs/shownDownload" } },
+            "tools": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["name", "version", "sha256"],
+              "properties": { "name": { "type": "string" }, "version": { "type": "string" }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } } } } } } } },
+    "environment": {
+      "description": "Repair, certificate export and macOS session facts (contract 10): what was found, what is admitted, and why anything is unavailable",
+      "type": "object", "additionalProperties": false,
+      "required": ["job", "repair", "targets", "route", "network", "facts", "observations", "unavailable"],
+      "properties": {
+        "job": { "enum": ["repair", "export", "macos-session"] },
+        "repair": { "type": ["string", "null"] },
+        "targets": { "type": "array", "items": { "type": "string" } },
+        "route": { "enum": ["file", "native", "os", "export"] },
+        "network": { "enum": ["declared", "off"] },
+        "facts": { "type": "object" },
+        "observations": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["id", "reason"],
+          "properties": { "id": { "type": "string" }, "reason": { "type": "string" } } } },
+        "unavailable": { "type": "array", "items": { "$ref": "#/$defs/environmentProblem" } }
+      }
+    },
+    "environmentProblem": {
+      "type": "object", "additionalProperties": false, "required": ["code", "reason", "message"],
+      "properties": { "code": { "type": "string" }, "reason": { "type": "string" }, "message": { "type": "string" }, "path": { "type": "string" } }
+    },
+    "step": {
+      "type": "object", "additionalProperties": false,
+      "required": ["step", "op", "managementId", "sentence", "cantPromise", "effect"],
+      "properties": {
+        "step": { "oneOf": [{ "type": "integer", "minimum": 0 }, { "type": "string", "minLength": 1 }] },
+        "update": { "type": "integer", "minimum": 0, "description": "Several updates in one review: the index of the update this belongs to" },
+        "op": { "type": "string" },
+        "managementId": { "type": "string" },
+        "sentence": { "type": "string" },
+        "cantPromise": { "type": ["string", "null"] },
+        "effect": { "enum": ["create-file", "replace-file", "remove-file", "already-satisfied", "conflict", "skipped", "unchanged", "run-program", "opaque-process", "unavailable"] },
+        "displaces": { "type": "array", "items": { "type": "string" }, "description": "A reviewed replace that displaces other installs' shared value (C61): their management ids" },
+        "root": { "enum": ["project", "user"] },
+        "path": { "type": "string" },
+        "item": { "type": "string" },
+        "items": { "type": "array", "items": { "type": "string" } },
+        "clis": { "type": "array", "items": { "type": "string" } },
+        "to": { "type": "string", "description": "A link step: the folder it points to, under the user root" },
+        "linkType": { "enum": ["junction", "symlink", "copy"], "description": "How a link step lands on this host (C29)" },
+        "requires": { "type": "array", "items": { "type": "string" } },
+        "details": { "type": "object" },
+        "acquire": { "type": "object", "additionalProperties": false,
+          "required": ["aiSetup", "version", "cell", "kind", "qualification", "artifact", "into", "members", "closure", "downloads"],
+          "properties": {
+            "aiSetup": { "type": "string" }, "version": { "type": "string" }, "cell": { "type": "string" },
+            "kind": { "enum": ["pypi-wheel", "native-archive"] },
+            "qualification": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+            "artifact": { "type": "object", "additionalProperties": false, "required": ["file", "sha256"],
+              "properties": { "file": { "type": "string" }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } } },
+            "into": { "type": "string" }, "members": { "type": "integer", "minimum": 0 }, "closure": { "type": "integer", "minimum": 0 },
+            "downloads": { "type": "array", "description": "Each download and the one source Apply tries for it (C78); a wheel with a recorded build shows that possible build",
+              "items": { "$ref": "#/$defs/download" } }
+          } },
+        "interpreter": { "type": "object", "additionalProperties": false, "required": ["installed", "range", "fallback", "switchesOn"],
+          "properties": {
+            "installed": { "oneOf": [{ "type": "null" }, { "type": "object", "additionalProperties": false, "required": ["path", "version", "note"],
+              "properties": { "path": { "type": "string" }, "version": { "type": "string" }, "note": { "const": "in range, not qualified" } } }] },
+            "range": { "type": "string" },
+            "fallback": { "type": "object", "additionalProperties": false, "required": ["version", "file", "sha256"],
+              "properties": { "version": { "type": "string" }, "file": { "type": "string" }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } } },
+            "switchesOn": { "type": "array", "items": { "enum": ["none-found", "outside-range", "wheel-install-failed", "readback-failed", "build-failed"] } }
+          } },
+        "format": { "enum": ["json", "toml", "markdown"] },
+        "key": { "type": "string" },
+        "entry": {},
+        "inputs": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/input" } },
+        "framework": { "type": "string" },
+        "cli": { "type": "string" },
+        "plugin": { "type": "string" },
+        "commit": { "type": "string" },
+        "pin": { "const": "unverified", "description": "A plugin step the plan marks `pin: \"unverified\"`: the CLI may install another commit than `commit`, and nothing checks the installed one" },
+        "contains": { "type": "array", "items": { "type": "string" } },
+        "route": { "const": "local-plugin" },
+        "commands": { "type": "array", "items": { "$ref": "#/$defs/command" } },
+        "undo": { "oneOf": [{ "type": "null" }, { "type": "array", "items": { "$ref": "#/$defs/argv" } }] },
+        "presenceCheck": { "oneOf": [{ "const": "none" }, {
+          "type": "object", "additionalProperties": false, "required": ["argv", "executable", "executableSha256", "expect"],
+          "properties": { "argv": { "$ref": "#/$defs/argv" }, "executable": { "type": "string" },
+            "executableSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "expect": { "type": "string", "minLength": 1 },
+            "launcher": { "$ref": "#/$defs/launcher" } } }] },
+        "previous": { "const": "interrupted" },
+        "executableConfiguration": {
+          "description": "A step that makes a client start a program later (an MCP server, a hook, a settings key that runs a command) or writes an executable file: the programs and arguments it configures, or the written bytes' sha256 and executable flag.",
+          "type": "object", "additionalProperties": false, "required": ["label", "kind", "launches"],
+          "properties": {
+            "label": { "const": "executable-configuration" },
+            "kind": { "enum": ["mcp-server", "hook", "settings-command", "executable-file", "unparsed", "unparsed-yaml", "mcp-enable", "plugin"] },
+            "connects": { "description": "The remote URLs an MCP server entry connects to.", "type": "array", "items": { "type": "string" } },
+            "plugins": { "description": "The plugins the configuration loads or enables.", "type": "array", "items": { "type": "string" } },
+            "launches": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["command", "args"],
+              "properties": { "command": { "type": "string" }, "args": { "type": "array", "items": { "type": "string" } } } } },
+            "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+            "executable": { "type": "boolean" }
+          }
+        },
+        "program": {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "argv", "executable", "executableSha256", "from", "cwd", "env", "managed", "readback", "undo", "cantRemove"],
+          "properties": {
+            "kind": { "enum": ["tool-command", "upstream-installer", "upstream-setup"] }, "argv": { "$ref": "#/$defs/argv" },
+            "executable": { "type": "string" }, "executableSha256": { "oneOf": [{ "type": "null" }, { "type": "string", "pattern": "^[a-f0-9]{64}$" }] },
+            "from": { "enum": ["path", "acquired", "clone"] }, "cwd": { "type": "string" },
+            "env": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["name", "value"],
+              "properties": { "name": { "type": "string" }, "value": { "type": "string" } } } },
+            "managed": { "type": "boolean" }, "readback": { "oneOf": [{ "type": "null" }, { "type": "object", "additionalProperties": false, "required": ["argv", "expected"], "properties": { "argv": { "$ref": "#/$defs/argv" }, "expected": { "type": "string" } } }] },
+            "undo": { "oneOf": [{ "type": "null" }, { "type": "object", "additionalProperties": false, "required": ["argv", "readback"],
+              "properties": { "argv": { "$ref": "#/$defs/argv" }, "readback": { "type": "object", "additionalProperties": false, "required": ["argv", "expected"], "properties": { "argv": { "$ref": "#/$defs/argv" }, "expected": { "type": "string" } } } } }] },
+            "prior": { "description": "A tool-command with a restore: the readback Apply runs before the command; its output is kept as the prior value.",
+              "type": "object", "additionalProperties": false, "required": ["argv"], "properties": { "argv": { "$ref": "#/$defs/argv" } } },
+            "restore": { "description": "A tool-command's restore as planned: `<prior>` stands once for the prior value; removal runs it, then the readback.",
+              "type": "object", "additionalProperties": false, "required": ["argv"], "properties": { "argv": { "$ref": "#/$defs/argv" } } },
+            "cantRemove": { "type": "string" },
+            "clone": { "type": "object", "additionalProperties": false, "required": ["repository", "commit", "into", "git", "gitSha256"],
+              "properties": { "repository": { "type": "string" }, "commit": { "type": "string", "pattern": "^[a-f0-9]{40}$" }, "into": { "type": "string" },
+                "git": { "type": "string" }, "gitSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } } },
+            "needs": { "type": "array", "items": { "type": "string" } },
+            "launcher": { "$ref": "#/$defs/launcher" },
+            "treeSha256": { "description": "A program an earlier acquisition placed: the sha256 of its folder's tree manifest, as the receipt records it.", "type": "string", "pattern": "^[a-f0-9]{64}$" }
+          }
+        }
+      }
+    },
+    "launcher": {
+      "description": "An npm command shim's pinned node and JS entry: what Core starts for the shim, each by its sha256, never through cmd.exe.",
+      "type": "object", "additionalProperties": false, "required": ["node", "nodeSha256", "script", "scriptSha256"],
+      "properties": { "node": { "type": "string" }, "nodeSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "script": { "type": "string" }, "scriptSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } }
+    },
+    "argv": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+    "input": {
+      "description": "One input binding of a step (C59): where its value lands and how it is written. A secret's value never appears.",
+      "type": "object", "additionalProperties": false, "required": ["item", "input", "at", "secret", "written", "from"],
+      "properties": {
+        "item": { "type": "string" },
+        "input": { "type": "string" },
+        "at": { "oneOf": [
+          { "type": "object", "additionalProperties": false, "required": ["pointer"], "properties": { "pointer": { "type": "string" } } },
+          { "type": "object", "additionalProperties": false, "required": ["placeholder"], "properties": { "placeholder": { "type": "string" } } },
+          { "type": "object", "additionalProperties": false, "required": ["argv"], "properties": { "argv": { "type": "integer", "minimum": 0 } } },
+          { "type": "object", "additionalProperties": false, "required": ["env"], "properties": { "env": { "type": "string" } } } ] },
+        "secret": { "type": "boolean" },
+        "written": { "enum": ["value", "reference", "omitted"] },
+        "from": { "enum": [null, "inputs", "default", "privateInputs"] },
+        "value": { "oneOf": [{ "type": "string" }, { "type": "number" }, { "type": "boolean" }] }
+      },
+      "if": { "properties": { "secret": { "const": true } } }, "then": { "properties": { "value": false } }
+    },
+    "command": {
+      "type": "object", "additionalProperties": false, "required": ["argv", "executable", "executableSha256"],
+      "properties": {
+        "argv": { "$ref": "#/$defs/argv" },
+        "executable": { "type": "string" },
+        "executableSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "launcher": { "$ref": "#/$defs/launcher" }
+      }
+    },
+    "conflict": {
+      "type": "object", "additionalProperties": false,
+      "required": ["code", "reason", "managementId", "step", "target", "observedSha256", "existing", "redacted", "choices"],
+      "properties": {
+        "code": { "const": "STATE_CONFLICT" },
+        "reason": { "enum": ["existing-content", "managed-content-changed", "second-displacement"] },
+        "managementId": { "type": "string" },
+        "step": { "oneOf": [{ "type": "integer", "minimum": 0 }, { "type": "string", "minLength": 1 }] },
+        "update": { "type": "integer", "minimum": 0, "description": "Several updates in one review: the index of the update this belongs to" },
+        "target": { "type": "string" },
+        "key": { "type": "string" },
+        "observedSha256": { "oneOf": [{ "type": "null" }, { "type": "string", "pattern": "^[a-f0-9]{64}$" }] },
+        "existing": { "type": ["string", "null"] },
+        "redacted": { "type": "array", "items": { "type": "string" } },
+        "choices": { "type": "array", "items": { "enum": ["replace", "adopt", "skip"] } },
+        "detail": { "type": "string" },
+        "displaces": { "type": "array", "items": { "type": "string" }, "description": "The installs whose shared value a reviewed replace would displace (C61)" },
+        "displacedBy": { "type": "array", "items": { "type": "string" }, "description": "second-displacement (C75): the installs that hold the value now" },
+        "displaced": { "type": "array", "items": { "type": "string" }, "description": "second-displacement (C75): the installs those already displace" },
+        "fix": { "type": "string", "description": "second-displacement: remove the overriding install through review first, then prepare again" }
+      }
+    }
+  }
+}

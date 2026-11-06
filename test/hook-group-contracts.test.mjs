@@ -1,44 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { parsePolicy, validatePolicy, validateRecipe, contractSupport } from '../dist/core/contracts.js';
+import { parsePolicy, validatePolicy, validateRecipe} from '../dist/core/engine-contracts.js';
 import { policy } from './fixture.mjs';
 import { guard, run, validPrepared, validResult } from './hook-group-harness.mjs';
 import { POLICY_11, RECIPE_11, PREPARED_11, RESULT_11, hookOp, hookSelection, policy11, groupOf, sandbox } from './hook-group-fixture.mjs';
-
-const baseHashes = {
-  'execution-policy': '3dd28436e048396f51fcf101a7939530ce75110e1dae92c7c9d6f7879d9f7117',
-  'file-state-result': '48eb9d9c69634cf1be19828e346d35e680e8884829b9b02ee1f60bf33fc7ec04',
-  'organization-policy': '92096b530c9db54044aa6bceafb2150a97955868a4ca8733cb7d1fc51c62098b',
-  'prepared-work': 'b10ffe8e4beb3bddc79e1cf538659a68397b5587f4329ade7d18593a22eb19d2',
-  recipe: '6591079740c0f8192d730142879dd866a3dac8551da17aa0bec0b102490fe6ec',
-  'run-result': 'ccd4c52ccaa053aa87f8c3e530a6fcedfd601fa0657642d494bd0e60f615bded'
-};
-const sourceText = name => readFileSync(new URL(`../src/core/schemas/${name}/1.0.0.json`, import.meta.url), 'utf8').replaceAll('\r\n', '\n');
-const distSchema = name => JSON.parse(readFileSync(new URL(`../dist/core/schemas/${name}/1.0.0.json`, import.meta.url), 'utf8'));
-
-test('1.0.0 schema bytes are immutable while 1.1.0 identities are published beside them', async () => {
-  for (const [name, expected] of Object.entries(baseHashes)) {
-    assert.equal(createHash('sha256').update(sourceText(name)).digest('hex'), expected, name);
-    assert.deepEqual(distSchema(name), JSON.parse(sourceText(name)), `${name} publishes the same document`);
-  }
-  for (const [name, id] of [['execution-policy', POLICY_11], ['recipe', RECIPE_11], ['prepared-work', PREPARED_11], ['run-result', RESULT_11]]) {
-    const schema = (await import(`@aihq/core/schemas/${name}/1.1.0.json`, { with: { type: 'json' } })).default;
-    assert.equal(schema.$id, id);
-  }
-});
-
-test('contract support declares exact 1.1 accepts/produces entries without displacing 1.0', () => {
-  const find = id => contractSupport.contracts.find(item => item.id === id);
-  assert.partialDeepStrictEqual(find(POLICY_11), { id: POLICY_11, role: 'accepts', schemaExport: '@aihq/core/schemas/execution-policy/1.1.0.json' });
-  assert.partialDeepStrictEqual(find(RECIPE_11), { id: RECIPE_11, role: 'accepts', schemaExport: '@aihq/core/schemas/recipe/1.1.0.json' });
-  assert.partialDeepStrictEqual(find(PREPARED_11), { id: PREPARED_11, role: 'produces', schemaExport: '@aihq/core/schemas/prepared-work/1.1.0.json' });
-  assert.partialDeepStrictEqual(find(RESULT_11), { id: RESULT_11, role: 'produces', schemaExport: '@aihq/core/schemas/run-result/1.1.0.json' });
-  assert.partialDeepStrictEqual(find('urn:aihq:core:execution-policy:1.0.0'), { id: 'urn:aihq:core:execution-policy:1.0.0', role: 'accepts',
-    schemaExport: '@aihq/core/schemas/execution-policy/1.0.0.json' });
-  assert.equal(contractSupport.contracts[0].id, 'urn:aihq:core:execution-policy:1.0.0');
-});
 
 const valid = () => policy11([hookSelection('guard', [hookOp('add', 'guard-a')])]);
 

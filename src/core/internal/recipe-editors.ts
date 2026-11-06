@@ -4,8 +4,8 @@ import { canonicalJson } from './canonical.js';
 import type { Json } from '../types.js';
 import { editScalarLines, scalarLineMember } from './scalar-line-editor.js';
 import { editIni, iniMember } from './ini-editor.js';
-import { editToml, tomlMember, type TomlTableCustody } from './toml-editor.js';
-export { removeCreatedTomlTable, tomlTableCustody, tomlTableOf, type TomlTableCustody } from './toml-editor.js';
+import { editToml, restoreTomlValue, tomlMember, type TomlTableCustody } from './toml-editor.js';
+export { removeCreatedTomlTable, tomlEntryPaths, tomlEntryText, tomlTableCustody, tomlTableOf, type TomlTableCustody } from './toml-editor.js';
 
 export class RecipeEditError extends Error {
   constructor(readonly reason: string) {
@@ -100,6 +100,10 @@ export function renderConfigEntries(format: 'json' | 'jsonc' | 'toml' | 'ini' | 
 
 export interface TextBlockEdit { blockId: string; startMarker: string; endMarker: string; action: 'set' | 'remove'; content?: string }
 /** Replaces exactly one bounded marker pair, preserving every byte outside that pair. */
+/** A line that is, or opens like, any Core block marker: `<!-- aih:begin x -->`, `<!-- aih:end x -->`, `<!-- BEGIN aih:shared -->`. */
+const CORE_MARKER = /^\s*<!--\s*(?:(?:BEGIN|END)\s+)?aih:/imu;
+/** Whether block text holds a Core block marker line, which would make this or another block ambiguous. */
+export const holdsCoreMarker = (text: string): boolean => CORE_MARKER.test(text);
 export function renderTextBlock(before: Buffer | null, edit: TextBlockEdit): Buffer | null {
   if (!edit || typeof edit.blockId !== 'string' || !edit.blockId || edit.blockId.length > 256 ||
       typeof edit.startMarker !== 'string' || !edit.startMarker || edit.startMarker.length > 256 ||
@@ -130,7 +134,8 @@ export function renderTextBlock(before: Buffer | null, edit: TextBlockEdit): Buf
     return output ? Buffer.from(output, 'utf8') : null;
   }
   const content = edit.content!;
-  if (content.includes(edit.startMarker) || content.includes(edit.endMarker)) fail('ambiguous-text-block');
+  if (content.includes(edit.startMarker) || content.includes(edit.endMarker) ||
+      (/^\s*<!--/u.test(edit.startMarker) && holdsCoreMarker(content))) fail('ambiguous-text-block');
   const body = `${edit.startMarker}${eol}${content}${content.endsWith(eol) || !content ? '' : eol}${edit.endMarker}`;
   if (starts.length) return Buffer.from(text.slice(0, starts[0]!.start) + body + text.slice(ends[0]!.start + edit.endMarker.length), 'utf8');
   const separator = text && !/[\r\n]$/u.test(text) ? eol : '';
@@ -224,4 +229,29 @@ export function renderConfigMember(format: 'json' | 'jsonc', before: Buffer | nu
   } catch (error) { if (error instanceof RecipeEditError) throw error; fail('unsupported-json-edit'); }
   parsedObject(text, format);
   return Buffer.from(text, 'utf8');
+}
+
+/**
+ * Plan merges: one member's exact bytes from a kept original file, written back in place of Core's value or block,
+ * with every other byte unchanged. `null` when the original had nothing there (the member is then removed instead).
+ */
+export function restoreMemberBytes(member: { kind: 'entry'; format: 'json' | 'jsonc' | 'toml' | 'ini' | 'yaml' | 'properties'; entry: string[] } |
+    { kind: 'block'; blockId: string; startMarker: string; endMarker: string }, current: Buffer, original: Buffer): Buffer | null {
+  if (member.kind === 'block') {
+    const edit = { blockId: member.blockId, startMarker: member.startMarker, endMarker: member.endMarker, action: 'remove' as const };
+    const kept = blockMemberBytes(original, edit); const now = blockMemberBytes(current, edit);
+    if (kept === null || now === null) return null;
+    const text = decode(current); const start = text.indexOf(member.startMarker);
+    return Buffer.from(text.slice(0, start) + kept.toString('utf8') + text.slice(start + now.toString('utf8').length), 'utf8');
+  }
+  if (member.format === 'toml') return restoreTomlValue(current, member.entry, original);
+  if (member.format !== 'json' && member.format !== 'jsonc') return null;
+  const raw = configMemberBytes(member.format, original, member.entry);
+  if (raw === null) return null;
+  const text = decode(current);
+  const node = findNodeAtLocation(parsedObject(text, member.format), member.entry);
+  if (!node) return null;
+  const output = text.slice(0, node.offset) + raw.toString('utf8') + text.slice(node.offset + node.length);
+  parsedObject(output, member.format);
+  return Buffer.from(output, 'utf8');
 }

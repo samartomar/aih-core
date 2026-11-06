@@ -5,7 +5,7 @@ export type RemovalMemberAction = 'remove' | 'restore' | 'unregister' | 'keep-sh
 /** Removal preparation 1.2.0: one removal, optionally of one recorded inclusion only (as inventory 1.1.0 reports it). */
 export interface RemovalSelector {
   managementId: string;
-  origin?: { set: { framework: string; setId: string; setSha256: string } } | { reasonIncluded: 'chosen' };
+  origin?: { reasonIncluded: 'chosen' };
 }
 /** One member a removal lists before Apply, with the action the review takes on it. */
 export interface RemovalMember {

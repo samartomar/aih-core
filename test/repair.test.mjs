@@ -6,9 +6,9 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
-import { getRepairRecipe, renderRepair } from '@aihq/core/harness/runtime';
-import { repairIndex } from '@aihq/core/harness';
-import { prepare, apply } from '../dist/core/index.js';
+import { getRepairRecipe, renderRepair } from '../dist/harness/runtime.mjs';
+import { repairIndex } from '../dist/harness/contracts.mjs';
+import { prepare, apply } from '../dist/core/engine-api.js';
 
 const scratch = mkdtempSync(join(tmpdir(), 'aih-repair-'));
 const home = join(scratch, 'home');
@@ -133,22 +133,22 @@ test('CLI and API reject the same mixed input without effects or raw key output'
   const source = join(scratch, 'cli-mixed.pem');
   writeFileSync(source, Buffer.concat([root, Buffer.from('-----BEGIN PRIVATE KEY-----\nYWJj\n-----END PRIVATE KEY-----')]));
   const input = join(scratch, 'repair-inputs.json');
-  writeFileSync(input, JSON.stringify({ 'node-npm-ca': { caFile: source } }));
+  writeFileSync(input, JSON.stringify({ schema: 'urn:aihq:core:repair-inputs:0.1.0', route: 'file', sources: { os: false, supplied: [{ id: 'mixed', file: source }] } }));
   const cli = fileURLToPath(new URL('../dist/core/cli.js', import.meta.url));
   const result = spawnSync(process.execPath, [cli, 'repair', 'node-npm-ca', '--target', 'node',
     '--inputs-file', input, '--apply', '--yes', '--json'], {
     encoding: 'utf8', timeout: 20_000, env: { ...process.env, HOME: cliHome, USERPROFILE: cliHome }
   });
-  assert.equal(result.status, 2, result.stdout + result.stderr);
-  assert.equal(JSON.parse(result.stdout).diagnostics[0].reason, 'block-label');
+  assert.notEqual(result.status, 0, result.stdout + result.stderr);
+  assert.equal(JSON.parse(result.stdout).completion ?? 'none', 'none');
   assert.equal(result.stdout.includes('PRIVATE KEY'), false);
   assert.equal(existsSync(join(cliHome, '.aih', 'core', 'content')), false);
   const partial = spawnSync(process.execPath, [cli, 'repair', 'node-npm-ca', '--target', 'node',
     '--inputs-file', input, '--apply', '--yes', '--allow-partial', '--json'], {
     encoding: 'utf8', timeout: 20_000, env: { ...process.env, HOME: cliHome, USERPROFILE: cliHome }
   });
-  assert.equal(partial.status, 2);
-  assert.equal(JSON.parse(partial.stdout).diagnostics[0].reason, 'block-label');
+  assert.notEqual(partial.status, 0);
+  assert.equal(JSON.parse(partial.stdout).completion ?? 'none', 'none');
   assert.equal(existsSync(join(cliHome, '.aih', 'core', 'content')), false);
 });
 

@@ -31,21 +31,6 @@ test('a packed consumer installs from an exact git material source through the p
     const receipt = JSON.parse(run(['check.mjs']).trim().split('\n').at(-1));
     assert.equal(receipt.status, 'passed');
     assert.equal(receipt.checks.length, 7, JSON.stringify(receipt.checks));
-    writeFileSync(join(consumer, 'types.mts'), `
-      import type { GitMaterialProvenance, GitMaterialSource, ManagedInventorySelection11, MaterialRecipeReference, PreparedSelection } from '@aihq/core';
-      declare const reference: MaterialRecipeReference;
-      const source: GitMaterialSource | undefined = reference.source.kind === 'git' ? reference.source : undefined;
-      declare const row: ManagedInventorySelection11;
-      declare const reviewed: PreparedSelection;
-      const recorded: GitMaterialProvenance | undefined = row.materialSource ?? reviewed.materialSource;
-      const identity: string | undefined = recorded?.identity;
-      source?.reachable satisfies true | undefined;
-      void identity;
-    `);
-    const require = createRequire(import.meta.url);
-    const compilerManifest = require.resolve('typescript/package.json');
-    const compiler = join(dirname(compilerManifest), JSON.parse(readFileSync(compilerManifest, 'utf8')).bin.tsc);
-    run([compiler, '--noEmit', '--skipLibCheck', '--strict', '--target', 'ES2023', '--module', 'NodeNext', '--moduleResolution', 'NodeNext', 'types.mts']);
   } finally {
     assert.equal(dirname(realpathSync.native(root)), parent);
     rmSync(root, { recursive: true, maxRetries: 3, retryDelay: 100 });

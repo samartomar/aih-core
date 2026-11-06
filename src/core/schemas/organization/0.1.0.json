@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aihq:core:organization:0.1.0",
+  "title": "An organization document: content and change entries, source rules and Scan signers (Enterprise admission)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "id", "entries"],
+  "properties": {
+    "schema": { "const": "urn:aihq:core:organization:0.1.0" },
+    "id": { "$ref": "#/$defs/id" },
+    "entries": { "type": "array", "maxItems": 4096, "items": { "oneOf": [{ "$ref": "#/$defs/contentEntry" }, { "$ref": "#/$defs/changeEntry" }] } },
+    "sources": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "published": { "type": "array", "maxItems": 256, "items": {
+          "type": "object", "additionalProperties": false, "required": ["repository"],
+          "properties": { "repository": { "type": "string", "minLength": 1, "maxLength": 512 }, "commit": { "type": "string", "minLength": 1, "maxLength": 128 } } } },
+        "own": {
+          "type": "object", "additionalProperties": false,
+          "properties": { "kinds": { "type": "array", "maxItems": 64, "uniqueItems": true, "items": { "$ref": "#/$defs/id" } } }
+        }
+      }
+    },
+    "scanSigners": {
+      "type": "object", "additionalProperties": false, "minProperties": 1,
+      "properties": { "replace": { "$ref": "#/$defs/signers" }, "add": { "$ref": "#/$defs/signers" } }
+    }
+  },
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" },
+    "obligation": { "enum": ["permitted", "recommended", "required", "prohibited"] },
+    "scopes": { "type": "array", "minItems": 1, "maxItems": 2, "uniqueItems": true, "items": { "enum": ["project", "user"] } },
+    "clients": { "type": "array", "minItems": 1, "maxItems": 64, "uniqueItems": true, "items": { "$ref": "#/$defs/id" } },
+    "repositories": { "type": "array", "minItems": 1, "maxItems": 256, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 512 } },
+    "contentEntry": {
+      "type": "object", "additionalProperties": false, "required": ["id", "obligation", "content"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" }, "obligation": { "$ref": "#/$defs/obligation" },
+        "scopes": { "$ref": "#/$defs/scopes" }, "clients": { "$ref": "#/$defs/clients" }, "repositories": { "$ref": "#/$defs/repositories" },
+        "content": {
+          "type": "object", "additionalProperties": false, "minProperties": 1,
+          "properties": {
+            "item": { "$ref": "#/$defs/id" }, "kind": { "$ref": "#/$defs/id" }, "framework": { "$ref": "#/$defs/id" },
+            "recipe": {
+              "type": "object", "additionalProperties": false, "required": ["id"],
+              "properties": { "id": { "$ref": "#/$defs/id" }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+                "commit": { "type": "string", "minLength": 1, "maxLength": 128 } }
+            }
+          }
+        }
+      }
+    },
+    "changeEntry": {
+      "type": "object", "additionalProperties": false, "required": ["id", "obligation", "change"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" }, "obligation": { "$ref": "#/$defs/obligation" },
+        "scopes": { "$ref": "#/$defs/scopes" }, "clients": { "$ref": "#/$defs/clients" }, "repositories": { "$ref": "#/$defs/repositories" },
+        "change": {
+          "type": "object", "additionalProperties": false, "required": ["identity"],
+          "properties": { "identity": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" } }
+        },
+        "inputs": { "type": "object", "maxProperties": 256, "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_-]{0,127}$" },
+          "additionalProperties": { "oneOf": [
+            { "type": "object", "additionalProperties": false, "required": ["allowDeclared"], "properties": { "allowDeclared": { "const": true } } },
+            { "type": "object", "additionalProperties": false, "required": ["fixed"], "properties": { "fixed": true } },
+            { "type": "object", "additionalProperties": false, "required": ["choices"], "properties": { "choices": { "type": "array", "minItems": 1, "maxItems": 256 } } }
+          ] } },
+        "lifecycle": {
+          "type": "object", "additionalProperties": false,
+          "properties": { "replace": { "type": "boolean" }, "adopt": { "type": "boolean" }, "remove": { "type": "boolean" } }
+        }
+      }
+    },
+    "signers": { "type": "array", "minItems": 1, "maxItems": 64, "items": {
+      "type": "object", "additionalProperties": false, "required": ["issuer", "subject"],
+      "properties": {
+        "identity": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "issuer": { "type": "string", "minLength": 1, "maxLength": 2048 },
+        "subject": { "type": "string", "minLength": 1, "maxLength": 2048 },
+        "extensions": { "type": "object" }
+      } } }
+  }
+}

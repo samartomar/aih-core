@@ -5,9 +5,9 @@ import tls from 'node:tls';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { getRepairRecipe, renderRepair, diagnose, persistedConfigurationMembers } from '@aihq/core/harness/runtime';
-import { repairIndex } from '@aihq/core/harness';
-import { prepare, apply, inspect } from '../dist/core/index.js';
+import { getRepairRecipe, renderRepair, diagnose, persistedConfigurationMembers } from '../dist/harness/runtime.mjs';
+import { repairIndex } from '../dist/harness/contracts.mjs';
+import { prepare, apply, inspect } from '../dist/core/engine-api.js';
 
 const scratch = mkdtempSync(join(tmpdir(), 'aih-persisted-'));
 const previous = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };

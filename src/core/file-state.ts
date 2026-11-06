@@ -1,7 +1,7 @@
 import { lstatSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
 import { setImmediate as yieldToHost } from 'node:timers/promises';
-import { validatePolicy, validateRecipe } from './contracts.js';
+import { validatePolicy, validateRecipe } from './engine-contracts.js';
 import { installedDistribution } from './internal/installed-distribution.js';
 import { canonicalJson, codeUnitCompare } from './internal/canonical.js';
 import { assertStrictJsonValueV1, cloneJsonValueStructureV1, parseStrictJsonObjectV1 } from './internal/strict-json.js';
@@ -13,7 +13,6 @@ import { captureRecipeReference, captureInlineMaterials, createMaterialCaptureBu
 import { renderConfigEntries, renderConfigMember, renderTextBlock, RecipeEditError, type ConfigEntry } from './internal/recipe-editors.js';
 import { bindHookGroup } from './internal/hook-bindings.js';
 import { recipeFormatsForPolicy } from './internal/recipe-formats.js';
-import { renderRecipelessSelections } from './internal/recipeless.js';
 import { foldHookGroup } from './internal/hook-prepare.js';
 import { dataObject, resolvePath, resolveSlot, resolveString, transaction } from './recipe-engine.js';
 import type { Diagnostic, Json, ProcessInvocation, Recipe, Selection, Slot, TargetPath } from './types.js';
@@ -207,14 +206,6 @@ export async function checkFileState(request: FileStateRequest, controls: FileSt
     if (!validation.valid) return failWith('validation', validation.diagnostics.map(item =>
       item.path === undefined ? item : { ...item, path: `/policy${item.path}` }));
     const policy = cloneJsonValueStructureV1(request.policy, 'request', 32, POLICY_MAX_BYTES);
-    // Execution policy 1.6.0: a recipe-less selection is checked against the recipe Prepare renders for it, from a
-    // locally readable Catalog release; remote material is not admitted here.
-    if (policy.selections.some(selection => selection.recipe === undefined)) {
-      if ((policy.catalogReleases ?? []).some(release => release.source.kind !== 'local')) throw new Error('remote-material-not-admitted');
-      const rendering = await renderRecipelessSelections(policy, controls.materialRoots ?? {}, createMaterialCaptureBudget(), controls.signal);
-      if (rendering.diagnostics.length) return failWith('validation', rendering.diagnostics.map(item =>
-        item.path === undefined ? item : { ...item, path: `/policy${item.path}` }));
-    }
     for (const selectionId of Object.keys(privateInputs))
       if (!policy.selections.some(item => item.id === selectionId)) throw new Error('private-input-unknown');
     // Every check that needs no I/O precedes cancellation: strict material
@@ -541,8 +532,6 @@ export async function checkFileState(request: FileStateRequest, controls: FileSt
       omissions.push({ kind: 'managed-set', id: `${set.scope}/${set.id}`, reason: 'custody-not-evaluated' });
     for (const removal of policy.removals ?? [])
       omissions.push({ kind: 'removal', id: `${removal.scope}/${removal.managementId}`, reason: 'custody-not-evaluated' });
-    for (const association of policy.evidence ?? [])
-      omissions.push({ kind: 'evidence', id: association.scanId, reason: 'evidence-not-evaluated' });
 
     const observe = (key: string): KeyOutcome => {
       const target = groups.get(key) ?? checkOnlyTargets.get(key)!;

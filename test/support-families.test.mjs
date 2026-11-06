@@ -2,8 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { getGuidance, renderSupportMarkdown } from '../dist/core/support.js';
-import { prepare, apply } from '../dist/core/index.js';
-import { contractSupport, validatePreparedWork13, validatePreparedWork14 } from '../dist/core/contracts.js';
+import { prepare, apply } from '../dist/core/engine-api.js';
+import { contractSupport, validatePreparedWork13, validatePreparedWork14 } from '../dist/core/engine-contracts.js';
 import { preparedWorkValidators, runResultValidators } from '../dist/core/internal/produced-validation.js';
 import { authorize, sandbox } from './hook-group-fixture.mjs';
 import { enterprisePolicy, fakeFetch, orgDocument, orgRoutes, orgSource } from './fixtures/github-org.mjs';
@@ -111,45 +111,13 @@ test('macOS session families (prepared-work and run-result 1.3.0) give guidance 
   assert.match(present({ kind: 'run', result: macos('run-result-1.3-complete') }).markdown, /Status: complete/);
 });
 
-test('targeted organization reviews (prepared-work 1.5.0) give policy guidance without authored identifiers', async () => {
-  const s = sandbox('aih-support-15-');
-  const originalFetch = globalThis.fetch;
-  try {
-    const entry = orgDocument().selections[0];
-    const document = obligation => Buffer.from(JSON.stringify({ schema: 'urn:aihq:core:organization-policy:1.1.0', id: 'example-org-policy',
-      selections: [{ ...entry, obligation }] }));
-    const targeted = async (bytes, clients) => {
-      globalThis.fetch = fakeFetch(orgRoutes({ bytes }));
-      return prepare({ useCase: 'policy', policy: enterprisePolicy(), target: { project: s.project }, organizationSource: orgSource(),
-        organizationTarget: { schema: 'urn:aihq:core:organization-target:1.0.0', client: 'codex' } }, { logging: 'off' });
-    };
-    const ready = await targeted(document('required'));
-    assert.equal(ready.status, 'ready', JSON.stringify(ready.diagnostics));
-    assert.equal(ready.review.schema, 'urn:aihq:core:prepared-work:1.5.0');
-    const presented = present({ kind: 'prepare', result: ready });
-    assert.deepEqual(presented.guidance.items, []);
-    assert.match(presented.markdown, /Status: ready/);
-    assert.doesNotMatch(presented.markdown, /project-guidance|example-org-policy|Example-Org/);
-
-    const denied = await targeted(Buffer.from(JSON.stringify({ schema: 'urn:aihq:core:organization-policy:1.1.0', id: 'example-org-policy',
-      selections: [{ ...entry, obligation: 'required', clients: ['claude'] }] })));
-    assert.equal(denied.status, 'blocked');
-    const blocked = present({ kind: 'prepare', result: denied });
-    assert.deepEqual(blocked.guidance.items.filter(item => item.reason === 'authority-denied').map(item => [item.id, item.target]),
-      [['access-review', 'policy'], ['managed-access', 'policy']]);
-  } finally { globalThis.fetch = originalFetch; s.dispose(); }
-});
 
 test('a Core STATE_CONFLICT existing-content Prepare gets specific conflict guidance; unknown reasons still fall back', async () => {
   const s = sandbox('aih-support-conflict-');
   const originalFetch = globalThis.fetch;
   try {
     s.write('TEAM.md', `${sentinel}\n`);
-    globalThis.fetch = fakeFetch(orgRoutes({ bytes: Buffer.from(JSON.stringify({ schema: 'urn:aihq:core:organization-policy:1.1.0',
-      id: 'example-org-policy', selections: [{ ...orgDocument().selections[0], obligation: 'required' }] })) }));
-    const blocked = await prepare({ useCase: 'policy', policy: enterprisePolicy(), target: { project: s.project }, organizationSource: orgSource(),
-      organizationTarget: { schema: 'urn:aihq:core:organization-target:1.0.0', client: 'codex' } }, { logging: 'off' });
-    assert.equal(blocked.review.schema, 'urn:aihq:core:prepared-work:1.5.0');
+    const blocked = await prepare({ useCase: 'policy', policy: policy(), target: { project: s.project } }, { logging: 'off' });
     assert.deepEqual(blocked.review.conflicts.map(item => [item.code, item.reason]), [['STATE_CONFLICT', 'existing-content']]);
     const { guidance, markdown } = present({ kind: 'prepare', result: blocked });
     assert.equal(guidance.items.some(item => item.reason === 'unrecognized-diagnostic'), false, JSON.stringify(guidance.items));
@@ -158,7 +126,8 @@ test('a Core STATE_CONFLICT existing-content Prepare gets specific conflict guid
       [['developer', 'policy', 'existing-content', ['/diagnostics/0']], ['developer', 'policy', 'existing-content', ['/review/conflicts/0']]]);
     assert.match(developer[0].steps.join(' '), /exact observed digest/);
     assert.doesNotMatch(developer[0].steps.join(' '), /bypass|skip|force/i);
-    assert.deepEqual(guidance.items.filter(item => item.id === 'managed-content-decision').map(item => item.audience), ['administrator', 'administrator']);
+    // Without organization policy 1.x there is no administrator decision (C15).
+    assert.equal(guidance.items.some(item => item.audience === 'administrator'), false);
     assert.match(markdown, /Existing content at a selected target differs from the reviewed content/);
     assert.doesNotMatch(markdown, /project-guidance|example-org-policy|TEAM\.md/);
 
@@ -198,12 +167,11 @@ test('a Core STATE_CONFLICT existing-content Prepare gets specific conflict guid
 });
 
 test('every produced prepared-work and run-result format is dispatched; unknown, relabelled and malformed ones are refused', () => {
-  const produced = contractSupport.contracts.filter(item => item.role !== 'accepts' && /:(?:prepared-work|run-result):/.test(item.id)).map(item => item.id).sort();
-  assert.deepEqual(produced, ['urn:aihq:core:prepared-work:1.0.0', 'urn:aihq:core:prepared-work:1.1.0', 'urn:aihq:core:prepared-work:1.2.0',
+  // The stored trust, macOS session and retained review/run families support guidance still reads.
+  const produced = ['urn:aihq:core:prepared-work:1.0.0', 'urn:aihq:core:prepared-work:1.1.0', 'urn:aihq:core:prepared-work:1.2.0',
     'urn:aihq:core:prepared-work:1.3.0', 'urn:aihq:core:prepared-work:1.4.0', 'urn:aihq:core:prepared-work:1.5.0', 'urn:aihq:core:prepared-work:1.6.0',
     'urn:aihq:core:prepared-work:1.7.0', 'urn:aihq:core:run-result:1.0.0', 'urn:aihq:core:run-result:1.1.0', 'urn:aihq:core:run-result:1.2.0',
-    'urn:aihq:core:run-result:1.3.0', 'urn:aihq:core:run-result:1.4.0', 'urn:aihq:core:run-result:1.5.0'],
-    'a newly produced family must be added to support dispatch and this test');
+    'urn:aihq:core:run-result:1.3.0', 'urn:aihq:core:run-result:1.4.0', 'urn:aihq:core:run-result:1.5.0'];
   assert.deepEqual([...Object.keys(preparedWorkValidators), ...Object.keys(runResultValidators)].sort(), produced,
     'support dispatch covers exactly the produced prepared-work and run-result formats');
   const run = trust('run-result-1.2-partial'), review = macos('prepared-work-1.3-desktop');

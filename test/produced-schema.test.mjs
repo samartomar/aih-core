@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import preparedSchema from '../dist/core/schemas/prepared-work/1.0.0.json' with { type: 'json' };
 import resultSchema from '../dist/core/schemas/run-result/1.0.0.json' with { type: 'json' };
-import { prepare, apply } from '../dist/core/index.js';
+import { prepare, apply } from '../dist/core/engine-api.js';
 
 test('public produced schemas accept a reviewed generic operation and its result', async () => {
   const project = mkdtempSync(join(tmpdir(), 'aih-produced-schema-'));

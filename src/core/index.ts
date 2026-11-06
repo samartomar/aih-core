@@ -1,78 +1,91 @@
-// Explicit type exports: each name appears in a request, control or result of an operation exported here.
-// Portable document types, validators and their schema identities belong to '@aihq/core/contracts'.
-export type { Json, JsonObject, Diagnostic, Slot, InputSpec, TargetPath, OperationBase, FileOperation, ConfigEntrySet,
-  ConfigEntryRemove, ConfigOperation, ConfigMemberOperation, ApprovalMarker, TextBlockOperation, RemoveOperation, Executable, ProcessInvocation, ProcessOperation,
-  HookGroupOperation, Operation, FileCheck, ProcessCheck, RecipeCheck, MaterialSource, MaterialIdentity, MaterialMember,
-  InlineMaterial, MaterialRecipeReference, GitMaterialSource, GitMaterialProvenance, Prerequisite, Recipe, Selection, SelectionMetadata, ItemScanRecord, ItemMaterial, InclusionOrigin, CatalogItemRef, CatalogReleaseReference, ExecutionPolicy, OrganizationTargetFact,
-  OrganizationTargetDeclaration, OrganizationTargetDeclaration10, OrganizationTargetDeclaration11, OrganizationApplicability, OrganizationObligationResultBase, OrganizationAdvisoryResult,
-  OrganizationFulfillmentResult } from './types.js';
-export { verifyNativeClient } from './native-verification.js';
-export type { NativeVerificationControls } from './native-verification.js';
-export type { NativeClientId, NativeMember, NativeTreeFile, NativeVerificationRequest,
-  NativeVerificationBundle, NativeStageOutcome, NativeStageEvidence, NativeStage,
-  NativeVerificationResult } from './native-contracts.js';
-export type { PreparedHandle, PolicyRequest, HostControls, Authorization, Effective, RecordStatus, ReviewOperation,
-  HookGroupReview, ReviewCheck, OrganizationBinding, OrganizationObligationsReview, PreparedReview, MacosPreparedInputs,
-  ResolutionInput, OperationSelection, PreparationResult, OperationResult, CheckResult, RunResult, GitHubPolicySource,
-  PreparedSelection, ReviewSize, StaleBinding, RunDiagnostic, RunMember, ScanSummary } from './host-types.js';
-export { authenticateEvidence, associateEvidence } from './evidence/index.js';
-export type { EvidenceAssociation, AuthenticationTrust, VerificationPublisher, VerificationKey,
-  AssociationResult, AssociationReason, AssociateEvidenceInput, AssociateEvidenceControls } from './evidence/index.js';
-import { prepare as preparePolicy, apply as applyPolicy } from './recipe-engine.js';
-import { forgetProvenState } from './internal/state.js';
-import { prepareRepair, applyRepair, isRepairHandle, type RepairRequest } from './repair.js';
-import { prepareTrust, applyTrust, isTrustHandle } from './trust.js';
-import { prepareMacosSession, applyMacosSession, isMacosSessionHandle } from './macos-session.js';
-import type { MacosRepairRequest } from './macos-session-contracts.js';
-export { verifyMacosSession } from './macos-session.js';
-export type { MacosSessionClientId, MacosSessionContext, MacosSessionLaunch, MacosSessionApplication, MacosSessionSelection,
-  MacosRepairRequest, MacosSessionState, MacosSessionApplicationReview, MacosSessionEffect, MacosSessionReview,
-  MacosSessionConfiguration, MacosSessionVerification, MacosSessionApplicationRun, MacosSessionRun,
-  MacosSessionVerificationRequest, MacosSessionObservation, MacosSessionCheck, MacosSessionRecordStatus,
-  MacosSessionVerificationResult } from './macos-session-contracts.js';
-import type { TrustRepairRequest, CertificateExportRequest } from './trust-contracts.js';
-export type { Sha256, TrustRepairId, TrustRoute, TrustRouteOrExport, TrustNetwork, TrustSourceKind, TrustCompleteness,
-  TrustSourceScope, TrustProjection, TrustOutputFormat, TrustOutputEffect, TrustCertificateDisposition, SuppliedTrustSource,
-  TrustSources, TrustResolution, TrustRepairStep, TrustRepairRequest, CertificateExportRequest, TrustSourceAdapter,
-  TrustSourceReview, TrustTargetClient, TrustTargetPolicy, TrustSecondarySource, TrustTargetVerification, TrustTargetReview,
-  CertificateReview, TrustOutputReview, TrustInputs, TrustRunOutput, TrustRunTarget, TrustRunTrust } from './trust-contracts.js';
-import type { Authorization, HostControls, PolicyRequest, PreparedHandle } from './host-types.js';
+// `@aihq/core` (contract 3): the Node entry. Every request and result is a 0.1.0 format; portable document types,
+// validators, schemas, refusal codes and limits belong to `@aihq/core/contracts`.
 import { isProxy } from 'node:util/types';
-import { nodeRuntimeSupported } from './internal/node-runtime.js';
-export type { RepairRequest } from './repair.js';
-export function prepare(request: PolicyRequest | RepairRequest | TrustRepairRequest | CertificateExportRequest | MacosRepairRequest, controls: HostControls = {}) {
-  forgetProvenState();
-  if (!nodeRuntimeSupported()) return preparePolicy(request as PolicyRequest, controls);
-  const kind = request && typeof request === 'object' && !isProxy(request) ?
-    Object.getOwnPropertyDescriptor(request, 'useCase')?.value : undefined;
-  const schema = request && typeof request === 'object' && !isProxy(request) ? Object.getOwnPropertyDescriptor(request, 'schema')?.value : undefined;
-  if (schema === 'urn:aihq:core:repair-request:1.1.0') return prepareMacosSession(request as MacosRepairRequest, controls);
-  if (schema !== undefined || kind === 'certificate-export') return prepareTrust(request as TrustRepairRequest | CertificateExportRequest, controls);
-  return kind === 'repair' ? prepareRepair(request as RepairRequest, controls) : preparePolicy(request as PolicyRequest, controls);
+import { preparePlan } from './plan/prepare.js';
+import { applyPlan } from './plan/apply.js';
+import { applyEnvironment, isEnvironmentHandle, isEnvironmentRequest, isSessionVerificationRequest, prepareEnvironment,
+  verifyMacosSessionRequest, type MacosSessionVerificationResult010 } from './environment/index.js';
+import { prepareChange, type ChangeControls, type ChangeRequest } from './change/prepare.js';
+import { prepareUpdate as preparePlanUpdate } from './plan/update.js';
+import { inspectMachine, type Inspect0Request, type InspectionResult } from './inspect.js';
+import type { InspectControls } from './inspection.js';
+import type { EnvironmentRequest } from './environment/request.js';
+import { CHANGE_REQUEST } from './change/validate.js';
+import { PLAN_REQUEST, type Approval, type PlanControls, type PlanHandle, type PlanPreparation, type PlanRequest, type Run,
+  type UpdateResult, type UpdateSelector } from './plan/types.js';
+
+const ENVIRONMENT_REQUESTS = ['urn:aihq:core:repair-request:0.1.0', 'urn:aihq:core:export-request:0.1.0', 'urn:aihq:core:macos-session-request:0.1.0'];
+const schemaOf = (request: unknown): unknown => request && typeof request === 'object' && !isProxy(request) ?
+  Object.getOwnPropertyDescriptor(request, 'schema')?.value : undefined;
+const startsWith = (schema: unknown, prefix: string): boolean => typeof schema === 'string' && schema.startsWith(prefix);
+
+/** Prepare a plan, change, repair, export or macOS session request (contract 7, 14.1). Any other document is not read. */
+export function prepare(request: PlanRequest, controls?: PlanControls): Promise<PlanPreparation>;
+export function prepare(request: ChangeRequest, controls?: ChangeControls): Promise<PlanPreparation>;
+export function prepare(request: EnvironmentRequest, controls?: Pick<PlanControls, 'signal' | 'logging'>): Promise<PlanPreparation>;
+export async function prepare(request: PlanRequest | ChangeRequest | EnvironmentRequest, controls: PlanControls | ChangeControls = {}): Promise<PlanPreparation> {
+  const schema = schemaOf(request);
+  if (schema === PLAN_REQUEST || startsWith(schema, 'urn:aihq:core:plan-request:')) return preparePlan(request, controls);
+  if (schema === CHANGE_REQUEST || startsWith(schema, 'urn:aihq:core:change-request:')) return prepareChange(request, controls);
+  if (isEnvironmentRequest(request)) return prepareEnvironment(request, controls);
+  if (typeof schema === 'string' && schema.length <= 256)
+    return { status: 'unsupported-version', encountered: schema, supported: [PLAN_REQUEST, CHANGE_REQUEST, ...ENVIRONMENT_REQUESTS] };
+  return { status: 'invalid', problems: [{ path: '/schema', reason: 'request',
+    message: 'A request names its format in `schema`: a plan, change, repair, export or macOS session request.' }] };
 }
-export function apply(prepared: PreparedHandle, authorization: Authorization, controls: HostControls = {}) {
-  forgetProvenState();
-  if (isMacosSessionHandle(prepared)) return applyMacosSession(prepared, authorization, controls);
-  return isTrustHandle(prepared) ? applyTrust(prepared, authorization, controls) : isRepairHandle(prepared) ? applyRepair(prepared, authorization, controls) : applyPolicy(prepared, authorization, controls);
+
+/** Apply a handle from `prepare`, `prepareRemoval` or `prepareUpdate` with the person's approval (contract 7). */
+export async function apply(handle: PlanHandle, approval: Approval, controls: PlanControls | ChangeControls = {}): Promise<Run> {
+  if (isEnvironmentHandle(handle)) return applyEnvironment(handle, approval, controls);
+  // A value that is not an issued handle reaches the plan path, which answers `handle-unavailable`.
+  return applyPlan(handle, approval, controls);
 }
-export { inspect } from './inspection.js';
-export type { InspectRequest, InspectControls, InspectResult, PersistedConfigurationValue } from './inspection.js';
+
+export { list, prepareRemoval } from './plan/lifecycle.js';
+
+/** `{ target, scope, updates: [{ managementIds?, request }] }` with a complete plan or change request (contract 12). */
+export function prepareUpdate(request: { target: { project?: string | null }; scope: 'project' | 'user'; updates: UpdateSelector[] },
+  controls?: PlanControls | ChangeControls): Promise<UpdateResult> {
+  return preparePlanUpdate(request, controls);
+}
+
+/** `{ target?, offline?, profiles? }` returns `urn:aihq:core:inspection:0.1.0` (contract 10, D110). */
+export function inspect(request?: Inspect0Request, controls?: InspectControls): Promise<InspectionResult> {
+  return inspectMachine(request, controls);
+}
+
+/** A `macos-session-verification-request:0.1.0` returns the 0.1.0 result (contract 10). */
+export async function verifyMacosSession(request: { schema: 'urn:aihq:core:macos-session-verification-request:0.1.0'; managementId: string },
+  controls: Pick<PlanControls, 'signal' | 'logging'> = {}): Promise<MacosSessionVerificationResult010> {
+  if (!isSessionVerificationRequest(request)) {
+    const schema = schemaOf(request);
+    return { status: typeof schema === 'string' ? 'unsupported-version' : 'invalid', ...(typeof schema === 'string' ?
+      { encountered: schema, supported: ['urn:aihq:core:macos-session-verification-request:0.1.0'] } :
+      { problems: [{ path: '/schema', reason: 'request', message: 'Name `urn:aihq:core:macos-session-verification-request:0.1.0`.' }] }) } as never;
+  }
+  return verifyMacosSessionRequest(request, controls as never);
+}
+
+export { verifyClient } from './verify-client.js';
+export { checkFiles } from './file-check.js';
 export { writeSupportReport } from './support-report.js';
+export { resolveStateLocation } from './resolve-state-location.js';
+
+// Explicit type exports: each name appears in a request, control or result of an operation exported here.
+export type { PlanRequest, PlanControls, PlanPreparation, PlanStep, Plan, PlanFile, PlanResolution, Preparation, Refusal, Invalid,
+  UnsupportedVersion, Problem, Review, ReviewStep, ReviewConflict, Approval, Run, RunStep, RunMember, BuildFailureRecord, BuildPhase, StaleChange, PlanHandle,
+  Inventory, InventoryEntry, InventoryMember, ListResult, RemovalSelector, RemovalMember, RemovalEntry, RemovalPreparation, RemovalResult,
+  EnvironmentReview, EnvironmentRun, EnvironmentProblem, UpdateResult, UpdatePreparation, UpdateEntry, UpdateMember, UpdateSelector } from './plan/types.js';
+export type { ChangeRequest, ChangeControls } from './change/prepare.js';
+export type { EnvironmentRequest, RepairRequest010 as RepairRequest, ExportRequest010 as ExportRequest,
+  MacosSessionRequest010 as MacosSessionRequest, EnvironmentResolution } from './environment/request.js';
+export type { MacosSessionVerificationResult010 as MacosSessionVerificationResult } from './environment/index.js';
+export type { InspectControls } from './inspection.js';
+export type { Inspect0Request as InspectRequest, Inspection, InspectionResult, InspectionTool, InspectionWarning, VersionComparison,
+  CheckedWith } from './inspect.js';
+export type { NativeVerificationRequest010 as NativeVerificationRequest, NativeVerificationResult010 as NativeVerificationResult,
+  NativeVerificationRefusal, NativeVerificationControls010 as NativeVerificationControls } from './verify-client.js';
+export type { FileCheck, FileCheckResult, FileCheckTarget, FileCheckControls } from './file-check.js';
 export type { SupportReportResult, WriteSupportReportOptions } from './support-report.js';
 export type { ReportFileResult, ReportFileStatus } from './internal/report-file.js';
-
-export { checkFileState } from './file-state.js';
-export type { FileStateRequest, FileStateControls, FileStateStatus, FileStateOutcome, FileStateTargetPath, FileStateTarget,
-  FileStateCheck, FileStateOmission, FileStateResult } from './file-state-types.js';
-export { listManagedSelections } from './managed-inventory.js';
-export type { ManagedInventoryRequest, ManagedInventoryControls, ManagedInventoryResult,
-  ManagedInventorySelection, ManagedInventoryIndex, ManagedInventoryMember, ManagedInventorySelection11,
-  ManagedInventoryResult11 } from './managed-inventory.js';
-export { prepareManagedRemoval } from './managed-removal.js';
-export type { ManagedRemovalRequest, ManagedRemovalDisposition, ManagedRemovalPreparationResult, ManagedRemovalsRequest, ManagedRemovalPreparationResult12,
-  RemovalSelector, RemovalEntry, RemovalMember, RemovalMemberAction } from './managed-removal.js';
-export { prepareUpdate } from './managed-update.js';
-export type { ManagedUpdateRequest, ManagedUpdatePreparationResult, UpdateSelector, UpdateEntry, UpdateMember, UpdateMemberAction,
-  UpdateItemFacts } from './managed-update.js';
-export { resolveStateLocation } from './resolve-state-location.js';
 export type { ResolvedStateLocation, ResolvedStateLocationMarker } from './resolve-state-location.js';

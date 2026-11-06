@@ -1,0 +1,301 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aihq:core:change-request:0.1.0",
+  "title": "One or more changes with their input values, prerequisites between them, named groups and conflict choices",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "mode",
+    "scope",
+    "target",
+    "changes"
+  ],
+  "properties": {
+    "schema": {
+      "const": "urn:aihq:core:change-request:0.1.0"
+    },
+    "mode": {
+      "enum": [
+        "vibe",
+        "enterprise"
+      ]
+    },
+    "scope": {
+      "enum": [
+        "project",
+        "user"
+      ]
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "project"
+      ],
+      "properties": {
+        "project": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "client": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "surface"],
+          "properties": {
+            "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" },
+            "surface": { "enum": ["cli", "ide"] }
+          }
+        },
+        "repository": { "type": "string", "minLength": 1, "maxLength": 512 }
+      }
+    },
+    "changes": {
+      "type": "array",
+      "maxItems": 4096,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "managementId",
+              "change",
+              "inputs",
+              "requires"
+            ],
+            "properties": {
+              "managementId": {
+                "$ref": "urn:aihq:core:change:0.1.0#/$defs/id"
+              },
+              "change": {
+                "$ref": "urn:aihq:core:change:0.1.0"
+              },
+              "inputs": {
+                "type": "object"
+              },
+              "requires": {
+                "type": "array",
+                "$ref": "urn:aihq:core:change:0.1.0#/$defs/ids",
+                "maxItems": 4096
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "managementId",
+              "reference",
+              "inputs",
+              "requires"
+            ],
+            "properties": {
+              "managementId": {
+                "$ref": "urn:aihq:core:change:0.1.0#/$defs/id"
+              },
+              "reference": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "source",
+                  "path",
+                  "sha256",
+                  "byteLength",
+                  "materials"
+                ],
+                "properties": {
+                  "source": {
+                    "oneOf": [
+                      {
+                        "$ref": "urn:aihq:core:change:0.1.0#/$defs/source"
+                      },
+                      {
+                        "$ref": "#/$defs/gitSource"
+                      }
+                    ]
+                  },
+                  "path": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "sha256": {
+                    "$ref": "urn:aihq:core:change:0.1.0#/$defs/sha256"
+                  },
+                  "byteLength": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1000000
+                  },
+                  "materials": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "id",
+                        "path",
+                        "sha256",
+                        "byteLength"
+                      ],
+                      "properties": {
+                        "id": {
+                          "$ref": "urn:aihq:core:change:0.1.0#/$defs/id"
+                        },
+                        "path": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "sha256": {
+                          "$ref": "urn:aihq:core:change:0.1.0#/$defs/sha256"
+                        },
+                        "byteLength": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 16777216
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "inputs": {
+                "type": "object"
+              },
+              "requires": {
+                "type": "array",
+                "$ref": "urn:aihq:core:change:0.1.0#/$defs/ids",
+                "maxItems": 4096
+              }
+            }
+          }
+        ]
+      }
+    },
+    "groups": {
+      "type": "array",
+      "maxItems": 4096,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "members"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "urn:aihq:core:change:0.1.0#/$defs/id"
+          },
+          "members": {
+            "type": "array",
+            "$ref": "urn:aihq:core:change:0.1.0#/$defs/ids",
+            "maxItems": 4096
+          }
+        }
+      }
+    },
+    "resolutions": {
+      "type": "array",
+      "maxItems": 4096,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "managementId",
+          "step",
+          "choice",
+          "observedSha256"
+        ],
+        "properties": {
+          "managementId": {
+            "$ref": "urn:aihq:core:change:0.1.0#/$defs/id"
+          },
+          "step": {
+            "$ref": "urn:aihq:core:change:0.1.0#/$defs/id"
+          },
+          "choice": {
+            "enum": [
+              "replace",
+              "adopt",
+              "skip"
+            ]
+          },
+          "observedSha256": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "urn:aihq:core:change:0.1.0#/$defs/sha256"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "gitSource": {
+      "description": "An exact GitHub commit in Catalog's exact git source identity form, with the pinned archive of that commit. The repository is https://github.com/<owner>/<repo>, the commit 40 lowercase hex, reachable true, and the archive URL https://codeload.github.com/<owner>/<repo>/tar.gz/<commit>; Core's validator names each refusal.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "repository",
+        "commit",
+        "reachable",
+        "archive"
+      ],
+      "properties": {
+        "kind": {
+          "const": "git"
+        },
+        "repository": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "commit": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "reachable": {
+          "enum": [
+            true,
+            false,
+            "unchecked"
+          ]
+        },
+        "archive": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "url",
+            "sha256",
+            "byteLength"
+          ],
+          "properties": {
+            "url": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048
+            },
+            "sha256": {
+              "$ref": "urn:aihq:core:change:0.1.0#/$defs/sha256"
+            },
+            "byteLength": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 67108864
+            }
+          }
+        }
+      }
+    }
+  }
+}

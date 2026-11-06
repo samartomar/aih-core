@@ -1,0 +1,26 @@
+{
+  "schema": "urn:aihq:core:plan-request:0.1.0",
+  "scope": "project",
+  "target": { "project": "/work/app" },
+  "plan": {
+    "status": "ok",
+    "data": null,
+    "plan": [
+      { "op": "write", "item": "local-my-skills.skill.notes", "root": "project", "path": ".claude/skills/notes/SKILL.md",
+        "from": { "item": "local-my-skills.skill.notes", "sourcePath": "notes/SKILL.md" }, "clis": ["claude-code"] }
+    ],
+    "missing": [], "unavailable": [], "clashes": [], "duplicates": [], "references": [], "warnings": []
+  },
+  "contents": [
+    { "schema": "urn:aihq:catalog:content:0.1.0", "framework": { "id": "local-my-skills", "name": "My skills" },
+      "sources": [ { "id": "local-my-skills", "kind": "local", "notices": [] } ],
+      "items": [ { "id": "local-my-skills.skill.notes", "kind": "skill", "name": "notes", "description": "Take notes",
+        "files": [ { "sourceId": "local-my-skills", "sourcePath": "notes/SKILL.md",
+          "sha256": "0b6c7dd7c0a7d1e0b2d4f1b4c1e6a8f9d3b2c1a0e9f8d7c6b5a4938271605f4e", "bytes": 12, "executable": false, "role": "content" } ],
+        "contentSha256": "1d2c3b4a5f6e7d8c9b0a1f2e3d4c5b6a7f8e9d0c1b2a3f4e5d6c7b8a9f0e1d2c",
+        "behaviourSha256": "2e3d4c5b6a7f8e9d0c1b2a3f4e5d6c7b8a9f0e1d2c3b4a5f6e7d8c9b0a1f2e3d" } ] }
+  ],
+  "profiles": [ { "schema": "urn:aihq:catalog:tool-profile:0.1.0", "id": "claude-code", "version": 1 } ],
+  "files": [ { "sourceId": "local-my-skills", "sourcePath": "notes/SKILL.md",
+    "sha256": "0b6c7dd7c0a7d1e0b2d4f1b4c1e6a8f9d3b2c1a0e9f8d7c6b5a4938271605f4e" } ]
+}

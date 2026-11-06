@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { prepare, apply } from '../dist/core/index.js';
+import { prepare, apply } from '../dist/core/engine-api.js';
 import { apply as applyWithGuard } from '../dist/core/recipe-engine.js';
 import { RECIPE_11, SETTINGS, authorize, groupOf, hookOp, hookSelection, policy11, request, sandbox, sha } from './hook-group-fixture.mjs';
 import { compact, controls, groupsOf, guard, neighbor, only, opOf, ownershipRoots, prep, resolveOp, run } from './hook-group-harness.mjs';
@@ -224,10 +224,10 @@ test('user hook removal retains directory custody while its settings file remain
     await run(s, userPolicy('set'));
     const file = join(s.home, '.tool', 'settings.json');
     assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')).hooks.PreToolUse, [groupOf('guard-a')]);
-    assert.deepEqual(ownershipRoots(s).map(root => root.schema), ['urn:aihq:core:ownership:1.7.0']);
+    assert.deepEqual(ownershipRoots(s).map(root => root.schema), ['urn:aihq:core:receipt:0.1.0']);
     await run(s, userPolicy('remove'));
     assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')).hooks.PreToolUse, []);
-    assert.deepEqual(ownershipRoots(s).map(root => root.schema), ['urn:aihq:core:ownership:1.5.0']);
+    assert.deepEqual(ownershipRoots(s).map(root => root.schema), ['urn:aihq:core:receipt:0.1.0']);
   } finally { s.dispose(); }
 });
 

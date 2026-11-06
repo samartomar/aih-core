@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { prepare, apply } from '../dist/core/index.js';
+import { prepare, apply } from '../dist/core/engine-api.js';
 import { SETTINGS, authorize, canonicalSha, groupOf, hookOp, hookSelection, policy11, request, sandbox, sha } from './hook-group-fixture.mjs';
 import { compact, controls, guard, guardWith, groupsOf, neighbor, only, prep, resolveOp, run } from './hook-group-harness.mjs';
 

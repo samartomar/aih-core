@@ -1,0 +1,5 @@
+{
+  "schema": "urn:aihq:core:organization:0.1.0",
+  "id": "acme",
+  "entries": [{ "id": "no-hooks", "obligation": "forbidden", "content": { "kind": "hook" } }]
+}

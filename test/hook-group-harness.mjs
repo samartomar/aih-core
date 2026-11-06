@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { Ajv2020 } from 'ajv/dist/2020.js';
-import { prepare, apply } from '../dist/core/index.js';
+import { prepare, apply } from '../dist/core/engine-api.js';
 import preparedSchema from '../dist/core/schemas/prepared-work/1.1.0.json' with { type: 'json' };
 import resultSchema from '../dist/core/schemas/run-result/1.1.0.json' with { type: 'json' };
 import { SETTINGS, authorize, groupOf, hookOp, hookSelection, policy11, request } from './hook-group-fixture.mjs';

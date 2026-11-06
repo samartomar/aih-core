@@ -1,0 +1,104 @@
+{
+  "schema": "urn:aihq:core:receipt:0.1.0",
+  "target": "/home/example/project",
+  "members": {
+    ".claude/skills/notes/reference.md": {
+      "managementId": "local-my-skills.skill.notes",
+      "sha256": "not-a-digest",
+      "mode": 384
+    }
+  },
+  "items": {
+    "user:0000000000000000000000000000000000000000000000000000000000000000:example.ai-setup.tool": {
+      "facts": 0,
+      "managementId": "claim-9999999999999999999999999999999999999999999999999999999999999999",
+      "scope": "user",
+      "tool": null,
+      "plan": {
+        "items": [
+          "local-my-skills.skill.notes"
+        ],
+        "managementId": "local-my-skills.skill.notes",
+        "cli": "claude-code",
+        "project": "/home/example/project",
+        "clis": [
+          "claude-code"
+        ],
+        "data": null,
+        "origin": "chosen",
+        "catalog": null,
+        "profiles": [
+          {
+            "id": "claude-code",
+            "version": 1
+          }
+        ],
+        "steps": [
+          0
+        ],
+        "kind": "skill",
+        "framework": "local-my-skills",
+        "aiSetup": {
+          "branch": "installed",
+          "interpreter": {
+            "path": "/usr/bin/python3",
+            "version": "3.13.1"
+          },
+          "fallback": false,
+          "fallbackReason": null,
+          "downloads": [
+            {
+              "role": "closure",
+              "file": "pyyaml-6.0.3-cp315-cp315-linux_x86_64.whl",
+              "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+              "origin": "built",
+              "built": {
+                "file": "pyyaml-6.0.3-cp313-cp313-linux_x86_64.whl",
+                "sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                "byteQualified": true,
+                "source": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                "dependencies": [
+                  "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+                ],
+                "tools": [
+                  {
+                    "name": "gcc",
+                    "qualified": {
+                      "version": "gcc 13.3.0",
+                      "sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+                    },
+                    "observed": {
+                      "version": "gcc 14.2.0",
+                      "sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "role": "artifact",
+              "file": "example_tool-2.3.9-py3-none-any.whl",
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "origin": "guessed"
+            },
+            {
+              "role": "closure",
+              "file": "networkx-3.4.2-py3-none-any.whl",
+              "origin": "downloaded",
+              "url": "https://files.pythonhosted.org/packages/networkx-3.4.2-py3-none-any.whl"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "facts": [
+    {
+      "name": null,
+      "kind": null,
+      "framework": null,
+      "item": null,
+      "origins": []
+    }
+  ]
+}

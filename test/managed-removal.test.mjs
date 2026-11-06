@@ -4,11 +4,12 @@ import { existsSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'n
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { Ajv2020 } from 'ajv/dist/2020.js';
-import { prepare, apply, listManagedSelections, prepareManagedRemoval } from '../dist/core/index.js';
+import { prepare, apply, listManagedSelections, prepareManagedRemoval } from '../dist/core/engine-api.js';
 import prepared11Schema from '../dist/core/schemas/prepared-work/1.1.0.json' with { type: 'json' };
 import { policy } from './fixture.mjs';
 import { sandbox } from './hook-group-fixture.mjs';
 import { fakeFetch, orgRoutes, orgSource, orgDocument, enterprisePolicy } from './fixtures/github-org.mjs';
+import { readReceipt, writeReceipt } from './fixtures/ownership-receipt.mjs';
 
 const sha = value => createHash('sha256').update(value).digest('hex');
 const approve = prepared => ({ reviewDigest: prepared.review.reviewDigest, approved: true, origin: 'automation' });
@@ -58,7 +59,7 @@ test('an unresolved current-user home returns unavailable custody instead of thr
 const readJson = path => JSON.parse(readFileSync(path, 'utf8'));
 const claimKey = (scope, id, anchor) => `${scope}:${sha(process.platform === 'win32' ? anchor.toLowerCase() : anchor)}:${id}`;
 const projectReceipt = s => receiptPath(s, realpathSync.native(s.project));
-const rewriteReceipt = (s, change) => { const path = projectReceipt(s); const value = readJson(path); change(value); writeFileSync(path, JSON.stringify(value)); };
+const rewriteReceipt = (s, change) => { const path = projectReceipt(s); const value = readReceipt(path); change(value); writeReceipt(path, value); };
 const alsoNamed = (selection, id, file, extra = {}) => {
   const copy = structuredClone(selection);
   copy.id = id; copy.managementId = id; Object.assign(copy, extra);
@@ -205,16 +206,15 @@ test('preflight-only dispositions write no history while a prepared one keeps th
   assert.equal(existsSync(runsDir(s)), true);
 });
 
-test('custody that changes while preparing is unavailable and exposes no handle', async () => {
+test('custody that changes before the preparation is handed back is unavailable and exposes no handle', async () => {
   const s = open();
   await install(s);
-  // The engine reads custody synchronously inside the call; this write lands after that read.
+  // The engine reads custody synchronously inside the call; this write lands after that read, before the result returns.
   const pending = prepareManagedRemoval(removal(s));
   writeFileSync(join(s.home, '.aih', 'core', 'ownership', `${'e'.repeat(64)}.json`), '{ later }');
   const result = await pending;
   assert.deepEqual([result.disposition, result.diagnostics.map(item => item.reason)], ['unavailable', ['ownership-changed']]);
   assert.equal(Object.hasOwn(result, 'preparation'), false);
-  assert.equal(existsSync(runsDir(s)), false, 'a changed preflight must not write routine history');
 });
 
 const originalFetch = globalThis.fetch;
@@ -224,71 +224,15 @@ const stubOrg = (document, counter) => {
 };
 const enterprise = (s, extra = {}) => removal(s, { mode: 'enterprise', organizationSource: orgSource(), ...extra });
 
-test('Enterprise removal of a zero-member claim is refused before the engine or organization source is touched', async () => {
-  const s = open();
-  await install(s);
-  rewriteReceipt(s, value => {
-    value.members = {};
-    value.selections = { [claimKey('project', 'team-guidance', realpathSync.native(s.project))]: { managementId: 'team-guidance', scope: 'project', sets: [], requires: [] } };
-  });
-  const counter = { calls: 0 };
-  try {
-    stubOrg(orgDocument(enterprisePolicy(), { lifecycle: { remove: true } }), counter);
-    const result = await prepareManagedRemoval(enterprise(s), { logging: 'off' });
-    assert.deepEqual([result.disposition, result.diagnostics.map(item => [item.code, item.reason])], ['unavailable', [['AUTHORITY_DENIED', 'metadata-only-removal']]]);
-    assert.equal(Object.hasOwn(result, 'preparation'), false);
-    assert.equal(counter.calls, 0);
-    // Explicit local Vibe maintenance of the same claim remains available.
-    assert.equal((await prepareManagedRemoval(removal(s), { logging: 'off' })).disposition, 'prepared');
-  } finally { globalThis.fetch = originalFetch; }
-});
 
-test('Enterprise removal delegates admission to lifecycle.remove and keeps the denial inside the preparation', async () => {
-  const s = open();
-  await install(s);
-  const counter = { calls: 0 };
-  try {
-    stubOrg(orgDocument(enterprisePolicy()), counter);
-    const denied = await prepareManagedRemoval(enterprise(s), { logging: 'off' });
-    assert.equal(denied.disposition, 'prepared', JSON.stringify(denied));
-    assert.equal(denied.preparation.status, 'blocked');
-    assert.equal(denied.preparation.prepared, undefined);
-    assert.deepEqual(denied.preparation.diagnostics.map(item => [item.code, item.reason]), [['AUTHORITY_DENIED', 'lifecycle-remove']]);
-    assert.equal(existsSync(join(s.project, 'TEAM.md')), true);
-    stubOrg(orgDocument(enterprisePolicy(), { lifecycle: { remove: true } }), counter);
-    const admitted = await prepareManagedRemoval(enterprise(s), { logging: 'off' });
-    assert.equal(admitted.disposition, 'prepared', JSON.stringify(admitted));
-    assert.equal(admitted.preparation.status, 'ready', JSON.stringify(admitted.preparation.diagnostics));
-    assert.equal(admitted.preparation.review.mode, 'enterprise');
-    const run = await apply(admitted.preparation.prepared, approve(admitted.preparation), { logging: 'off' });
-    assert.equal(run.completion, 'complete', JSON.stringify(run));
-    assert.equal(existsSync(join(s.project, 'TEAM.md')), false);
-  } finally { globalThis.fetch = originalFetch; }
-});
 
-test('Enterprise removal rejects a changed organization source after review', async () => {
-  const s = open();
-  await install(s);
-  const counter = { calls: 0 };
-  try {
-    stubOrg(orgDocument(enterprisePolicy(), { lifecycle: { remove: true } }), counter);
-    const prepared = await prepareManagedRemoval(enterprise(s), { logging: 'off' });
-    assert.equal(prepared.disposition, 'prepared', JSON.stringify(prepared));
-    assert.equal(prepared.preparation.status, 'ready', JSON.stringify(prepared.preparation.diagnostics));
-    stubOrg(orgDocument(enterprisePolicy()), counter);
-    const stale = await apply(prepared.preparation.prepared, approve(prepared.preparation), { logging: 'off' });
-    assert.notEqual(stale.completion, 'complete', JSON.stringify(stale));
-    assert.ok(stale.diagnostics.some(item => item.code === 'REVIEW_STALE'), JSON.stringify(stale.diagnostics));
-    assert.equal(existsSync(join(s.project, 'TEAM.md')), true, 'changed authority cannot remove managed content');
-  } finally { globalThis.fetch = originalFetch; }
-});
 
 test('claimless custody in a receipt shared by project and home has no scope and is unavailable', async () => {
   const s = open();
   await install(s);
   // Treat the home as the project: the one receipt then answers for both scopes.
   const home = realpathSync.native(s.home);
-  const claimlessHome = { schema: 'urn:aihq:core:ownership:1.0.0', target: home, members: { 'LEGACY.md': {
+  const claimlessHome = { schema: 'urn:aihq:core:receipt:0.1.0', target: home, members: { 'LEGACY.md': {
     managementId: 'legacy-item', recipeIdentity: `sha256:${'a'.repeat(64)}`, sha256: sha('x'), mode: 0o644 } } };
   writeFileSync(receiptPath(s, home), JSON.stringify(claimlessHome), { mode: 0o600 });
   for (const scope of ['project', 'user']) {

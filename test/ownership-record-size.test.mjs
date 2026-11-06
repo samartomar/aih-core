@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { apply, prepare, prepareManagedRemoval } from '../dist/core/index.js';
+import { apply, prepare, prepareManagedRemoval } from '../dist/core/engine-api.js';
 import { OWNERSHIP_RECORD_BYTES, admitOwnership, sealOwnership, validateOwnership } from '../dist/core/internal/state.js';
 import { expandOwnership, storedOwnership } from '../dist/core/internal/ownership-storage.js';
 import { memberKey } from '../dist/core/internal/recipe-lifecycle.js';
@@ -45,9 +45,9 @@ function pick(tools, items, files = 3) {
     const folder = `.${tool}/skills/skill-${index}`;
     return { id: `${tool}-${index}`, managementId: id(itemId, tool), scope: 'project', configuration: {}, requires: ['notices'],
       recipe: { inline: recipe(`${tool}.${itemId}`, Array.from({ length: files }, (_, file) => `${folder}/${file === 0 ? 'SKILL.md' : `references/part-${file}.md`}`)) },
-      ...described(itemId, tool, 'skill', [{ reasonIncluded: 'in-set', set: SET }]) };
+      ...described(itemId, tool, 'skill', [{ reasonIncluded: 'chosen' }]) };
   }));
-  return { schema: 'urn:aihq:core:execution-policy:1.5.0', mode: 'vibe', selections: [notices, ...copies] };
+  return { schema: 'urn:aihq:core:execution-policy:1.4.0', mode: 'vibe', selections: [notices, ...copies] };
 }
 async function install(s, policy) {
   const prepared = await prepare({ useCase: 'policy', policy, target: { project: s.project } }, { logging: 'off' });
@@ -64,10 +64,10 @@ test('a 451-selection pick across five tools installs, keeps headroom in its rec
   await install(s, policy);
   const bytes = readFileSync(receiptOf(s));
   const record = admitOwnership(bytes, realpathSync.native(s.project));
-  assert.equal(record.schema, 'urn:aihq:core:ownership:1.7.0');
+  assert.equal(record.schema, 'urn:aihq:core:receipt:0.1.0');
   assert.equal(Object.keys(record.members).length, 1 + 450 * 3);
   // The same record written whole, as ownership 1.6.0 wrote it, would not fit the former 1 MiB bound.
-  assert.ok(Buffer.byteLength(JSON.stringify({ ...record, schema: 'urn:aihq:core:ownership:1.6.0' })) > OLD_LIMIT);
+  assert.ok(Buffer.byteLength(JSON.stringify({ ...record, schema: 'urn:aihq:core:receipt:0.1.0' })) > OLD_LIMIT);
   assert.ok(bytes.length * 2 < OWNERSHIP_RECORD_BYTES, `${bytes.length} bytes stays within half the bound`);
 
   const ids = policy.selections.map(selection => selection.managementId);
@@ -108,7 +108,7 @@ test('the stored record leaves out what it derives from itself and reads back as
   assert.equal(stored.facts.length, 1 + 4, 'one entry per Catalog item, whatever the number of tools');
   const copies = Object.values(record.items).filter(item => item.item.itemId === 'example.skill.skill-2');
   assert.deepEqual(copies.map(item => item.tool).sort(), [...TOOLS].sort());
-  assert.ok(copies.every(item => item.members.length === 2 && item.name === 'skill-2' && item.origins[0].set.setId === SET.setId));
+  assert.ok(copies.every(item => item.members.length === 2 && item.name === 'skill-2' && item.origins[0].reasonIncluded === 'chosen'));
   // Expansion gives back exactly the record a seal writes, and that record's stored text is these bytes.
   assert.equal(JSON.stringify(storedOwnership(record)), text);
   assert.deepEqual(sealOwnership(record), record);
@@ -133,9 +133,9 @@ function sealedRecord(tools, items, files, target = '/project') {
       members[memberKey({ path, kind: 'file' })] = { managementId, recipeIdentity: `sha256:${sha(`${tool}.${itemId}`)}`, sha256: sha(path), mode: 0o600,
         descriptor: { path, kind: 'file' }, createdFile: true, claims: [claim] };
     }
-    items_[identity(managementId)] = { managementId, scope: 'project', framework: 'example', ...described(itemId, tool, 'skill', [{ reasonIncluded: 'in-set', set: SET }]), members: [] };
+    items_[identity(managementId)] = { managementId, scope: 'project', framework: 'example', ...described(itemId, tool, 'skill', [{ reasonIncluded: 'chosen' }]), members: [] };
   }
-  const record = sealOwnership({ schema: 'urn:aihq:core:ownership:1.6.0', target, members, selections, items: items_ });
+  const record = sealOwnership({ schema: 'urn:aihq:core:receipt:0.1.0', target, members, selections, items: items_ });
   validateOwnership(record, target);
   return record;
 }
@@ -195,15 +195,13 @@ test('a Windows record, keyed by lowercased paths, stores only the original-case
   });
 });
 
-test('a 1.6.0 record is read as it is, and its next write is the same record stored as 1.7.0', () => {
+test('a receipt of an earlier development version is not read (C15)', () => {
   const record = sealedRecord(['claude', 'codex'], 3, 2);
-  const old = { ...record, schema: 'urn:aihq:core:ownership:1.6.0' };
-  const read = admitOwnership(Buffer.from(JSON.stringify(old)), '/project');
-  assert.deepEqual(read, old, 'every field, claim, digest and typed member as recorded');
-  const next = sealOwnership(read);
-  assert.equal(next.schema, 'urn:aihq:core:ownership:1.7.0');
-  assert.deepEqual({ ...next, schema: old.schema }, old);
-  assert.deepEqual(admitOwnership(Buffer.from(JSON.stringify(storedOwnership(next))), '/project'), next);
+  for (const schema of ['urn:aihq:core:ownership:1.6.0', 'urn:aihq:core:ownership:1.7.0', 'urn:aihq:core:ownership:1.0.0'])
+    assert.throws(() => admitOwnership(Buffer.from(JSON.stringify({ ...storedOwnership(record), schema })), '/project'), /ownership-invalid/, schema);
+  // The whole, unstored record is not the receipt's one stored form either.
+  assert.throws(() => admitOwnership(Buffer.from(JSON.stringify(record)), '/project'), /ownership-invalid/);
+  assert.equal(sealOwnership(record).schema, 'urn:aihq:core:receipt:0.1.0');
 });
 
 test('only the one stored form of a record is admitted, and its digests stay exact', () => {
@@ -236,10 +234,9 @@ test('only the one stored form of a record is admitted, and its digests stay exa
   const admitted = admit(tampered);
   const key = Object.keys(tampered.members)[1];
   assert.equal(admitted.members[key].sha256, sha('other bytes'));
-  assert.ok(Object.values(admitted.items).some(item => item.members.some(member => member.path === key && member.sha256 === sha('other bytes'))));
-  // Expansion of an earlier version is the identity.
-  const v15 = { schema: 'urn:aihq:core:ownership:1.5.0', target: '/project', members: {} };
-  assert.equal(expandOwnership(v15), v15);
+  // The member key folds case on Windows; an item lists the member by its own path.
+  const { path } = admitted.members[key].descriptor;
+  assert.ok(Object.values(admitted.items).some(item => item.members.some(member => member.path === path && member.sha256 === sha('other bytes'))));
 });
 
 test('a record over the ownership bound blocks Prepare before any effect', async () => {

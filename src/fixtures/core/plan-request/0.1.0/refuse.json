@@ -1,0 +1,11 @@
+{
+  "schema": "urn:aihq:core:plan-request:0.1.0",
+  "scope": "project",
+  "target": { "project": "/work/app" },
+  "plan": { "status": "ok", "data": null, "plan": [],
+    "missing": [], "unavailable": [], "clashes": [], "duplicates": [], "references": [], "warnings": [] },
+  "contents": [],
+  "profiles": [],
+  "files": [ { "sourceId": "local-my-skills", "sourcePath": "notes/SKILL.md",
+    "sha256": "0b6c7dd7c0a7d1e0b2d4f1b4c1e6a8f9d3b2c1a0e9f8d7c6b5a4938271605f4e", "bytes": "a saved request never holds source bytes" } ]
+}

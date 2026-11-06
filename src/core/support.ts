@@ -8,6 +8,9 @@ import type { GuidanceFact, GuidanceRequest } from '../harness/guidance.mjs';
 import { repairIndex } from '../harness/contracts.mjs';
 import { assertStrictJsonValueV1, cloneJsonValueStructureV1, jsonOwnEntriesV1, STRICT_JSON_MAX_DEPTH_V1 } from './internal/strict-json.js';
 import { canonicalJson } from './internal/canonical.js';
+import { schemaProblems } from './plan/formats.js';
+
+const INSPECTION = 'urn:aihq:core:inspection:0.1.0';
 import { HOOK_REASONS, isHookConflict, isHookReason } from './internal/hook-guidance.js';
 
 export type SupportPlatform = 'win32' | 'darwin' | 'linux' | 'unknown';
@@ -135,13 +138,18 @@ function adapt(input: SupportInput, options: SupportOptions): Adapted | Diagnost
     assertCanonicalBound(snapshot);
     assertStrictJsonValueV1(snapshot, 'support input');
     if (new TextEncoder().encode(canonicalJson(snapshot)).length > 1_000_000) return invalid();
-    const result = snapshot.result as Data;
     const kind = snapshot.kind as SupportInput['kind'];
+    // An inspection 0.1.0 (`inspect`) is read as the retained inspection it presents: its observation is the status
+    // and each tool is named by its inspection target.
+    const modern = kind === 'inspect' && (snapshot.result as Data).schema === INSPECTION;
+    if (modern && ((snapshot.result as Data).subject !== 'machine' || schemaProblems(INSPECTION, snapshot.result))) return invalid();
+    const result = modern ? { ...(snapshot.result as Data), status: (snapshot.result as Data).observation,
+      tools: ((snapshot.result as Data).tools as Data[]).map(tool => ({ ...tool, id: tool.target })) } as Data : snapshot.result as Data;
     // An unknown result format is reported before the remaining wrapper shape.
     const refused = kind === 'run' ? admit(validateProducedRunResult, result) :
       kind === 'prepare' && Object.hasOwn(result, 'review') ? admit(validateProducedPreparedWork, result.review) : undefined;
     if (refused?.code === 'SCHEMA_UNSUPPORTED') return refused;
-    if (refused || (kind === 'inspect' && !inspectResult(result)) || (kind === 'prepare' && !preparationWrapper(result))) return invalid();
+    if (refused || (kind === 'inspect' && !modern && !inspectResult(result)) || (kind === 'prepare' && !preparationWrapper(result))) return invalid();
     const useCase = kind === 'inspect' ? undefined : kind === 'run' ? guidanceUseCase(result.useCase) :
       object(result.review) ? guidanceUseCase(result.review.useCase) : snapshot.repair ? 'repair' : 'policy';
     let repair: SupportRepairContext | undefined;

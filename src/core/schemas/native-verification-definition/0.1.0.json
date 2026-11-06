@@ -1,0 +1,651 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aihq:core:native-verification-definition:0.1.0",
+  "title": "Native verification definition",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "id",
+    "client",
+    "state",
+    "platform",
+    "clientVersions",
+    "executableNames",
+    "runtimeMembers",
+    "versionArgv",
+    "sessionArgv",
+    "parserId",
+    "identityAdapterId",
+    "credentialDestination",
+    "guardrails",
+    "guardrailsSha256",
+    "lifecycleId",
+    "isolation",
+    "evidenceSha256"
+  ],
+  "properties": {
+    "schema": {
+      "const": "urn:aihq:core:native-verification-definition:0.1.0"
+    },
+    "id": {
+      "$ref": "#/$defs/nativeId"
+    },
+    "client": {
+      "$ref": "#/$defs/clientId"
+    },
+    "state": {
+      "enum": [
+        "candidate",
+        "admitted"
+      ]
+    },
+    "platform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "os",
+        "arch",
+        "execution",
+        "osRelease"
+      ],
+      "properties": {
+        "os": {
+          "enum": [
+            "win32",
+            "linux",
+            "darwin"
+          ]
+        },
+        "arch": {
+          "enum": [
+            "x64",
+            "arm64"
+          ]
+        },
+        "execution": {
+          "enum": [
+            "native",
+            "wsl2"
+          ]
+        },
+        "osRelease": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      }
+    },
+    "clientVersions": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[0-9]+[.][0-9]+[.][0-9]+(?:-[0-9A-Za-z.-]{1,64})?$"
+      }
+    },
+    "executableNames": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 255,
+        "pattern": "^[^\\\\/]+$"
+      }
+    },
+    "runtimeMembers": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "items": {
+        "$ref": "#/$defs/member"
+      }
+    },
+    "versionArgv": {
+      "$ref": "#/$defs/boundedArgv"
+    },
+    "sessionArgv": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "items": {
+        "type": "string",
+        "maxLength": 1024,
+        "pattern": "^(?![\\s\\S]*\\{\\{)[^$\\u0000]{0,1024}$"
+      },
+      "not": {
+        "type": "array",
+        "contains": {
+          "type": "string",
+          "pattern": "^(--bare|--resume|-r|--continue|-c|--session-id|--fork-session|--mcp-config|--strict-mcp-config|--settings|--setting-sources|--system-prompt|--system-prompt-file|--append-system-prompt|--append-system-prompt-file|--add-dir|--plugin-dir|--agents|--permission-prompt-tool|--dangerously-skip-permissions|--allow-dangerously-skip-permissions|--debug-file)(?:=|$)"
+        }
+      }
+    },
+    "parserId": {
+      "enum": [
+        "claude-stream-json.v1"
+      ]
+    },
+    "identityAdapterId": {
+      "const": "claude-oauth-otel.v1"
+    },
+    "credentialDestination": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "root",
+        "path"
+      ],
+      "properties": {
+        "root": {
+          "const": "home"
+        },
+        "path": {
+          "$ref": "#/$defs/treePath"
+        }
+      }
+    },
+    "guardrails": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "items": {
+        "$ref": "#/$defs/treeFile"
+      }
+    },
+    "guardrailsSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "lifecycleId": {
+      "enum": [
+        "windows-job.v1",
+        "posix-group.v1",
+        "linux-srt.v1"
+      ]
+    },
+    "isolation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mechanism",
+            "observerId",
+            "documentation"
+          ],
+          "properties": {
+            "mechanism": {
+              "const": "none"
+            },
+            "observerId": {
+              "type": "null"
+            },
+            "documentation": {
+              "type": "array",
+              "maxItems": 0,
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mechanism",
+            "observerId",
+            "documentation"
+          ],
+          "properties": {
+            "mechanism": {
+              "const": "client-native"
+            },
+            "observerId": {
+              "$ref": "#/$defs/nativeId"
+            },
+            "documentation": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 8,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048,
+                "pattern": "^https://[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*(?:/[^\\u0000-\\u0020\\u007f]*)?$"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mechanism",
+            "observerId",
+            "documentation"
+          ],
+          "properties": {
+            "mechanism": {
+              "const": "vendor-runtime"
+            },
+            "observerId": {
+              "const": "anthropic-srt-linux.v1"
+            },
+            "documentation": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 8,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048,
+                "pattern": "^https://[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*(?:/[^\\u0000-\\u0020\\u007f]*)?$"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "evidenceSha256": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/sha256"
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "$comment": "Admission is a registry fact: an admitted descriptor must equal one registered admitted definition exactly.",
+      "if": {
+        "properties": {
+          "state": {
+            "const": "admitted"
+          }
+        },
+        "required": [
+          "state"
+        ]
+      },
+      "then": {
+        "enum": [
+          {
+            "schema": "urn:aihq:core:native-verification-definition:0.1.0",
+            "id": "claude-linux-x64-wsl2-srt-2.1.285",
+            "client": "claude-code",
+            "state": "admitted",
+            "platform": {
+              "os": "linux",
+              "arch": "x64",
+              "execution": "wsl2",
+              "osRelease": "6.18.33.2-microsoft-standard-WSL2"
+            },
+            "clientVersions": [
+              "2.1.285"
+            ],
+            "executableNames": [
+              "claude"
+            ],
+            "runtimeMembers": [
+              {
+                "path": "package/harness/native/fixture/server.mjs",
+                "sha256": "fe13252026ce1f2051b3670f3bf7ee021d1bfcce91ff799e26d7ba742b6b2b59",
+                "byteLength": 6952
+              }
+            ],
+            "versionArgv": [
+              "--version"
+            ],
+            "sessionArgv": [
+              "-p",
+              "--verbose",
+              "--output-format",
+              "stream-json",
+              "--tools",
+              ""
+            ],
+            "parserId": "claude-stream-json.v1",
+            "identityAdapterId": "claude-oauth-otel.v1",
+            "credentialDestination": {
+              "root": "home",
+              "path": ".claude/.credentials.json"
+            },
+            "guardrails": [
+              {
+                "root": "home",
+                "path": ".claude/settings.json",
+                "member": {
+                  "path": "package/harness/native/fixture/claude-settings.json",
+                  "sha256": "99b9edf183055d58b80b0ff4215a4bcc481e5fc27bf652f90cd3147d38ef39b4",
+                  "byteLength": 523
+                }
+              }
+            ],
+            "guardrailsSha256": "9feae5a2be034510e024166d57d202823a1f60c89c208ad717341a941aee5590",
+            "lifecycleId": "linux-srt.v1",
+            "isolation": {
+              "mechanism": "vendor-runtime",
+              "observerId": "anthropic-srt-linux.v1",
+              "documentation": [
+                "https://github.com/anthropic-experimental/sandbox-runtime/blob/6f0ce155ccb136bda33a8a72201fe7f54fe47d9b/README.md"
+              ]
+            },
+            "evidenceSha256": "a8c226d1c56764a6c773268186a79a3643e5a5d0afc2acd9f9708faa9de50947"
+          }
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "platform": {
+            "type": "object",
+            "properties": {
+              "execution": {
+                "const": "wsl2"
+              }
+            },
+            "required": [
+              "execution"
+            ]
+          }
+        },
+        "required": [
+          "platform"
+        ]
+      },
+      "then": {
+        "properties": {
+          "platform": {
+            "type": "object",
+            "properties": {
+              "os": {
+                "const": "linux"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "lifecycleId": {
+            "const": "windows-job.v1"
+          }
+        },
+        "required": [
+          "lifecycleId"
+        ]
+      },
+      "then": {
+        "properties": {
+          "platform": {
+            "type": "object",
+            "properties": {
+              "os": {
+                "const": "win32"
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "platform": {
+            "type": "object",
+            "properties": {
+              "os": {
+                "enum": [
+                  "linux",
+                  "darwin"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "const": "candidate"
+          }
+        },
+        "required": [
+          "state"
+        ]
+      },
+      "then": {
+        "properties": {
+          "evidenceSha256": {
+            "type": "null"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "evidenceSha256": {
+            "$ref": "#/$defs/sha256"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "isolation": {
+            "type": "object",
+            "properties": {
+              "mechanism": {
+                "const": "vendor-runtime"
+              }
+            },
+            "required": [
+              "mechanism"
+            ]
+          }
+        },
+        "required": [
+          "isolation"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "lifecycleId": {
+            "const": "linux-srt.v1"
+          },
+          "platform": {
+            "type": "object",
+            "properties": {
+              "os": {
+                "const": "linux"
+              },
+              "arch": {
+                "const": "x64"
+              }
+            }
+          },
+          "sessionArgv": {
+            "type": "array",
+            "allOf": [
+              {
+                "contains": {
+                  "const": "--tools"
+                },
+                "minContains": 1,
+                "maxContains": 1
+              },
+              {
+                "contains": {
+                  "const": ""
+                },
+                "minContains": 1,
+                "maxContains": 1
+              },
+              {
+                "not": {
+                  "contains": {
+                    "type": "string",
+                    "pattern": "^--tools="
+                  }
+                }
+              }
+            ],
+            "$comment": "validateNativeVerificationDefinition also requires the empty argument to follow --tools directly."
+          }
+        }
+      },
+      "else": {
+        "type": "object",
+        "properties": {
+          "sessionArgv": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "lifecycleId": {
+            "const": "linux-srt.v1"
+          }
+        },
+        "required": [
+          "lifecycleId"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "isolation": {
+            "type": "object",
+            "properties": {
+              "mechanism": {
+                "const": "vendor-runtime"
+              }
+            },
+            "required": [
+              "mechanism"
+            ]
+          },
+          "platform": {
+            "type": "object",
+            "properties": {
+              "os": {
+                "const": "linux"
+              },
+              "arch": {
+                "const": "x64"
+              }
+            }
+          }
+        },
+        "required": [
+          "isolation"
+        ]
+      }
+    }
+  ],
+  "$defs": {
+    "nativeId": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "clientId": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
+      "description": "A tool registry id (contract 6)."
+    },
+    "memberPath": {
+      "type": "string",
+      "minLength": 9,
+      "maxLength": 512,
+      "pattern": "^(?!package/.*[. ](?:/|$))(?!package/(?:.*/)?(?:[Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm][0-9]|[Ll][Pp][Tt][0-9])(?:\\.[^/]*)?(?:/|$))package/[^\\\\/:\\u0000-\\u001f\\u007f<>\"|?*\\p{Cf}]+(?:/[^\\\\/:\\u0000-\\u001f\\u007f<>\"|?*\\p{Cf}]+)*$"
+    },
+    "treePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^(?!.*[. ](?:/|$))(?!.*(?:/|^)(?:[Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm][0-9]|[Ll][Pp][Tt][0-9])(?:\\.[^/]*)?(?:/|$))[^\\\\/:\\u0000-\\u001f\\u007f<>\"|?*\\p{Cf}]+(?:/[^\\\\/:\\u0000-\\u001f\\u007f<>\"|?*\\p{Cf}]+)*$"
+    },
+    "member": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "sha256",
+        "byteLength"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/memberPath"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "byteLength": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8388608
+        }
+      }
+    },
+    "treeFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "root",
+        "path",
+        "member"
+      ],
+      "properties": {
+        "root": {
+          "enum": [
+            "home",
+            "project"
+          ]
+        },
+        "path": {
+          "$ref": "#/$defs/treePath"
+        },
+        "member": {
+          "$ref": "#/$defs/member"
+        }
+      }
+    },
+    "boundedArgv": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1024,
+        "pattern": "^(?![\\s\\S]*\\{\\{)[^$\\u0000]{1,1024}$"
+      }
+    }
+  }
+}

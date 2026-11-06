@@ -5,14 +5,14 @@ import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { apply, prepare, prepareManagedRemoval, prepareUpdate, listManagedSelections } from '../dist/core/index.js';
+import { apply, prepare, prepareManagedRemoval, prepareUpdate, listManagedSelections } from '../dist/core/engine-api.js';
 import { sandbox, sha } from './hook-group-fixture.mjs';
 
 const SCRIPT = '.agents/skills/brainstorming/start.sh';
 const GUIDE = '.agents/skills/brainstorming/SKILL.md';
 const MCP = '.mcp.json';
 const INVENTORY = 'urn:aihq:core:managed-inventory-result:1.1.0';
-const POLICY = 'urn:aihq:core:execution-policy:1.5.0';
+const POLICY = 'urn:aihq:core:execution-policy:1.4.0';
 const posix = process.platform !== 'win32';
 let live = [];
 afterEach(() => { for (const s of live) s.dispose(); live = []; });

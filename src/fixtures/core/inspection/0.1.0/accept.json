@@ -1,0 +1,103 @@
+{
+  "schema": "urn:aihq:core:inspection:0.1.0",
+  "subject": "machine",
+  "status": "ok",
+  "observation": "complete",
+  "package": {
+    "name": "@aihq/core",
+    "version": "0.1.0"
+  },
+  "options": {
+    "target": [
+      "node",
+      "codex"
+    ],
+    "offline": true,
+    "profiles": 1
+  },
+  "tools": [
+    {
+      "target": "node",
+      "tool": null,
+      "label": "Node.js",
+      "state": "runnable",
+      "selection": "requested"
+    },
+    {
+      "target": "codex",
+      "tool": "codex",
+      "label": "Codex CLI",
+      "state": "runnable",
+      "selection": "requested",
+      "version": "0.150.0"
+    }
+  ],
+  "versions": [
+    {
+      "tool": "codex",
+      "installed": "0.150.0",
+      "comparison": "older",
+      "profile": {
+        "id": "codex",
+        "version": 3
+      },
+      "checkedWith": {
+        "app": "codex",
+        "version": "0.166.0"
+      },
+      "message": "Codex CLI 0.150.0 is older than 0.166.0, which its profile was checked with; it may still work."
+    }
+  ],
+  "warnings": [
+    {
+      "code": "cli-older-than-profile",
+      "tool": "codex",
+      "installed": "0.150.0",
+      "checkedWith": {
+        "app": "codex",
+        "version": "0.166.0"
+      },
+      "profile": {
+        "id": "codex",
+        "version": 3
+      },
+      "message": "Codex CLI 0.150.0 is older than 0.166.0, which its profile was checked with; it may still work."
+    }
+  ],
+  "observations": [
+    {
+      "id": "node/version",
+      "target": "node",
+      "detail": "Node.js 26.12.1 observed from the selected executable."
+    },
+    {
+      "id": "codex/version",
+      "target": "codex",
+      "detail": "Runnable version command observed; version identity unavailable."
+    }
+  ],
+  "checks": [
+    {
+      "id": "node/version",
+      "target": "node",
+      "outcome": "passed",
+      "reason": "version-ok",
+      "detail": "The version command exited successfully; its raw output was not retained."
+    },
+    {
+      "id": "codex/version",
+      "target": "codex",
+      "outcome": "passed",
+      "reason": "version-ok",
+      "detail": "The version command exited successfully; its raw output was not retained."
+    }
+  ],
+  "repairChoices": [],
+  "diagnostics": [],
+  "followUp": [],
+  "limits": {
+    "budgetMs": 180000,
+    "elapsedMs": 812,
+    "maxActiveProbes": 2
+  }
+}

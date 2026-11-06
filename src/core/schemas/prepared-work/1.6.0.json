@@ -739,54 +739,6 @@
           "additionalProperties": false,
           "required": [
             "reasonIncluded",
-            "set"
-          ],
-          "properties": {
-            "reasonIncluded": {
-              "const": "in-set"
-            },
-            "set": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "framework",
-                "setId",
-                "setSha256"
-              ],
-              "properties": {
-                "framework": {
-                  "$ref": "#/$defs/catalogId"
-                },
-                "setId": {
-                  "$ref": "#/$defs/catalogId"
-                },
-                "setSha256": {
-                  "type": "string",
-                  "pattern": "^[a-f0-9]{64}$"
-                }
-              }
-            },
-            "options": {
-              "type": "object",
-              "maxProperties": 64,
-              "propertyNames": {
-                "$ref": "#/$defs/catalogId"
-              },
-              "additionalProperties": {
-                "type": "array",
-                "maxItems": 64,
-                "items": {
-                  "$ref": "#/$defs/catalogId"
-                }
-              }
-            }
-          }
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "reasonIncluded",
             "requiredBy"
           ],
           "properties": {

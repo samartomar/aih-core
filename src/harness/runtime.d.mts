@@ -10,13 +10,14 @@ export interface DiagnoseRequest {
    * checks unavailable. An applied `npm` entry replaces the roots for the `npm` target.
    */
   persistedTrust?: PersistedTrust;
+  /** Opt-in: report the version each AI tool's own version command printed, in `toolVersions`. */
+  toolVersions?: boolean;
 }
 export interface DiagnoseControls { signal?: AbortSignal; budgetMs?: number }
 export interface UserToolTrustRequest {
   target: 'python' | 'pip' | 'conda' | 'git' | 'cargo';
   /** Python interpreter for python/pip; the selected tool executable otherwise. */
   executable: string; project: string; network: 'declared' | 'off'; endpoint?: string;
-  pythonRecipe?: 'general' | 'pyyaml-onnx' | 'code-review-graph' | 'serena';
   /** Caller declaration, reported separately from observed process paths; never native admission. */
   interpreterSource?: 'system' | 'uv-managed' | 'unknown';
   /** Required for Cargo: independently observed in the same selected project. */
@@ -26,6 +27,8 @@ export interface UserToolTrustResult {
   decision: 'blocked' | 'unconfirmed' | 'no-repair' | 'bundle-fallback' | 'native-truststore'; reason: string;
   observation: Record<string, unknown>;
   recommendation?: {scope:'observed-conda-environment';key:'ssl_verify';value:'truststore'};
+  /** After a real failure on a version other than the one these checks were tested on: both versions, as a hint only (C20). */
+  hint?: { testedWith: string; observed: string };
 }
 export declare function inspectUserToolTrust(request: UserToolTrustRequest, controls?: DiagnoseControls): Promise<UserToolTrustResult>;
 /** Explicit launcher discovery; never establishes effective manager TLS or native admission. */
@@ -43,6 +46,8 @@ export interface DiagnoseResult {
   checks: { id: string; target: string; outcome: 'passed' | 'failed' | 'unavailable' | 'skipped'; reason: string; detail: string }[];
   diagnostics: { code: string; reason: string; message: string }[];
   repairChoices: { target: string; kind: 'manual-guidance'; reason: string; guidance: string }[];
+  /** With `toolVersions: true`: each runnable AI tool target, the command that ran and the version it printed. */
+  toolVersions?: { target: string; binary: string; version: string | null }[];
   limits: { budgetMs: number; elapsedMs: number; maxActiveProbes: number };
 }
 export declare function validDiagnosticTargets(value: unknown): boolean;
@@ -110,6 +115,7 @@ export declare function prepareRepairDefinition(request: { id: string; variantRe
     diagnostics: { code: string; reason: string; message: string; block?: number; offset?: number; guidance?: string }[] } |
   { status: 'completed'; fingerprints: string[]; evaluatedAt: string; count: number; duplicates: number;
     bundle?: string; bindings?: Record<string, string>; privateBindings?: Record<string, string> };
+export declare function windowsUserEnvironmentKept(blockIds: readonly string[]): string[];
 export declare function repairObservationRequests(request: { id: string; targets: string[]; variantRef?: string }):
   { id: string; operationId: string; executable: string; args: string[]; timeoutMs: number; maxOutputBytes: number }[];
 export declare function assessRepairObservations(request: { id: string; managedPath: string; variantRef?: string;
@@ -166,5 +172,4 @@ export type { MacosSessionLaunchAgentIntent, MacosSessionLaunchAgent,
   MacosSessionControls, MacosGuiSessionObservation, MacosApplicationRequest, MacosApplicationObservation,
   MacosGuiKeyRequest, MacosGuiKeyRead } from './macos-session.mjs';
 
-export { getTrustSnapshot, getVerificationTrust, createTufTrustClient, getCurrentTrustStatus, getCatalogIndexTrust } from './trust-update.mjs';
-export type { TrustSnapshot, TufTrustClientOptions } from './trust-update.mjs';
+

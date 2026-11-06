@@ -43,7 +43,7 @@ export interface ToolHostItemResult extends ToolHostItemReference {
 }
 export interface ToolHostLimits { budgetMs: number; elapsedMs: number; reads: number; maxReads: number }
 export type ToolHostResult =
-  | { status: 'complete' | 'incomplete';
+  | { schema: 'urn:aihq:core:inspection:0.1.0'; subject: 'tool-host'; status: 'ok'; observation: 'complete' | 'incomplete';
       tool: { id: string; label: string }; binding: { digest: string };
       platform?: { os: 'windows' | 'macos' | 'linux'; arch: 'x64' | 'arm64' };
       installedVersion: { state: 'known'; version: string; source: 'package-manifest' | 'version-folder' } |
@@ -52,7 +52,11 @@ export type ToolHostResult =
       items: ToolHostItemResult[]; hostBlockers: ToolHostBlocker[]; warnings: ToolHostWarning[];
       unchecked: ToolHostUnchecked[];
       diagnostics: { code: string; reason: string; message: string }[]; limits: ToolHostLimits }
-  | { status: 'invalid' | 'refused' | 'cancelled';
+  | { schema: 'urn:aihq:core:inspection:0.1.0'; subject: 'tool-host'; status: 'ok'; observation: 'cancelled';
+      diagnostics: { code: string; reason: string; message: string }[]; limits: ToolHostLimits }
+  | { status: 'invalid'; problems: { path: string; reason: string; message: string }[];
+      diagnostics: { code: string; reason: string; message: string }[]; limits: ToolHostLimits }
+  | { status: 'refused'; code: 'tool-unknown' | 'tool-not-observed'; reason: string;
       diagnostics: { code: string; reason: string; message: string }[]; limits: ToolHostLimits };
 /**
  * Observes, with bounded reads and nothing run, the installed tool and project for the given items.

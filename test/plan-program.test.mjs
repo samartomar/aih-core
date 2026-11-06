@@ -1,0 +1,858 @@
+// Program steps of a plan request (contract 8.1, 12, C30, C60): `tool-command`, `upstream-installer` and
+// `upstream-setup`, through the built public entries in a disposable home and project. The AI setup's artifact comes from
+// a local HTTPS fixture server; every program is a `fake-tool.cjs` fake and the upstream repository is a local git
+// repository (test/fixtures/program-fixture.mjs). These are Core-side fixtures: they prove no real tool or setup.
+import { test, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import tls from 'node:tls';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+import { apply, list, prepare, prepareRemoval } from '../dist/core/index.js';
+import { validateFormat } from '../dist/core/contracts.js';
+import { artifactServer } from './fixtures/acquire-fixture.mjs';
+import { fakeState, installFakePrograms, installerStep, programEnvironment, programRequest, seedToolSettings, toolSetup, upstreamRepository } from './fixtures/program-fixture.mjs';
+import { recorded } from './fixtures/catalog-26df4c0/replay.mjs';
+
+const scratch = mkdtempSync(join(tmpdir(), 'aih-program-'));
+const keys = ['HOME', 'USERPROFILE', 'PATH', 'NODE_OPTIONS', 'FAKE_TOOL_STATE', 'FAKE_TOOL_MODE'];
+const previous = Object.fromEntries(keys.map(key => [key, process.env[key]]));
+const bin = join(scratch, 'bin');
+let server, home, state, counter = 0;
+before(async () => {
+  installFakePrograms(bin);
+  server = await artifactServer();
+  tls.setDefaultCACertificates([...tls.getCACertificates('default'), server.caPem]);
+});
+after(async () => {
+  await server?.close();
+  for (const [key, value] of Object.entries(previous)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+  rmSync(scratch, { recursive: true, force: true, maxRetries: 3 });
+});
+/** A fresh disposable home, project and fake state. */
+function fresh(mode = '') {
+  home = join(scratch, `home-${counter}`); state = join(scratch, `state-${counter}`); mkdirSync(home);
+  const project = join(scratch, `project-${counter++}`); mkdirSync(project);
+  Object.assign(process.env, { HOME: home, USERPROFILE: home }, programEnvironment(bin, state, mode));
+  return project;
+}
+const mode = value => { process.env.FAKE_TOOL_MODE = value; };
+const approve = review => ({ approved: true, origin: 'automation', reviewDigest: review.reviewDigest });
+const conforms = value => { assert.equal(validateFormat(value).status, 'ok', JSON.stringify(validateFormat(value))); return value; };
+const outcomes = run => run.steps.map(step => [step.step, step.managementId, step.application, step.verification.reason]);
+const byStep = (run, index) => run.steps.find(step => step.step === index);
+
+test('an acquired tool runs its input-bearing command, reads it back, and its MCP entry follows', async () => {
+  const project = fresh();
+  const setup = toolSetup(server, { name: 'graph-a', token: true });
+  const request = programRequest(project, { setups: [setup] });
+  const secret = 'tok-graph-a-1234567890';
+  const controls = { privateInputs: { [setup.id]: { TOOL_TOKEN: secret } } };
+  const prepared = await prepare(request, controls);
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared));
+  conforms(prepared.review);
+  assert.ok(!JSON.stringify(prepared.review).includes(secret), 'the review never shows the secret');
+  const command = prepared.review.steps.find(step => step.op === 'tool-command');
+  assert.equal(command.managementId, setup.id);
+  assert.equal(command.effect, 'run-program');
+  assert.deepEqual(command.program.argv, ['config', 'set', 'auto_index', 'false']);
+  assert.equal(command.program.from, 'acquired');
+  assert.equal(command.program.executableSha256, setup.qualification.observed.members[0].sha256);
+  assert.deepEqual(command.program.env, [{ name: 'TOOL_TOKEN', value: '[REDACTED]' }]);
+  assert.deepEqual(command.program.readback, { argv: ['config', 'get', 'auto_index'], expected: 'false' });
+  // The readback runs first and its output is the prior value the restore puts back; the undo is known only then.
+  assert.deepEqual([command.program.prior, command.program.restore, command.program.undo],
+    [{ argv: ['config', 'get', 'auto_index'] }, { argv: ['config', 'set', 'auto_index', '<prior>'] }, null]);
+  assert.match(command.sentence, /^Runs `config get auto_index` and keeps what it shows as the prior value, then runs /);
+  assert.match(command.program.cantRemove, /^Removal runs `config set auto_index <prior>` with `<prior>` as the value/);
+  assert.match(command.cantPromise, /can't/);
+  assert.equal(fakeState(state, 'fake-tool').calls.length, 0, 'Prepare runs nothing');
+
+  const run = conforms(await apply(prepared.handle, approve(prepared.review), controls));
+  assert.equal(run.completion, 'complete', JSON.stringify(run));
+  // Steps run in the plan's order (D92) across items: acquire, the MCP merge, then the tool-command.
+  assert.deepEqual(outcomes(run).map(row => row.slice(0, 3)), [[0, setup.id, 'applied'], [1, setup.mcpItem, 'applied'], [2, setup.id, 'applied']]);
+  assert.deepEqual(byStep(run, 2).verification, { status: 'passed', reason: 'readback-matched' });
+  const calls = fakeState(state, 'fake-tool').calls;
+  assert.deepEqual(calls.map(call => call.argv), [['config', 'get', 'auto_index'], ['config', 'set', 'auto_index', 'false'], ['config', 'get', 'auto_index']]);
+  assert.equal(calls[1].tokenSha256, createHash('sha256').update(secret).digest('hex'), 'the secret reached the command environment');
+  assert.ok(existsSync(join(project, '.mcp.json')));
+  for (const where of [join(home, '.aih', 'core')]) assert.ok(!treeHas(where, secret), 'no receipt or history holds the secret');
+
+  const listed = conforms(await list({ target: { project }, scope: 'both' }));
+  const entry = listed.entries.find(item => item.managementId === setup.id);
+  // The prior value (the fake prints `unset` for a key it never set) is filled into the restore and its readback.
+  assert.deepEqual(entry.programs.map(program => [program.op, program.argv, program.executable, program.undo]),
+    [['tool-command', ['config', 'set', 'auto_index', 'false'], setup.program,
+      { argv: ['config', 'set', 'auto_index', 'unset'], readback: { argv: ['config', 'get', 'auto_index'], expected: 'unset' } }]]);
+  // The native archive's download stays recorded although later steps of the same item (the tool-command) ran after it.
+  const archive = { role: 'artifact', file: setup.acquire.distribution.file, sha256: setup.acquire.distribution.sha256, origin: 'downloaded',
+    url: setup.acquire.distribution.url };
+  assert.deepEqual(entry.aiSetup?.downloads, [archive], JSON.stringify(entry));
+  const ownership = join(home, '.aih', 'core', 'ownership');
+  const stored = readdirSync(ownership).flatMap(name => Object.values(JSON.parse(readFileSync(join(ownership, name), 'utf8')).items ?? {}))
+    .find(item => item.plan?.managementId === setup.id);
+  assert.deepEqual(stored?.plan?.aiSetup?.downloads, [archive], JSON.stringify(stored));
+});
+
+test('the tool-command keys are the ones Catalog 32db997 plans for a real AI setup (cbm on linux-x64)', () => {
+  const real = recorded.cbm.plans['linux-x64'].plan.filter(step => step.op === 'tool-command');
+  const fixture = toolSetup(server, { name: 'graph-keys' }).toolCommands;
+  assert.ok(real.length > 0);
+  for (const step of [...real, ...fixture]) assert.deepEqual(Object.keys(step).sort(), ['aiSetup', 'approval', 'argv', 'executable', 'op', 'qualification', 'readback', 'restore']);
+  assert.deepEqual(Object.keys(real[0].restore), Object.keys(fixture[0].restore));
+  for (const step of [...real, ...fixture]) assert.equal(step.restore.argv.filter(arg => arg === '<prior>').length, 1);
+});
+
+/** Whether any file under `dir` holds `text`. */
+function treeHas(dir, text) {
+  if (!existsSync(dir)) return false;
+  const walk = path => {
+    for (const name of readdirNames(path)) {
+      const full = join(path, name);
+      try { if (readFileSync(full).includes(text)) return true; } catch { if (walk(full)) return true; }
+    }
+    return false;
+  };
+  return walk(dir);
+}
+import { readdirSync } from 'node:fs';
+const readdirNames = path => { try { return readdirSync(path); } catch { return []; } };
+
+test('a readback that differs fails its step; the MCP merge that already ran stays applied and the run is incomplete', async () => {
+  const project = fresh('readback-wrong');
+  const setup = toolSetup(server, { name: 'graph-b' });
+  const request = programRequest(project, { setups: [setup], skills: [{ name: 'notes', text: '# notes\n' }] });
+  const prepared = await prepare(request);
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared));
+  assert.equal(prepared.review.failureRule, 'A failed step stops the rest of its item and every item that depends on it; unrelated items continue.');
+  const run = conforms(await apply(prepared.handle, approve(prepared.review)));
+  assert.equal(run.completion, 'incomplete', JSON.stringify(run));
+  const command = byStep(run, 3);
+  assert.deepEqual([command.application, command.verification, command.reason, command.effectsUncertain],
+    ['failed', { status: 'failed', reason: 'readback-mismatch' }, 'readback-mismatch', true]);
+  // The merge (phase 4) ran before the tool-command (phase 7): it is reported applied, never reordered or rolled back.
+  assert.equal(byStep(run, 2).application, 'applied');
+  assert.equal(byStep(run, 1).application, 'applied', 'the unrelated skill is applied');
+  assert.deepEqual(run.steps.map(step => step.step), [0, 1, 2, 3], 'the plan order');
+  assert.ok(existsSync(join(project, '.mcp.json')));
+  assert.ok(existsSync(join(project, '.claude', 'skills', 'notes', 'SKILL.md')));
+});
+
+test('a failed acquisition leaves its tool-command and its MCP consumer not attempted', async () => {
+  const project = fresh();
+  const setup = toolSetup(server, { name: 'graph-c' });
+  // The served artifact no longer matches the qualification: the hash check fails at Apply.
+  server.serve(`/${setup.acquire.distribution.file}`, Buffer.from('not the qualified archive'));
+  const prepared = await prepare(programRequest(project, { setups: [setup], skills: [{ name: 'other', text: '# other\n' }] }));
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared));
+  const run = conforms(await apply(prepared.handle, approve(prepared.review)));
+  assert.equal(run.completion, 'incomplete');
+  assert.equal(byStep(run, 0).application, 'failed');
+  assert.deepEqual([byStep(run, 3).application, byStep(run, 2).application, byStep(run, 1).application], ['not-attempted', 'not-attempted', 'applied']);
+  assert.equal(fakeState(state, 'fake-tool').calls.length, 0, 'the tool never ran');
+});
+
+/** Prepares `request` and returns the Apply arguments that approve its review. */
+async function approved(request, controls) { const prepared = await prepare(request, controls); assert.equal(prepared.status, 'ready', JSON.stringify(prepared).slice(0, 2000)); return [prepared.handle, approve(prepared.review), controls]; }
+/** Removes the MCP item first (it needs its AI setup, C60), then prepares the AI setup's removal. */
+async function setupRemoval(project, setup) {
+  const mcp = await prepareRemoval({ target: { project }, scope: 'project', removals: [{ managementId: setup.mcpItem }] });
+  assert.equal((await apply(mcp.handle, approve(mcp.review))).completion, 'complete');
+  return () => prepareRemoval({ target: { project }, scope: 'user', removals: [{ managementId: setup.id }] });
+}
+
+test('removal runs the restore with the value read before install and checks the readback shows it; a mismatch or failure is reported and keeps the receipt', async () => {
+  const project = fresh();
+  seedToolSettings(state, { auto_index: 'true' });
+  const setup = toolSetup(server, { name: 'graph-d' });
+  const prepared = await prepare(programRequest(project, { setups: [setup] }));
+  assert.equal((await apply(prepared.handle, approve(prepared.review))).completion, 'complete');
+  assert.deepEqual(fakeState(state, 'fake-tool').settings, { auto_index: 'false' });
+  const removal = await setupRemoval(project, setup);
+
+  mode('set-noop');
+  const held = await removal();
+  assert.ok(held.review, JSON.stringify(held));
+  conforms(held.review);
+  const restore = held.review.steps.find(step => step.op === 'tool-command');
+  assert.equal(restore.effect, 'run-program');
+  assert.deepEqual([restore.program.argv, restore.program.readback], [['config', 'set', 'auto_index', 'true'], { argv: ['config', 'get', 'auto_index'], expected: 'true' }]);
+  assert.equal(restore.sentence, 'Runs `config set auto_index true`, then checks that `config get auto_index` reads `true`');
+  assert.match(restore.program.executableSha256, /^[a-f0-9]{64}$/);
+  const mismatched = conforms(await apply(held.handle, approve(held.review)));
+  assert.equal(mismatched.completion, 'incomplete', JSON.stringify(mismatched));
+  assert.ok(mismatched.steps.some(step => step.managementId === setup.id && step.verification.reason === 'readback-mismatch'), JSON.stringify(mismatched));
+  assert.ok(existsSync(join(home, ...setup.folder.split('/'))), 'the AI setup stays while its undo is unconfirmed');
+
+  mode('set-fail');
+  const failing = await removal();
+  const failed = conforms(await apply(failing.handle, approve(failing.review)));
+  assert.equal(failed.completion, 'incomplete', JSON.stringify(failed));
+  assert.ok(failed.steps.some(step => step.managementId === setup.id && step.application === 'failed'), JSON.stringify(failed));
+  assert.ok(existsSync(join(home, ...setup.folder.split('/'))), 'a failed restore keeps the AI setup and its receipt');
+
+  mode('');
+  const again = await removal();
+  const run = conforms(await apply(again.handle, approve(again.review)));
+  assert.equal(run.completion, 'complete', JSON.stringify(run));
+  assert.ok(run.steps.some(step => step.verification.reason === 'readback-matched'));
+  assert.deepEqual(fakeState(state, 'fake-tool').settings, { auto_index: 'true' }, 'the value from before install is back');
+  assert.equal(existsSync(join(home, ...setup.folder.split('/'))), false, 'the AI setup folder goes with its last claim');
+});
+
+test('a prior value that cannot be read fails the step before the command runs', async () => {
+  const project = fresh('get-fail');
+  const setup = toolSetup(server, { name: 'graph-g' });
+  const prepared = await prepare(programRequest(project, { setups: [setup] }));
+  const run = conforms(await apply(prepared.handle, approve(prepared.review)));
+  assert.equal(run.completion, 'incomplete', JSON.stringify(run));
+  const command = byStep(run, 2);
+  assert.deepEqual([command.application, command.reason, command.effectsUncertain ?? false, command.verification],
+    ['failed', 'prior-unreadable', false, { status: 'failed', reason: 'prior-unreadable' }]);
+  assert.deepEqual(fakeState(state, 'fake-tool').calls.map(call => call.argv), [['config', 'get', 'auto_index']], 'the command never ran');
+});
+
+test('installing the same command again keeps the first prior value, so removal still puts that one back', async () => {
+  const project = fresh();
+  seedToolSettings(state, { auto_index: 'true' });
+  const setup = toolSetup(server, { name: 'graph-h' });
+  const request = programRequest(project, { setups: [setup] });
+  assert.equal((await apply(...await approved(request))).completion, 'complete');
+  const again = await prepare(request);
+  assert.equal(again.status, 'ready', JSON.stringify(again).slice(0, 2000));
+  const step = again.review.steps.find(item => item.op === 'tool-command');
+  assert.equal(step.program.prior, undefined, 'the readback is not run again');
+  assert.deepEqual(step.program.undo, { argv: ['config', 'set', 'auto_index', 'true'], readback: { argv: ['config', 'get', 'auto_index'], expected: 'true' } });
+  assert.match(step.sentence, /^Keeps the prior value `true` an earlier install read, then runs /);
+  assert.equal(conforms(await apply(again.handle, approve(again.review))).completion, 'complete');
+  const removal = await setupRemoval(project, setup);
+  const prepared = await removal();
+  assert.equal(conforms(await apply(prepared.handle, approve(prepared.review))).completion, 'complete');
+  assert.deepEqual(fakeState(state, 'fake-tool').settings, { auto_index: 'true' });
+});
+
+test('a prior value holding a supplied secret is never recorded: removal says Core cannot restore it', async () => {
+  const project = fresh();
+  const secret = 'tok-graph-i-1234567890';
+  seedToolSettings(state, { auto_index: secret });
+  const setup = toolSetup(server, { name: 'graph-i', token: true });
+  const controls = { privateInputs: { [setup.id]: { TOOL_TOKEN: secret } } };
+  const prepared = await prepare(programRequest(project, { setups: [setup] }), controls);
+  assert.equal(conforms(await apply(prepared.handle, approve(prepared.review), controls)).completion, 'complete');
+  assert.ok(!treeHas(join(home, '.aih', 'core'), secret), 'no receipt or history holds the secret');
+  const entry = (await list({ target: { project }, scope: 'user' })).entries.find(item => item.managementId === setup.id);
+  assert.equal(entry.programs[0].undo, null);
+  const removal = await (await setupRemoval(project, setup))();
+  const stated = removal.review.steps.find(item => item.op === 'tool-command');
+  assert.equal(stated.effect, 'unchanged');
+  assert.match(stated.cantPromise, /can't undo .*no restore command with the value read before it/);
+});
+
+test('without a restore command the review and removal say Core cannot undo the command', async () => {
+  const project = fresh();
+  const setup = toolSetup(server, { name: 'graph-e', restore: false });
+  const prepared = await prepare(programRequest(project, { setups: [setup] }));
+  const step = prepared.review.steps.find(item => item.op === 'tool-command');
+  assert.deepEqual([step.program.undo, step.program.prior, step.program.restore], [null, undefined, undefined]);
+  assert.match(step.program.cantRemove, /can't undo .*names no restore command/);
+  assert.equal((await apply(prepared.handle, approve(prepared.review))).completion, 'complete');
+  assert.deepEqual(fakeState(state, 'fake-tool').calls.map(call => call.argv[1]), ['set', 'get'], 'no readback before the command');
+  const removal = await (await setupRemoval(project, setup))();
+  const stated = removal.review.steps.find(item => item.op === 'tool-command');
+  assert.equal(stated.effect, 'unchanged');
+  assert.match(stated.cantPromise, /can't undo/);
+  const run = conforms(await apply(removal.handle, approve(removal.review)));
+  assert.equal(run.completion, 'complete', JSON.stringify(run));
+  assert.deepEqual(fakeState(state, 'fake-tool').settings, { auto_index: 'false' }, 'the setting stays: nothing undid it');
+});
+
+test('a restore that is not `{ argv }` with `<prior>` once, as a whole argument, is invalid', async () => {
+  for (const restore of [{ argv: ['config', 'set', 'auto_index'] }, { argv: ['config', 'set', 'auto_index', '<prior>', '<prior>'] },
+    { argv: ['config', 'set', 'auto_index', 'x<prior>'] }, { argv: ['config', 'set', 'auto_index', '<prior>'], extra: true }]) {
+    const project = fresh();
+    const setup = toolSetup(server, { name: 'graph-j' });
+    const request = programRequest(project, { setups: [setup] });
+    request.plan.plan.find(step => step.op === 'tool-command').restore = restore;
+    const refused = await prepare(request);
+    assert.equal(refused.status, 'invalid', JSON.stringify(refused));
+    assert.match(JSON.stringify(refused.problems), /restore/);
+  }
+});
+
+test('a user-scope upstream installer runs its exact pinned argv, is managed: false, and removal says what Core cannot remove', async () => {
+  const project = fresh();
+  const installer = installerStep();
+  const prepared = await prepare(programRequest(project, { installers: [installer], scope: 'user' }));
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared));
+  conforms(prepared.review);
+  const [step] = prepared.review.steps;
+  assert.equal(step.op, 'upstream-installer');
+  assert.deepEqual([step.program.managed, step.program.from, step.program.argv], [false, 'path', ['fake-installer', 'install', 'other-tool', '--yes']]);
+  assert.match(step.program.executableSha256, /^[a-f0-9]{64}$/);
+  assert.match(step.cantPromise, /managed: false/);
+  assert.equal(existsSync(join(home, '.fake-installed')), false);
+  const run = conforms(await apply(prepared.handle, approve(prepared.review)));
+  assert.deepEqual(outcomes(run), [[0, installer.id, 'applied', 'command-effects-unknown']]);
+  assert.equal(readFileSync(join(home, '.fake-installed'), 'utf8'), 'install other-tool --yes\n');
+  const removal = await prepareRemoval({ target: { project }, scope: 'user', removals: [{ managementId: installer.id }] });
+  assert.ok(removal.review, JSON.stringify(removal));
+  assert.match(removal.review.steps.find(item => item.op === 'upstream-installer').cantPromise, /can't remove/);
+  assert.equal(conforms(await apply(removal.handle, approve(removal.review))).completion, 'complete');
+  assert.ok(existsSync(join(home, '.fake-installed')), 'what the installer wrote stays');
+  assert.equal((await list({ target: { project }, scope: 'user' })).entries.length, 0);
+});
+
+test('an upstream installer for an AI setup Core already acquired leaves the managed acquisition and its claim as they are', async () => {
+  const project = fresh();
+  const setup = toolSetup(server, { name: 'graph-switch', settings: [] });
+  const managed = programRequest(project, { setups: [setup] });
+  managed.plan.plan = [setup.acquire];
+  const installed = await prepare(managed);
+  assert.equal(installed.status, 'ready', JSON.stringify(installed));
+  assert.equal((await apply(installed.handle, approve(installed.review))).completion, 'complete');
+  const marker = join(home, ...setup.folder.split('/'), '.aih-acquired');
+  assert.ok(existsSync(marker));
+  const before = (await list({ target: { project }, scope: 'user' })).entries.find(entry => entry.managementId === setup.id);
+  assert.ok(before, 'the managed acquisition is listed');
+
+  // The person then chooses the setup's own installer for the same AI setup, from the same project.
+  const installer = installerStep('graph-switch');
+  const prepared = await prepare(programRequest(project, { installers: [installer] }));
+  assert.equal(installer.id, setup.id);
+  const shown = prepared.review?.steps ?? [];
+  const run = prepared.handle ? conforms(await apply(prepared.handle, approve(prepared.review))) : undefined;
+  // Whatever Core does, it never drops the acquisition's claim without the review showing it.
+  const dropped = (run?.members ?? []).filter(member => member.intent === 'remove');
+  assert.deepEqual(dropped, [], `a member was removed that the review did not show: ${JSON.stringify({ shown, run })}`);
+  assert.ok(existsSync(marker), 'the managed acquisition stays');
+  const after = (await list({ target: { project }, scope: 'user' })).entries.find(entry => entry.managementId === setup.id);
+  assert.ok(after?.members?.some(member => member.path?.endsWith('.aih-acquired')), JSON.stringify(after));
+  const removal = await prepareRemoval({ target: { project }, scope: 'user', removals: [{ managementId: setup.id }] });
+  assert.equal(removal.status, 'ok', JSON.stringify(removal));
+  assert.equal(conforms(await apply(removal.handle, approve(removal.review))).completion, 'complete');
+  assert.equal(existsSync(join(home, ...setup.folder.split('/'))), false, 'removing it removes the acquired folder');
+});
+
+test('a project-scope upstream installer is listed and removed in that project, and the user-scope acquisition stays as it was', async () => {
+  const project = fresh();
+  const setup = toolSetup(server, { name: 'graph-scope', settings: [] });
+  const managed = programRequest(project, { setups: [setup], scope: 'user' });
+  managed.plan.plan = [setup.acquire];
+  const installed = await prepare(managed);
+  assert.equal(installed.status, 'ready', JSON.stringify(installed));
+  assert.equal((await apply(installed.handle, approve(installed.review))).completion, 'complete');
+  const marker = join(home, ...setup.folder.split('/'), '.aih-acquired');
+  const userEntry = async () => (await list({ target: { project }, scope: 'user' })).entries.find(entry => entry.managementId === setup.id);
+  const before = await userEntry();
+  assert.ok(before, 'the managed acquisition is listed');
+
+  // A project-scope plan runs the setup's own installer. Catalog's step carries `root: "user"`, a field its contract
+  // does not give this step: the run belongs to the plan's scope, never to that field.
+  const installer = installerStep('graph-scope');
+  installer.step.root = 'user';
+  const prepared = await prepare(programRequest(project, { installers: [installer], scope: 'project' }));
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared));
+  conforms(prepared.review);
+  const run = conforms(await apply(prepared.handle, approve(prepared.review)));
+  assert.deepEqual(outcomes(run), [[0, setup.id, 'applied', 'command-effects-unknown']]);
+  const [call] = fakeState(state, 'fake-installer').calls;
+  assert.equal(call.cwd, project, 'the installer runs in the project it was installed for');
+
+  const inProject = await list({ target: { project }, scope: 'project' });
+  assert.deepEqual(inProject.entries.map(entry => [entry.managementId, entry.scope, entry.installState]), [[setup.id, 'project', 'complete']]);
+  assert.deepEqual(inProject.entries[0].programs.map(program => [program.op, program.argv, program.managed]),
+    [['upstream-installer', installer.step.argv, false]]);
+  assert.deepEqual(await userEntry(), before, 'the user-scope entry is unchanged');
+
+  const removal = await prepareRemoval({ target: { project }, scope: 'project', removals: [{ managementId: setup.id }] });
+  assert.equal(removal.status, 'ok', JSON.stringify(removal));
+  assert.match(removal.review.steps.find(item => item.op === 'upstream-installer').cantPromise, /can't remove/);
+  assert.equal(removal.review.steps.find(item => item.op === 'upstream-installer').program.cwd, project, 'the folder it ran in, as recorded');
+  const removed = conforms(await apply(removal.handle, approve(removal.review)));
+  assert.equal(removed.completion, 'complete', JSON.stringify(removed));
+  assert.deepEqual(removed.members.filter(member => member.intent === 'remove'), [], 'only the receipt is released');
+  assert.equal((await list({ target: { project }, scope: 'project' })).entries.length, 0);
+  assert.ok(existsSync(join(home, '.fake-installed')), 'what the installer wrote stays');
+  assert.ok(existsSync(marker), 'the acquisition marker stays');
+  assert.deepEqual(await userEntry(), before, 'the user-scope entry is still unchanged');
+});
+
+test('an installer this host cannot run is refused before any effect', async () => {
+  const project = fresh();
+  const installer = installerStep('missing-tool');
+  installer.step.argv = ['no-such-installer', 'go'];
+  const refused = await prepare(programRequest(project, { installers: [installer] }));
+  assert.deepEqual([refused.status, refused.code, refused.step], ['refused', 'program-unavailable', 0]);
+});
+
+test('an upstream setup clones the exact commit, runs its command there, and removal takes the clone only', async () => {
+  const project = fresh();
+  const upstream = upstreamRepository(scratch, home);
+  const prepared = await prepare(programRequest(project, { upstream: [upstream] }));
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared));
+  conforms(prepared.review);
+  const [step] = prepared.review.steps;
+  assert.equal(step.managementId, 'gstack');
+  assert.deepEqual([step.program.clone.repository, step.program.clone.commit, step.program.needs], [upstream.step.repository, upstream.commit, ['bun>=1.4.2']]);
+  assert.match(step.program.clone.gitSha256, /^[a-f0-9]{64}$/);
+  assert.match(step.cantPromise, /can't/);
+  const clone = join(home, '.claude', 'skills', 'gstack');
+  assert.equal(existsSync(clone), false, 'Prepare clones nothing');
+  const run = conforms(await apply(prepared.handle, approve(prepared.review)));
+  assert.equal(run.completion, 'complete', JSON.stringify(run));
+  assert.deepEqual(outcomes(run), [[0, 'gstack', 'applied', 'command-effects-unknown']]);
+  assert.equal(readFileSync(join(clone, 'README.md'), 'utf8').replaceAll('\r\n', '\n'), 'upstream setup fixture\n');
+  assert.ok(existsSync(join(clone, 'built.txt')), 'the command ran inside the clone');
+  const [call] = fakeState(state, 'fake-setup').calls;
+  assert.deepEqual(call.argv, ['setup', '--host', 'claude']);
+  const removal = await prepareRemoval({ target: { project }, scope: 'user', removals: [{ managementId: 'gstack' }] });
+  assert.match(removal.review.steps.find(item => item.op === 'upstream-setup').cantPromise, /only its clone/);
+  assert.equal(conforms(await apply(removal.handle, approve(removal.review))).completion, 'complete');
+  assert.equal(existsSync(clone), false, 'the clone goes');
+  assert.ok(existsSync(join(home, '.fake-setup-outside')), 'what the command wrote elsewhere stays');
+});
+
+test('removal of an upstream setup keeps your edits and added files in its clone, and reports them', async () => {
+  const project = fresh();
+  const upstream = upstreamRepository(scratch, home);
+  const prepared = await prepare(programRequest(project, { upstream: [upstream] }));
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared));
+  assert.equal((await apply(prepared.handle, approve(prepared.review))).completion, 'complete');
+  const clone = join(home, '.claude', 'skills', 'gstack');
+  writeFileSync(join(clone, 'extra.txt'), 'mine\n');
+  writeFileSync(join(clone, 'built.txt'), 'edited\n');
+  const removal = await prepareRemoval({ target: { project }, scope: 'user', removals: [{ managementId: 'gstack' }] });
+  const removed = conforms(await apply(removal.handle, approve(removal.review)));
+  assert.equal(removed.completion, 'complete', JSON.stringify(removed));
+  assert.equal(readFileSync(join(clone, 'extra.txt'), 'utf8'), 'mine\n');
+  assert.equal(readFileSync(join(clone, 'built.txt'), 'utf8'), 'edited\n');
+  assert.equal(existsSync(join(clone, 'README.md')), false, 'what the clone placed goes');
+  const at = clone.replaceAll('\\', '/');
+  assert.deepEqual(removed.members.filter(member => member.kind === 'kept-unrecorded').map(member => member.path).sort(), [`${at}/built.txt`, `${at}/extra.txt`]);
+  rmSync(clone, { recursive: true, force: true });
+});
+
+test('an upstream setup folder holding files Core did not clone is refused before any effect', async () => {
+  const project = fresh();
+  const upstream = upstreamRepository(scratch, home);
+  mkdirSync(join(home, '.claude', 'skills', 'gstack'), { recursive: true });
+  const refused = await prepare(programRequest(project, { upstream: [upstream] }));
+  assert.deepEqual([refused.status, refused.code], ['refused', 'setup-folder-occupied']);
+});
+
+test('a cancelled command is effectsUncertain, leaves the install interrupted, and is shown again for fresh approval', async () => {
+  const project = fresh('set-hang');
+  const setup = toolSetup(server, { name: 'graph-f' });
+  const request = programRequest(project, { setups: [setup] });
+  const prepared = await prepare(request);
+  const controller = new AbortController();
+  const started = join(state, 'fake-tool.started');
+  const watch = setInterval(() => { if (existsSync(started)) controller.abort(); }, 50);
+  const run = conforms(await apply(prepared.handle, approve(prepared.review), { signal: controller.signal }));
+  clearInterval(watch);
+  assert.equal(run.completion, 'cancelled', JSON.stringify(run));
+  assert.equal(byStep(run, 2).effectsUncertain, true, JSON.stringify(run));
+  const listed = await list({ target: { project }, scope: 'user' });
+  const interrupted = listed.entries.find(entry => entry.managementId === setup.id);
+  assert.equal(interrupted.installState, 'interrupted');
+  // The prior value was kept before the command started, so the interrupted install can still be restored.
+  assert.deepEqual(interrupted.programs[0].undo, { argv: ['config', 'set', 'auto_index', 'unset'], readback: { argv: ['config', 'get', 'auto_index'], expected: 'unset' } });
+  mode('');
+  const again = await prepare(request);
+  assert.equal(again.status, 'ready', JSON.stringify(again));
+  const step = again.review.steps.find(item => item.op === 'tool-command');
+  assert.equal(step.previous, 'interrupted');
+  assert.deepEqual([step.program.prior, step.program.undo?.readback.expected], [undefined, 'unset'], 'the kept prior value is not read again');
+  assert.match(step.cantPromise, /interrupted, so its effects are uncertain/);
+  const finished = conforms(await apply(again.handle, approve(again.review)));
+  assert.equal(finished.completion, 'complete', JSON.stringify(finished));
+  assert.equal((await list({ target: { project }, scope: 'user' })).entries.find(entry => entry.managementId === setup.id).installState, 'complete');
+});
+
+for (const [label, value] of [['a NUL', 'a\u0000b'], ['an ANSI escape', '\u001b[31mred\u001b[0m']]) test(`a prior value holding ${label} is unreadable: the step fails before the command runs`, async () => {
+  const project = fresh();
+  seedToolSettings(state, { auto_index: value });
+  const setup = toolSetup(server, { name: `graph-c${label.length}` });
+  const prepared = await prepare(programRequest(project, { setups: [setup] }));
+  const run = conforms(await apply(prepared.handle, approve(prepared.review)));
+  assert.deepEqual([byStep(run, 2).application, byStep(run, 2).reason], ['failed', 'prior-unreadable']);
+  assert.deepEqual(fakeState(state, 'fake-tool').calls.map(call => call.argv[1]), ['get'], 'the command never ran');
+  // The receipt stays readable: nothing holding the control character was recorded.
+  assert.ok(conforms(await list({ target: { project }, scope: 'user' })).entries.some(entry => entry.managementId === setup.id));
+});
+
+test('on Windows a prior value a command shim could not pass back fails the step before the command runs', { skip: process.platform !== 'win32' }, async () => {
+  const project = fresh();
+  seedToolSettings(state, { auto_index: '50%' });
+  const setup = toolSetup(server, { name: 'graph-k', shim: true });
+  const prepared = await prepare(programRequest(project, { setups: [setup] }));
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared).slice(0, 2000));
+  const run = conforms(await apply(prepared.handle, approve(prepared.review)));
+  assert.deepEqual([byStep(run, 2).application, byStep(run, 2).reason, byStep(run, 2).effectsUncertain ?? false], ['failed', 'prior-unrestorable', false]);
+  assert.deepEqual(fakeState(state, 'fake-tool').calls.map(call => call.argv[1]), ['get'], 'the command never ran');
+  assert.deepEqual(fakeState(state, 'fake-tool').settings, { auto_index: '50%' });
+});
+
+test('an empty prior value is restored as empty', async () => {
+  const project = fresh();
+  seedToolSettings(state, { auto_index: '' });
+  const setup = toolSetup(server, { name: 'graph-l' });
+  assert.equal((await apply(...await approved(programRequest(project, { setups: [setup] })))).completion, 'complete');
+  const entry = (await list({ target: { project }, scope: 'user' })).entries.find(item => item.managementId === setup.id);
+  assert.deepEqual(entry.programs[0].undo, { argv: ['config', 'set', 'auto_index', ''], readback: { argv: ['config', 'get', 'auto_index'], expected: '' } });
+  const removal = await (await setupRemoval(project, setup))();
+  assert.equal(conforms(await apply(removal.handle, approve(removal.review))).completion, 'complete');
+  assert.deepEqual(fakeState(state, 'fake-tool').settings, { auto_index: '' });
+});
+
+test('a prior value holding a secret bound anywhere in the plan is withheld, and reinstalling never reads it again', async () => {
+  const project = fresh();
+  const secret = 'tok-graph-m-1234567890';
+  // The secret is bound to graph-m's commands only; graph-n's prior value holds it.
+  seedToolSettings(state, { index_n: secret });
+  const holder = toolSetup(server, { name: 'graph-m', token: true });
+  const other = toolSetup(server, { name: 'graph-n', settings: [['index_n', 'false']] });
+  const controls = { privateInputs: { [holder.id]: { TOOL_TOKEN: secret } } };
+  const request = programRequest(project, { setups: [holder, other] });
+  assert.equal((await apply(...await approved(request, controls))).completion, 'complete');
+  assert.ok(!treeHas(join(home, '.aih', 'core'), secret), 'no receipt or history holds the secret');
+  const program = () => (/** @type {any} */ (list({ target: { project }, scope: 'user' }))).then(listed => listed.entries.find(item => item.managementId === other.id).programs[0]);
+  assert.deepEqual([(await program()).undo, (await program()).prior], [null, 'withheld']);
+  // Reinstalling keeps the withheld record: the readback is not run again before the command.
+  seedToolSettings(state, { index_n: 'plain' });
+  const again = await prepare(request, controls);
+  assert.equal(again.review.steps.find(step => step.managementId === other.id && step.op === 'tool-command').program.prior, undefined);
+  assert.equal(conforms(await apply(again.handle, approve(again.review), controls)).completion, 'complete');
+  assert.deepEqual(fakeState(state, 'fake-tool').calls.filter(call => call.argv[2] === 'index_n').map(call => call.argv[1]), ['set', 'get']);
+  assert.deepEqual([(await program()).undo, (await program()).prior], [null, 'withheld']);
+});
+
+test('a prior value that would read as an option is never passed back: the step fails before the command runs', async () => {
+  const project = fresh();
+  seedToolSettings(state, { auto_index: '--danger' });
+  const setup = toolSetup(server, { name: 'graph-dash' });
+  const prepared = await prepare(programRequest(project, { setups: [setup] }));
+  const run = conforms(await apply(prepared.handle, approve(prepared.review)));
+  assert.deepEqual([byStep(run, 2).application, byStep(run, 2).reason, byStep(run, 2).effectsUncertain ?? false], ['failed', 'prior-unrestorable', false]);
+  assert.deepEqual(fakeState(state, 'fake-tool').calls.map(call => call.argv[1]), ['get'], 'the command never ran');
+});
+
+test('a prior value read by a secret-named readback, or holding a host secret, is withheld from the receipt and the review', async () => {
+  const project = fresh();
+  const hostSecret = 'host-secret-value-0123456789';
+  const saved = process.env.FIXTURE_API_TOKEN;
+  process.env.FIXTURE_API_TOKEN = hostSecret;
+  try {
+    seedToolSettings(state, { apiKey: 'user-own-key-value', auto_index: hostSecret });
+    const named = toolSetup(server, { name: 'graph-key', settings: [['apiKey', 'x']] });
+    const valued = toolSetup(server, { name: 'graph-host', settings: [['auto_index', 'false']] });
+    assert.equal((await apply(...await approved(programRequest(project, { setups: [named, valued] })))).completion, 'complete');
+    const entries = (await list({ target: { project }, scope: 'user' })).entries;
+    for (const setup of [named, valued]) {
+      const program = entries.find(entry => entry.managementId === setup.id).programs[0];
+      assert.deepEqual([program.undo, program.prior], [null, 'withheld'], setup.id);
+    }
+    for (const value of ['user-own-key-value', hostSecret]) assert.ok(!treeHas(join(home, '.aih', 'core'), value), 'no receipt or history holds the value');
+  } finally { if (saved === undefined) delete process.env.FIXTURE_API_TOKEN; else process.env.FIXTURE_API_TOKEN = saved; }
+});
+
+test('removal restores and reads back with the environment the install ran the command with', async () => {
+  const project = fresh();
+  const elsewhere = join(scratch, `state-elsewhere-${counter}`);
+  seedToolSettings(elsewhere, { auto_index: 'true' });
+  seedToolSettings(state, { auto_index: 'default' });
+  const setup = toolSetup(server, { name: 'graph-env', stateInput: true });
+  const request = { ...programRequest(project, { setups: [setup] }), inputs: { [setup.id]: { TOOL_STATE: elsewhere } } };
+  const prepared = await prepare(request);
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared).slice(0, 2000));
+  assert.equal((await apply(prepared.handle, approve(prepared.review))).completion, 'complete');
+  assert.deepEqual(fakeState(elsewhere, 'fake-tool').settings, { auto_index: 'false' });
+  const removal = await (await setupRemoval(project, setup))();
+  conforms(removal.review);
+  const restore = removal.review.steps.find(step => step.op === 'tool-command');
+  assert.deepEqual(restore.program.env, [{ name: 'FAKE_TOOL_STATE', value: elsewhere }]);
+  const run = conforms(await apply(removal.handle, approve(removal.review)));
+  assert.equal(run.completion, 'complete', JSON.stringify(run));
+  assert.deepEqual(fakeState(elsewhere, 'fake-tool').settings, { auto_index: 'true' }, 'the setting the install changed is restored');
+  assert.deepEqual(fakeState(state, 'fake-tool').settings, { auto_index: 'default' }, 'the default place is untouched');
+});
+
+test('a command environment binding never sets a loader or search variable, in any case', async () => {
+  const project = fresh();
+  for (const name of ['NODE_OPTIONS', 'ld_preload', 'Path', 'PYTHONPATH', 'DYLD_INSERT_LIBRARIES', 'NoDefaultCurrentDirectoryInExePath']) {
+    const setup = toolSetup(server, { name: `graph-env-${name.toLowerCase().replaceAll('_', '-')}`, stateInput: true });
+    setup.toolCommands[0].inputs[0].at = { env: name };
+    const request = { ...programRequest(project, { setups: [setup] }), inputs: { [setup.id]: { TOOL_STATE: 'x' } } };
+    const prepared = await prepare(request);
+    assert.equal(prepared.status, 'invalid', `${name}: ${JSON.stringify(prepared).slice(0, 400)}`);
+    assert.ok(prepared.problems.some(problem => problem.reason === 'input-binding' && problem.message.includes(name)), JSON.stringify(prepared.problems));
+  }
+  assert.equal(fakeState(state, 'fake-tool').calls.length, 0, 'nothing ran');
+});
+
+test('only an acquire step places programs in an AI setup folder: a write there is refused, and a tool-command needs its folder placed', async () => {
+  const project = fresh();
+  const setup = toolSetup(server, { name: 'graph-place' });
+  // A plan that writes its own program into an AI setup folder.
+  const writing = programRequest(project, { skills: [{ name: 'planted', text: '@echo planted\r\n' }] });
+  Object.assign(writing.plan.plan[0], { root: 'user', path: `${setup.folder}/bin/planted.cmd` });
+  const refused = await prepare(writing);
+  assert.deepEqual([refused.status, refused.code], ['refused', 'path-escape'], JSON.stringify(refused).slice(0, 400));
+
+  // A tool-command whose AI setup folder neither this plan nor an earlier acquisition placed.
+  const alone = programRequest(project, { setups: [setup] });
+  alone.plan.plan = setup.toolCommands;
+  const unplaced = await prepare(alone);
+  assert.equal(unplaced.status, 'invalid', JSON.stringify(unplaced).slice(0, 400));
+  assert.ok(unplaced.problems.some(problem => problem.reason === 'root-path-unplaced'), JSON.stringify(unplaced.problems));
+
+  // Once Core acquired the folder (its marker present), the command and an MCP entry naming the program prepare alone.
+  const acquiring = programRequest(project, { setups: [setup], scope: 'user' });
+  acquiring.plan.plan = [setup.acquire];
+  assert.equal((await apply(...await approved(acquiring))).completion, 'complete');
+  const later = programRequest(project, { setups: [setup] });
+  later.plan.plan = [setup.merge, ...setup.toolCommands];
+  const ready = await prepare(later);
+  assert.equal(ready.status, 'ready', JSON.stringify(ready).slice(0, 2000));
+});
+
+test('the review marks every step that makes a client start a program, with the program and its arguments or the written bytes', async () => {
+  const project = fresh();
+  const setup = toolSetup(server, { name: 'graph-label' });
+  const hooks = '{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"node .claude/check.js --strict"}]}]}}\n';
+  const request = programRequest(project, { setups: [setup], skills: [{ name: 'runner', text: '#!/bin/sh\necho run\n' }, { name: 'settings', text: hooks },
+    { name: 'plain', text: 'plain text\n' }] });
+  const runner = request.contents[0].items.find(item => item.name === 'runner');
+  runner.files[0].executable = true;
+  const settingsStep = request.plan.plan.find(step => step.op === 'write' && step.path.includes('/settings/'));
+  settingsStep.path = '.claude/settings.json';
+  const prepared = await prepare(request);
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared).slice(0, 2000));
+  conforms(prepared.review);
+  const label = op => prepared.review.steps.find(op)?.executableConfiguration;
+  assert.deepEqual(label(step => step.op === 'merge'), { label: 'executable-configuration', kind: 'mcp-server',
+    launches: [{ command: join(home, ...setup.program.split('/')), args: ['serve'] }] });
+  const sha = text => createHash('sha256').update(text).digest('hex');
+  assert.deepEqual(label(step => step.path === '.claude/skills/runner/SKILL.md'),
+    { label: 'executable-configuration', kind: 'executable-file', launches: [], sha256: sha('#!/bin/sh\necho run\n'), executable: true });
+  assert.deepEqual(label(step => step.path === '.claude/settings.json'),
+    { label: 'executable-configuration', kind: 'hook', launches: [{ command: 'node .claude/check.js --strict', args: [] }], sha256: sha(hooks), executable: false });
+  assert.equal(label(step => step.path === '.claude/skills/plain/SKILL.md'), undefined);
+});
+
+test('an upstream setup clones with none of the host\'s git overrides: a GIT_DIR set by a calling hook never redirects it', async () => {
+  const project = fresh();
+  const upstream = upstreamRepository(scratch, home);
+  const prepared = await prepare(programRequest(project, { upstream: [upstream] }));
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared));
+  const saved = { GIT_DIR: process.env.GIT_DIR, GIT_WORK_TREE: process.env.GIT_WORK_TREE };
+  Object.assign(process.env, { GIT_DIR: join(scratch, `elsewhere-${counter}.git`), GIT_WORK_TREE: join(scratch, `elsewhere-${counter}`) });
+  try {
+    const run = conforms(await apply(prepared.handle, approve(prepared.review)));
+    assert.equal(run.completion, 'complete', JSON.stringify(run));
+    assert.ok(existsSync(join(home, '.claude', 'skills', 'gstack', 'README.md')));
+    assert.equal(existsSync(process.env.GIT_DIR), false, 'nothing was written where the host pointed git');
+  } finally { for (const [key, value] of Object.entries(saved)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; } }
+});
+
+test('an AI setup settings folder takes only plain settings files, and a marker file alone never proves an acquisition', async () => {
+  const project = fresh();
+  const setup = toolSetup(server, { name: 'graph-forged' });
+  const writing = (path, executable) => {
+    const request = programRequest(project, { skills: [{ name: 'forged', text: '@echo forged\r\n' }] });
+    Object.assign(request.plan.plan[0], { root: 'user', path });
+    request.contents[0].items[0].files[0].executable = executable;
+    return prepare(request);
+  };
+  const base = `.aihq/ai-setup/graph-forged/settings`;
+  for (const [path, executable] of [[`${base}/forged/.aih-acquired`, false], [`${base}/.aih-acquired`, false], [`${base}/t.cmd`, true],
+    [`${base}/forged/t.cmd`, false], [`${base}/run.cmd`, false], ['.claude/.aih-acquired', false]]) {
+    const refused = await writing(path, executable);
+    assert.deepEqual([refused.status, refused.code], ['refused', 'path-escape'], `${path}: ${JSON.stringify(refused).slice(0, 300)}`);
+  }
+  assert.equal((await writing(`${base}/config.json`, false)).status, 'ready', 'a plain settings file directly in settings/ is a write');
+
+  // A forged marker on disk, beside a planted program: no receipt records it, so a tool-command there is refused.
+  const forged = join(home, ...setup.folder.split('/'));
+  mkdirSync(join(forged, 'bin'), { recursive: true });
+  writeFileSync(join(forged, '.aih-acquired'), `Managed by AIH Core:${setup.id} 1.4.0 forged\n`);
+  writeFileSync(join(home, ...setup.program.split('/')), 'planted\n');
+  const alone = programRequest(project, { setups: [setup] });
+  alone.plan.plan = setup.toolCommands;
+  const unplaced = await prepare(alone);
+  assert.equal(unplaced.status, 'invalid', JSON.stringify(unplaced).slice(0, 400));
+  assert.ok(unplaced.problems.some(problem => problem.reason === 'root-path-unplaced'), JSON.stringify(unplaced.problems));
+  rmSync(join(home, '.aihq'), { recursive: true, force: true });
+});
+
+test('executable configuration is labelled whatever its format: JSON with comments, a BOM or trailing commas, TOML and YAML', async () => {
+  const project = fresh();
+  const files = {
+    commented: ['.claude/settings.json', '// team hooks\n{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"sh stop.sh"}]}]}}\n', 'hook', 'sh stop.sh'],
+    bom: ['.claude/other.json', '﻿{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"sh bom.sh"}]}]}}\n', 'hook', 'sh bom.sh'],
+    trailing: ['.mcp.json', '{"mcpServers":{"x":{"command":"evil-a","args":["--x"],},},}\n', 'settings-command', 'evil-a'],
+    toml: ['.codex/config.toml', '[mcp_servers.x]\ncommand = "evil-b"\nargs = ["--y"]\n', 'settings-command', 'evil-b'],
+    notify: ['.codex/notify.toml', 'notify = ["evil-c", "--z"]\n', 'settings-command', 'evil-c'],
+    yaml: ['.continue/config.yaml', 'mcpServers:\n  - name: x\n    command: evil-d\n', 'settings-command', 'evil-d'],
+    renamed: ['.claude/settings.txt', '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"sh txt.sh"}]}]}}\n', 'hook', 'sh txt.sh'] };
+  const request = programRequest(project, { skills: Object.entries(files).map(([name, [, text]]) => ({ name, text })) });
+  for (const step of request.plan.plan) { const name = step.path.split('/').at(-2); step.path = files[name][0]; }
+  const prepared = await prepare(request);
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared).slice(0, 1500));
+  conforms(prepared.review);
+  for (const [name, [path, , kind, command]] of Object.entries(files)) {
+    const label = prepared.review.steps.find(step => step.path === path)?.executableConfiguration;
+    assert.equal(label?.label, 'executable-configuration', `${name}: ${JSON.stringify(label)}`);
+    assert.ok(label.launches.some(launch => launch.command === command), `${name}: ${JSON.stringify(label)}`);
+    assert.ok(kind === 'hook' ? label.kind === 'hook' : ['mcp-server', 'settings-command'].includes(label.kind), `${name}: ${label.kind}`);
+  }
+});
+
+test('a tool-command alone runs only the bytes its acquisition placed, and keeps that acquisition recorded', async () => {
+  const project = fresh();
+  const setup = toolSetup(server, { name: 'graph-tree' });
+  const acquiring = programRequest(project, { setups: [setup], scope: 'user' });
+  acquiring.plan.plan = [setup.acquire];
+  assert.equal((await apply(...await approved(acquiring))).completion, 'complete');
+  const alone = () => { const request = programRequest(project, { setups: [setup] }); request.plan.plan = setup.toolCommands; return request; };
+  // The review names the placed program's sha256 and the tree manifest the receipt records.
+  const first = await prepare(alone());
+  assert.equal(first.status, 'ready', JSON.stringify(first).slice(0, 1500));
+  const program = first.review.steps.find(step => step.op === 'tool-command').program;
+  assert.equal(program.executableSha256, setup.qualification.observed.members[0].sha256);
+  assert.match(program.treeSha256, /^[a-f0-9]{64}$/);
+  assert.equal(conforms(await apply(first.handle, approve(first.review))).completion, 'complete');
+  // A second settings-only run still finds the acquisition, and so does its MCP item's exemption from server.json.
+  assert.equal((await prepare(alone())).status, 'ready', 'the acquisition is still recorded after a tool-command-only run');
+  const mcp = programRequest(project, { setups: [setup] });
+  mcp.plan.plan = [setup.merge];
+  const listed = mcp.contents[0].items.find(item => item.id === setup.mcpItem);
+  listed.files = [{ sourceId: 'local-my-skills', sourcePath: 'mcp/server.json', sha256: 'a'.repeat(64), bytes: 2, executable: false, role: 'content' }];
+  const exempt = await prepare(mcp);
+  assert.equal(exempt.status, 'ready', JSON.stringify(exempt).slice(0, 1500));
+  // Other bytes at the program's path, or a program the acquisition never placed, are refused before anything runs.
+  const placed = join(home, ...setup.program.split('/'));
+  const original = readFileSync(placed);
+  writeFileSync(placed, Buffer.concat([original, Buffer.from('changed')]));
+  const changed = await prepare(alone());
+  assert.deepEqual([changed.status, changed.code], ['refused', 'artifact-changed'], JSON.stringify(changed).slice(0, 600));
+  writeFileSync(placed, original);
+  const added = alone();
+  const extra = setup.program.replace(/fake-tool(\.exe)?$/, process.platform === 'win32' ? 'other.exe' : 'other');
+  writeFileSync(join(home, ...extra.split('/')), original);
+  for (const step of added.plan.plan) step.executable.path = extra;
+  const unplaced = await prepare(added);
+  assert.deepEqual([unplaced.status, unplaced.code], ['refused', 'artifact-changed'], JSON.stringify(unplaced).slice(0, 600));
+});
+
+test('an AI setup\'s MCP entry starts only that setup\'s acquired program, with its launch arguments', async () => {
+  const project = fresh();
+  const setup = toolSetup(server, { name: 'graph-own' });
+  const acquiring = programRequest(project, { setups: [setup], scope: 'user' });
+  acquiring.plan.plan = [setup.acquire];
+  assert.equal((await apply(...await approved(acquiring))).completion, 'complete');
+  const entry = (changes, drop = []) => { const request = programRequest(project, { setups: [setup] }); const step = { ...setup.merge, ...changes };
+    for (const key of drop) delete step[key]; request.plan.plan = [step]; return prepare(request); };
+  assert.equal((await entry({})).status, 'ready');
+  const evil = await entry({ entry: { command: 'evil', args: ['--pwn'] } }, ['rootPaths']);
+  assert.deepEqual([evil.status, evil.code], ['refused', 'source-mismatch'], JSON.stringify(evil).slice(0, 500));
+  const outside = await entry({ entry: { command: '.aihq/other/evil', args: ['serve'] }, rootPaths: [{ pointer: '/command', root: 'user', path: '.aihq/other/evil' }] });
+  assert.equal(outside.status === 'ready', false, JSON.stringify(outside).slice(0, 500));
+});
+
+test('a TOML or YAML write naming a command in a form Core does not read is still labelled, never shown as a raw token', async () => {
+  const project = fresh();
+  const B = String.fromCharCode(92);
+  const files = {
+    multiline: ['.codex/a.toml', 'notify = [\n  "evil",\n  "--x",\n]\n'],
+    inline: ['.codex/b.toml', '[mcp_servers]\nx = { command = "evil" }\n'],
+    nested: ['.codex/c.toml', 'mcp_servers = { x = { command = "evil" } }\n'],
+    escaped: ['.codex/d.toml', `"comm${B}u0061nd" = "evil"\n`],
+    hooks: ['.codex/e.toml', '[[hooks.PreToolUse]]\ncommand = [\n  "evil",\n]\n'],
+    triple: ['.codex/f.toml', 'command = """\nevil"""\n'],
+    quoted: ['.continue/a.yaml', '"command": evil\n'],
+    flow: ['.continue/b.yaml', 'mcpServers: [{name: x, command: evil}]\n'],
+    merge: ['.continue/c.yaml', 'base: &b {command: evil}\nserver:\n  <<: *b\n'],
+    explicit: ['.continue/d.yaml', '? command\n: evil\n'],
+    tagged: ['.continue/e.yaml', '!!str command: evil\n'],
+    alias: ['.continue/f.yaml', 'c: &c evil\nx:\n  command: *c\n'],
+    folded: ['.continue/g.yaml', 'command: >-\n  evil\n'],
+    commented: ['.continue/h.json', '# note\n{"command": "evil"}\n'] };
+  const request = programRequest(project, { skills: Object.entries(files).map(([name, [, text]]) => ({ name, text })) });
+  for (const step of request.plan.plan) { const name = step.path.split('/').at(-2); step.path = files[name][0]; }
+  const prepared = await prepare(request);
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared).slice(0, 1500));
+  conforms(prepared.review);
+  for (const [name, [path]] of Object.entries(files)) {
+    const label = prepared.review.steps.find(step => step.path === path)?.executableConfiguration;
+    assert.equal(label?.label, 'executable-configuration', `${name}: ${JSON.stringify(label)}`);
+    for (const launch of label.launches) assert.equal(launch.command, 'evil', `${name}: ${JSON.stringify(label)}`);
+  }
+  // A settings file that names no command in any form is not labelled.
+  const plain = programRequest(project, { skills: [{ name: 'plain', text: 'model = "o5"\n[profiles.work]\nmodel = "o5-pro"\n' }] });
+  plain.plan.plan[0].path = '.codex/plain.toml';
+  assert.equal((await prepare(plain)).review.steps[0].executableConfiguration, undefined);
+});
+
+test('an AI setup entry\'s command is its own rootPaths binding, absolute, and a project never holds an AI setup folder', async () => {
+  const project = fresh();
+  const setup = toolSetup(server, { name: 'graph-rel' });
+  const acquiring = programRequest(project, { setups: [setup], scope: 'user' });
+  acquiring.plan.plan = [setup.acquire];
+  assert.equal((await apply(...await approved(acquiring))).completion, 'complete');
+  // The binding names another pointer: the command stays a relative path a client would resolve in the project.
+  const request = programRequest(project, { setups: [setup] });
+  request.plan.plan = [{ ...setup.merge, entry: { ...setup.merge.entry, env: { X: setup.program } },
+    rootPaths: [{ pointer: '/env/X', root: 'user', path: setup.program }] }];
+  const relative = await prepare(request);
+  assert.deepEqual([relative.status, relative.code], ['refused', 'source-mismatch'], JSON.stringify(relative).slice(0, 500));
+  // A project-scope write into an AI setup folder.
+  const planted = programRequest(project, { skills: [{ name: 'planted', text: '@echo planted\r\n' }] });
+  planted.plan.plan[0].path = `${setup.folder}/bin/fake-tool.cmd`;
+  const refused = await prepare(planted);
+  assert.deepEqual([refused.status, refused.code], ['refused', 'path-escape'], JSON.stringify(refused).slice(0, 400));
+});
+
+test('hooks in any key form, loader variables in settings environments and every YAML file are labelled', async () => {
+  const project = fresh();
+  const files = {
+    copilot: ['.github/hooks/hooks.json', '{"hooks":{"sessionStart":[{"type":"command","bash":"./evil.sh","powershell":"./evil.ps1"}]}}\n'],
+    claudeenv: ['.claude/settings.json', '{"env":{"NODE_OPTIONS":"--require ./evil.js"}}\n'],
+    gemini: ['.gemini/settings.json', '{"tools":{"discoveryCommand":"evil-discover","callCommand":"evil-call"}}\n'],
+    hookonly: ['.claude/hooks.json', '{"hooks":{"Stop":[]}}\n'],
+    yaml: ['.continue/config.yaml', 'name: plain\nmodels: []\n'] };
+  const request = programRequest(project, { skills: Object.entries(files).map(([name, [, text]]) => ({ name, text })) });
+  for (const step of request.plan.plan) { const name = step.path.split('/').at(-2); step.path = files[name][0]; }
+  const prepared = await prepare(request);
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared).slice(0, 1500));
+  conforms(prepared.review);
+  for (const [name, [path]] of Object.entries(files))
+    assert.equal(prepared.review.steps.find(step => step.path === path)?.executableConfiguration?.label, 'executable-configuration', name);
+  const label = path => prepared.review.steps.find(step => step.path === path).executableConfiguration;
+  assert.ok(label('.github/hooks/hooks.json').launches.some(launch => launch.command === './evil.sh'));
+  assert.ok(label('.gemini/settings.json').launches.some(launch => launch.command === 'evil-call'));
+});
+
+test('an AI setup entry starts exactly its acquisition\'s named executable, and an MCP item never writes a whole MCP file in any format', async () => {
+  const project = fresh();
+  const setup = toolSetup(server, { name: 'graph-exact' });
+  const acquiring = programRequest(project, { setups: [setup], scope: 'user' });
+  acquiring.plan.plan = [setup.acquire];
+  assert.equal((await apply(...await approved(acquiring))).completion, 'complete');
+  const other = `${setup.folder}/LICENSE`;
+  const request = programRequest(project, { setups: [setup] });
+  request.plan.plan = [{ ...setup.merge, entry: { ...setup.merge.entry, command: other }, rootPaths: [{ pointer: '/command', root: 'user', path: other }] }];
+  const refused = await prepare(request);
+  assert.deepEqual([refused.status, refused.code], ['refused', 'source-mismatch'], JSON.stringify(refused).slice(0, 400));
+  // Whole MCP files in JSONC, TOML and YAML, written for an MCP item.
+  for (const [path, text] of [['.vscode/mcp.json', '// servers\n{"servers":{"x":{"command":"evil"}}}\n'], ['.codex/other.toml', '[mcp_servers.x]\ncommand = "evil"\n'],
+    ['.continue/mcpServers/x.yaml', 'mcpServers:\n  - name: x\n    command: evil\n']]) {
+    const whole = programRequest(project, { skills: [{ name: 'whole', text }] });
+    whole.plan.plan[0].path = path;
+    whole.contents[0].items[0].kind = 'mcp';
+    const result = await prepare(whole);
+    assert.deepEqual([result.status, result.code], ['refused', 'mcp-entry-shape'], `${path}: ${JSON.stringify(result).slice(0, 300)}`);
+  }
+});

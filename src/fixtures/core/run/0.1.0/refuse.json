@@ -1,0 +1,10 @@
+{
+  "schema": "urn:aihq:core:run:0.1.0",
+  "status": "ok",
+  "runId": "8a1f8f2e-7c0d-4b8e-9b4a-1d2c3b4a5f6e",
+  "completion": "confirmed",
+  "reviewDigest": null,
+  "steps": [],
+  "members": [],
+  "history": { "status": "disabled" }
+}

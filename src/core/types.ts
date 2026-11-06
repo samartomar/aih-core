@@ -123,7 +123,6 @@ export interface Recipe {
 /** Catalog's qualified inclusion identity: one reason a resolved item is selected, carried unchanged. */
 export type InclusionOrigin =
   | { reasonIncluded: 'chosen' }
-  | { reasonIncluded: 'in-set'; set: { framework: string; setId: string; setSha256: string }; options?: Record<string, string[]> }
   /** `framework` is absent only when the requiring Catalog release publishes no framework identity. */
   | { reasonIncluded: 'required-by'; requiredBy: { framework?: string; itemId: string } };
 /**
@@ -216,7 +215,6 @@ export interface ExecutionPolicy {
   /** Execution policy 1.4.0: items left out by framework and item id; a selection naming one makes the policy invalid. */
   excludedItems?: CatalogItemRef[];
   /** Optional assessment references; never execution authority or a findings gate. */
-  evidence?: import('./evidence/types.js').EvidenceAssociation[];
   managedSelections?: { id: string; scope: 'project' | 'user'; members: string[] }[];
   removals?: { managementId: string; scope: 'project' | 'user' }[];
   metadata?: Record<string, Json>;

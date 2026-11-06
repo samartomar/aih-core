@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { prepare, apply, prepareManagedRemoval } from '../dist/core/index.js';
+import { prepare, apply, prepareManagedRemoval } from '../dist/core/engine-api.js';
 import { policy } from './fixture.mjs';
 import { sandbox, authorize } from './hook-group-fixture.mjs';
 

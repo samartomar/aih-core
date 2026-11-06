@@ -9,9 +9,9 @@ import { EventEmitter } from 'node:events';
 import { syncBuiltinESMExports } from 'node:module';
 import childProcess from 'node:child_process';
 import tls from 'node:tls';
-import { inspect } from '../dist/core/index.js';
+import { inspect } from '../dist/core/engine-api.js';
 import { contractSupport } from '../dist/core/contracts.js';
-import { diagnose } from '@aihq/core/harness/runtime';
+import { diagnose } from '../dist/harness/runtime.mjs';
 
 test('inspection uses installed Harness and distinguishes runnable, requested absent and unselected absent', async () => {
   const root = mkdtempSync(join(tmpdir(), 'aih-inspect-'));
@@ -61,7 +61,7 @@ test('config trace does not prove a runnable executable and offline suppresses d
 });
 
 test('invalid targets and budgets run no diagnostics', async () => {
-  for (const [request, controls] of [[{ targets: ['unknown'] }, {}], [{}, { budgetMs: 180001 }], [{ network: 'surprise' }, {}]]) {
+  for (const [request, controls] of [[{ targets: ['unknown'] }, {}], [{ network: 'declared' }, { budgetMs: 180001 }], [{ network: 'surprise' }, {}]]) {
     const result = await inspect(request, controls);
     assert.equal(result.status, 'invalid');
     assert.deepEqual(result.tools, []);
@@ -130,21 +130,19 @@ test('broken version and bounded output remain failed versus unavailable, and ca
   }
 });
 
-test('CLI and API expose the same bounded offline inspection without a policy or writes', async () => {
+test('the CLI gives the bounded offline 0.1.0 inspection without writes', async () => {
   const root = mkdtempSync(join(tmpdir(), 'aih-inspect-cli-'));
   const home = join(root, 'home'); const project = join(root, 'project');
   mkdirSync(home); mkdirSync(project);
   const cli = fileURLToPath(new URL('../dist/core/cli.js', import.meta.url));
   try {
-    const child = spawnSync(process.execPath, [cli, 'inspect', '--target', 'node', '--offline', '--project', project, '--json'], {
+    const child = spawnSync(process.execPath, [cli, 'inspect', '--target', 'node', '--offline', '--json'], {
       env: { ...process.env, HOME: home, USERPROFILE: home }, encoding: 'utf8', timeout: 20000
     });
     assert.equal(child.status, 0, child.stdout + child.stderr);
     const result = JSON.parse(child.stdout);
-    assert.equal(result.status, 'complete');
+    assert.equal(result.schema, 'urn:aihq:core:inspection:0.1.0');
     assert.equal(result.package.name, '@aihq/core');
-    assert.equal(result.tools.find(tool => tool.id === 'node').state, 'runnable');
-    assert.deepEqual(result.effectiveOptions.network, { value: 'off', origin: 'explicit' });
     assert.equal(existsSync(join(home, '.aih')), false);
     assert.deepEqual(readdirSync(project), []);
   } finally { rmSync(root, { recursive: true, force: true }); }

@@ -3,7 +3,8 @@
 import { closeSync, fstatSync, lstatSync, mkdirSync, openSync, readSync, readdirSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { hasExactKeys, isRecord, isSafeRelativePath, parseStrictJson } from './canonical.mjs';
-import { nativeBounds, validateNativeTestIdentity } from './contracts.mjs';
+import { nativeBounds } from './contracts.mjs';
+import { validateNativeTestIdentity } from './tool-names.mjs';
 import { isOwnerOnly } from './cell.mjs';
 import { sha256 } from './digest.mjs';
 

@@ -73,13 +73,11 @@ const forbiddenControls = (controls: HostControls): boolean => ['privateInputs',
 const isLocalPolicySource = (source: unknown): boolean =>
   !!source && typeof source === 'object' && (source as { provider?: unknown }).provider === 'local';
 /**
- * Enterprise needs exactly one valid organization source; Vibe accepts none. Both removal forms admit the GitHub
- * source and the caller-selected local file, read offline.
+ * Organization policy 1.x is retired (C15): Enterprise removal admission is the 0.1.0 organization, applied by
+ * `prepareRemoval`. This retained removal is Vibe only and accepts no organization source.
  */
 function organizationSourceValid(mode: 'vibe' | 'enterprise', source: unknown): boolean {
-  if ((mode === 'enterprise') !== (source !== undefined)) return false;
-  if (mode === 'vibe') return true;
-  try { return validGitHubPolicySource(source) || validLocalPolicySource(source); } catch { return false; }
+  return mode === 'vibe' && source === undefined;
 }
 /** A local file needs the later review that names it; every other removal keeps its earlier policy identity. */
 const removalPolicySchema = (source: unknown, boundedConfig: boolean): ExecutionPolicy['schema'] =>
@@ -99,10 +97,18 @@ export function prepareManagedRemoval(request: ManagedRemovalsRequest, controls?
 export function prepareManagedRemoval(request: ManagedRemovalRequest, controls?: HostControls): Promise<ManagedRemovalPreparationResult>;
 export async function prepareManagedRemoval(request: ManagedRemovalRequest | ManagedRemovalsRequest, controls: HostControls = {}): Promise<ManagedRemovalPreparationResult | ManagedRemovalPreparationResult12> {
   forgetProvenState();
-  if (request && typeof request === 'object' && Object.hasOwn(request, 'removals')) return prepareRemovals(request as ManagedRemovalsRequest, controls);
+  if (request && typeof request === 'object' && Object.hasOwn(request, 'removals')) return prepareRemovals(request as ManagedRemovalsRequest, controls, {});
   return prepareOne(request as ManagedRemovalRequest, controls);
 }
-async function prepareOne(request: ManagedRemovalRequest, controls: HostControls): Promise<ManagedRemovalPreparationResult> {
+/**
+ * A repair's removal for the 0.1.0 lifecycle (contract 7.4, 10): the retained single-id removal, whose run checks every
+ * member it releases on disk and is verified from those checks. Not a public entry.
+ */
+export function prepareRepairRemoval(request: ManagedRemovalRequest, controls: HostControls): Promise<ManagedRemovalPreparationResult> {
+  forgetProvenState();
+  return prepareOne(request, controls, true);
+}
+async function prepareOne(request: ManagedRemovalRequest, controls: HostControls, memberChecked = false): Promise<ManagedRemovalPreparationResult> {
   const { identity, valid: identityValid } = distributionIdentity();
   const base = { schema: SCHEMA, package: identity } as const;
   const done = (disposition: ManagedRemovalDisposition, fields: Partial<ManagedRemovalPreparationResult>, diagnostics: Diagnostic[] = []): ManagedRemovalPreparationResult =>
@@ -203,13 +209,17 @@ async function prepareOne(request: ManagedRemovalRequest, controls: HostControls
   }, effects) : undefined;
   if (sessionParticipant && !trustParticipant) return unavailable('session-custody-unavailable', 'Ordinary trust and session custody must agree.', 'STATE_CONFLICT');
   const participant = sessionParticipant ? joinSessionParticipant(trustParticipant!, sessionParticipant) : trustParticipant;
-  let preparation = await preparePolicy({ useCase: 'policy', policy, target: { project },
-    ...(request.organizationSource === undefined ? {} : { organizationSource: request.organizationSource }) }, forwarded,
-  undefined, sameImage, participant);
+  // A member-checked removal is carried out as plan work is: its run reports and checks each member it releases.
+  let preparation = await preparePolicy({ useCase: 'policy', policy, target: { project } }, forwarded,
+  undefined, sameImage, participant, undefined, undefined, memberChecked ? {} : undefined);
   if (sessionEntry) preparation = wrapMacosRemoval(preparation, sessionEntry, forwarded, effects);
   // A removal review holds only generated lifecycle cleanup; the embedded preparation keeps its published shape.
   const { operationSelections: _selections, ...embedded } = preparation; preparation = embedded;
-  if (preparation.diagnostics.some(item => item.reason === 'ownership-changed'))
+  // Custody is checked again once the preparation is back, before its handle is handed out: a change at any point
+  // after the preflight read makes the removal unavailable (Apply would refuse it as stale anyway).
+  let current = false;
+  try { current = sameImage(); } catch { /* An unreadable image is not current. */ }
+  if (!current || preparation.diagnostics.some(item => item.reason === 'ownership-changed'))
     return unavailable('ownership-changed', 'Protected custody changed during preparation; request removal again.');
   return done('prepared', { ...known, preparation,
     ...(preparation.review?.schema === 'urn:aihq:core:prepared-work:1.4.0' ||
@@ -221,18 +231,22 @@ function validOrigin(origin: unknown): origin is NonNullable<RemovalSelector['or
   if (!origin || typeof origin !== 'object' || Array.isArray(origin)) return false;
   const keys = Object.keys(origin);
   if (keys.length === 1 && keys[0] === 'reasonIncluded') return (origin as { reasonIncluded: unknown }).reasonIncluded === 'chosen';
-  if (keys.length !== 1 || keys[0] !== 'set') return false;
-  const set = (origin as { set: unknown }).set as Record<string, unknown>;
-  return !!set && typeof set === 'object' && !Array.isArray(set) && Object.keys(set).length === 3 &&
-    text(set.framework, 128) && text(set.setId, 128) && typeof set.setSha256 === 'string' && /^[a-f0-9]{64}$/.test(set.setSha256);
+  return false;
 }
 /** Does a recorded inclusion equal the selector's origin: the full qualified set identity, never a bare set id. */
-const sameOrigin = (recorded: InclusionOrigin, origin: NonNullable<RemovalSelector['origin']>): boolean => 'set' in origin ?
-  recorded.reasonIncluded === 'in-set' && recorded.set.framework === origin.set.framework && recorded.set.setId === origin.set.setId &&
-    recorded.set.setSha256 === origin.set.setSha256 : recorded.reasonIncluded === 'chosen';
+const sameOrigin = (recorded: InclusionOrigin, _origin: NonNullable<RemovalSelector['origin']>): boolean => recorded.reasonIncluded === 'chosen';
 
+/**
+ * Removal preparation 1.2.0 for the 0.1.0 lifecycle: as `prepareManagedRemoval` with `removals`, plus the secrets a
+ * displaced value needs again when it is written back (C64). Not a public entry.
+ */
+export function prepareManagedRemovals(request: ManagedRemovalsRequest, controls: HostControls,
+    internal: { displacedInput?: (item: string, input: string) => string | undefined }): Promise<ManagedRemovalPreparationResult12> {
+  forgetProvenState();
+  return prepareRemovals(request, controls, internal);
+}
 /** Removal preparation 1.2.0: preflight every removal with the single-id safeguards, then one cleanup-only review. */
-async function prepareRemovals(request: ManagedRemovalsRequest, controls: HostControls): Promise<ManagedRemovalPreparationResult12> {
+async function prepareRemovals(request: ManagedRemovalsRequest, controls: HostControls, internal: { displacedInput?: (item: string, input: string) => string | undefined }): Promise<ManagedRemovalPreparationResult12> {
   const { identity, valid: identityValid } = distributionIdentity();
   const known: Partial<ManagedRemovalPreparationResult12> = {};
   const done = (disposition: ManagedRemovalPreparationResult12['disposition'], diagnostics: Diagnostic[] = [], fields: Partial<ManagedRemovalPreparationResult12> = {}): ManagedRemovalPreparationResult12 =>
@@ -416,11 +430,14 @@ async function prepareRemovals(request: ManagedRemovalsRequest, controls: HostCo
   const policy: ExecutionPolicy = { schema: POLICY_14, mode, selections: [],
     ...(wholeIds.size ? { removals: [...wholeIds].map(managementId => ({ managementId, scope })) } : {}) };
   let rows: CleanupPlanRow[] = [];
-  let preparation = await preparePolicy({ useCase: 'policy', policy, target: { project },
-    ...(request.organizationSource === undefined ? {} : { organizationSource: request.organizationSource }) }, forwardedControls(controls),
-  undefined, sameImage, undefined, { originReleases, plan: planned => { rows = planned; } });
+  let preparation = await preparePolicy({ useCase: 'policy', policy, target: { project } }, forwardedControls(controls),
+  undefined, sameImage, undefined, { originReleases, plan: planned => { rows = planned; }, ...internal });
   const { operationSelections: _selections, ...embedded } = preparation; preparation = embedded;
-  if (preparation.diagnostics.some(item => item.reason === 'ownership-changed'))
+  // Custody is checked again once the preparation is back, before its handle is handed out: a change at any point
+  // after the preflight read makes the removal unavailable (Apply would refuse it as stale anyway).
+  let current = false;
+  try { current = sameImage(); } catch { /* An unreadable image is not current. */ }
+  if (!current || preparation.diagnostics.some(item => item.reason === 'ownership-changed'))
     return unavailable('ownership-changed', 'Protected custody changed during preparation; request removal again.');
   const listed = (descriptorRoot: string, descriptor: CleanupPlanRow['descriptor'], path: string | undefined) => {
     const pointer = memberPointer(descriptor);

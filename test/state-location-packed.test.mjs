@@ -45,10 +45,10 @@ test('packed stateLocation is portable and resolveStateLocation names the runnin
 
     // Host resolution: absolute paths under the running host's (disposable) home.
     const stateRoot = join(observed.home, '.aih', 'core');
-    const resolved = { root: stateRoot, projectMarkers: expected.projectMarkers.map(({ path, meaning }) => ({ path: join(stateRoot, path), meaning })) };
+    const resolved = { status: 'ok', root: stateRoot, markers: expected.projectMarkers.map(({ path, meaning }) => ({ path: join(stateRoot, path), meaning })) };
     assert.deepEqual(observed.before, resolved);
     assert.deepEqual(observed.after, resolved);
-    assert.ok([observed.after.root, ...observed.after.projectMarkers.map(marker => marker.path)].every(isAbsolute));
+    assert.ok([observed.after.root, ...observed.after.markers.map(marker => marker.path)].every(isAbsolute));
     // Reading the location writes nothing.
     assert.deepEqual(observed.homeAfterRead, []);
 
@@ -59,12 +59,12 @@ test('packed stateLocation is portable and resolveStateLocation names the runnin
     // Core writes no marker of its own into the project folder.
     assert.deepEqual(observed.projectEntries, ['TEAM.md']);
 
-    // A home that is not an existing directory is refused, as Core's operations refuse it; nothing is created.
+    // A home that is not an existing directory is refused home-unavailable (never thrown); nothing is created.
     const missingHome = join(root, 'missing-home');
     const refusal = execFileSync(process.execPath, ['--input-type=module', '-e',
-      "import { resolveStateLocation } from '@aihq/core'; try { resolveStateLocation(); console.log('resolved'); } catch (error) { console.log('refused'); }"],
+      "import { resolveStateLocation } from '@aihq/core'; const result = resolveStateLocation(); console.log(result.status + ':' + result.code);"],
       { cwd: consumer, env: { ...env, HOME: missingHome, USERPROFILE: missingHome }, encoding: 'utf8', windowsHide: true, timeout: 60_000 }).trim();
-    assert.equal(refusal, 'refused');
+    assert.equal(refusal, 'refused:home-unavailable');
     assert.throws(() => readFileSync(missingHome), { code: 'ENOENT' });
 
     // The portable value bundles for a browser without Node built-ins or host discovery.
@@ -88,8 +88,9 @@ test('packed stateLocation is portable and resolveStateLocation names the runnin
       const segments: readonly string[] = location.root.segments;
       const marker: StateLocationMarker | undefined = location.projectMarkers[0];
       const resolved: ResolvedStateLocation = resolveStateLocation();
-      const absolute: string = resolved.root;
-      const resolvedMarker: ResolvedStateLocationMarker | undefined = resolved.projectMarkers[0];
+      if (resolved.status === 'refused') { const code: 'home-unavailable' = resolved.code; void code; }
+      const absolute: string | undefined = resolved.status === 'ok' ? resolved.root : undefined;
+      const resolvedMarker: ResolvedStateLocationMarker | undefined = resolved.status === 'ok' ? resolved.markers[0] : undefined;
       const markerPath: string | undefined = resolvedMarker?.path;
       // @ts-expect-error The portable descriptors are read-only.
       stateLocation.root.base = 'elsewhere';

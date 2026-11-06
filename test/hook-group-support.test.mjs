@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { getGuidance, renderSupportMarkdown } from '../dist/core/support.js';
-import { apply, prepare } from '../dist/core/index.js';
+import { apply, prepare } from '../dist/core/engine-api.js';
 import { SETTINGS, authorize, groupOf, hookOp, hookSelection, policy11, request, sandbox } from './hook-group-fixture.mjs';
 import { SELECTION_ID, fakeFetch, orgDocument, orgRoutes, orgSource } from './fixtures/github-org.mjs';
 import { compact, controls, guard, neighbor, only, prep, run } from './hook-group-harness.mjs';
@@ -83,22 +83,6 @@ test('support keeps generic guidance for a non-hook conflict that shares a reaso
   } finally { s.dispose(); }
 });
 
-test('an Enterprise hook-group existing-content conflict gets hook recovery guidance instead of the administrator decision item', async () => {
-  const s = sandbox();
-  const originalFetch = globalThis.fetch;
-  try {
-    s.write(SETTINGS, compact([neighbor('a'), groupOf('guard-a', { matcher: 'Different' })]));
-    const document = guard(); document.mode = 'enterprise'; document.selections[0].organizationSelectionId = SELECTION_ID;
-    const organization = orgDocument(document); organization.selections[0].inputs = {};
-    globalThis.fetch = fakeFetch(orgRoutes({ bytes: Buffer.from(JSON.stringify(organization)) }));
-    const blocked = await prepare({ ...request(s.project, document), organizationSource: orgSource() }, controls);
-    assert.equal(blocked.review.mode, 'enterprise');
-    assert.deepEqual(blocked.diagnostics.map(item => [item.code, item.reason]), [['STATE_CONFLICT', 'existing-content']]);
-    const items = getGuidance({ kind: 'prepare', result: blocked }, options).items;
-    assert.deepEqual(items.filter(item => item.id !== 'result-status').map(item => [item.id, item.audience, item.reason]),
-      [['hook-group-conflict', 'developer', 'existing-content']]);
-  } finally { globalThis.fetch = originalFetch; s.dispose(); }
-});
 
 test('guidance for a structurally unreadable target names the real problem, never the comment-adjacency text', async () => {
   const s = sandbox();

@@ -4,7 +4,7 @@ import { existsSync, readFileSync, readdirSync, realpathSync, writeFileSync } fr
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { Ajv2020 } from 'ajv/dist/2020.js';
-import { prepare, apply, prepareUpdate } from '../dist/core/index.js';
+import { prepare, apply, prepareUpdate } from '../dist/core/engine-api.js';
 import { readReceipt, writeReceipt } from './fixtures/ownership-receipt.mjs';
 import { policy } from './fixture.mjs';
 import { sandbox } from './hook-group-fixture.mjs';

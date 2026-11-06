@@ -1,6 +1,11 @@
 # Data contract (experimental)
 
-`@aihq/core/report` is the data-only entry point of this reporting module: runtime
+The reporting functions are part of `@aihq/core/contracts`: `createReport`, `validateSnapshot`, `importSnapshot`,
+`exportSnapshot`, `validateClaimSet`, `readClaimSet` and `projectClaims` read and write `urn:aihq:core:report:0.1.0`
+snapshots and `urn:aihq:core:claims:0.1.0` claim sets, and return a `status` result instead of throwing; `schemas` holds
+both JSON Schemas. The snapshot and claim fields described below are unchanged.
+
+The reporting module is data only: runtime
 validation, privacy projection and evidence limitations. It performs no
 rendering, filesystem access or host observation. Core ships no renderer:
 presentation is done by the consuming application from the snapshot data.
@@ -98,8 +103,8 @@ rejected as unknown fields rather than silently disappearing during cloning.
 
 ## Normalized claims (claims 1.0.0 and 1.1.0)
 
-`@aihq/core/report` also accepts a **normalized claim set** beside the unchanged
-diagnostic snapshot 1.0.0. A claim set is a list of producer-neutral claims plus
+`@aihq/core/contracts` also accepts a **normalized claim set** beside the
+diagnostic snapshot. A claim set is a list of producer-neutral claims plus
 explicit, inspectable calculation requests and action suggestions. Validation and
 projection are pure: they read no clock, randomness, filesystem or network, resolve
 nothing from a catalog, and compare strings by UTF-16 code unit. The same input
@@ -121,11 +126,8 @@ plain JSON with no shared object references (parsed JSON never has any).
 | `readClaimSet(json)` | `string -> { status: 'supported', claimSet } \| { status: 'rejected', code, schema, errors, original }` | Never throws. A rejection carries the exact unchanged input in `original`. |
 | `projectClaims(claimSet)` | `ClaimSet -> ClaimsProjection` | Throws `ReportInputError`. |
 
-The JSON Schemas are `@aihq/core/report/schemas/claims/1.0.0.json`
-(`$id` `urn:aihq:report:claims:1.0.0`) and
-`@aihq/core/report/schemas/claims/1.1.0.json`
-(`$id` `urn:aihq:report:claims:1.1.0`); `contractSupport` lists each with role
-`accepts`. Claims 1.1.0 accepts everything 1.0.0 accepts and adds `recurrence`
+The JSON Schema is `schemas['urn:aihq:core:claims:0.1.0']` in `@aihq/core/contracts`; `contractSupport` lists it with
+role `accepts`. Claims 1.1.0 accepts everything 1.0.0 accepts and adds `recurrence`
 requests. Claims 1.0.0 documents, schema bytes and projections remain unchanged;
 `CLAIMS_SCHEMA` and `CLAIMS_PROJECTION_SCHEMA` retain their 1.0.0 identities.
 JSON Schema checks structure only. The validator additionally checks
@@ -472,11 +474,8 @@ condition still failing without recovery. `unsupported.input.json` carries an
 unaccepted `schema` and is rejected as `SCHEMA_UNSUPPORTED` with its bytes
 preserved.
 
-`npm run verify:report-consumer` installs a packed artifact in a separate
-consumer directory and projects these installed examples through the public
-exports, in Node and in a browser bundle. By default it packs the working tree;
-`npm run verify:report-consumer -- --tarball <file>` checks an artifact already
-produced by `npm run pack:distribution`.
+The packed inspect-and-report journey (`test/inspect-report-packed.test.mjs`) installs a packed artifact in a separate
+consumer and reads these formats through the public exports.
 
 ### Limitations
 

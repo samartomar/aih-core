@@ -1,0 +1,8 @@
+{
+  "schema": "urn:aihq:core:repair-inputs:0.1.0",
+  "route": "native",
+  "sources": {
+    "os": true,
+    "supplied": []
+  }
+}

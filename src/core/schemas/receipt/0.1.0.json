@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aihq:core:receipt:0.1.0",
+  "title": "Core receipt (ownership record inside Core's state)",
+  "description": "One receipt per root Core wrote into: the members Core owns there, each member's claims, item facts and created folders. Core reads only this version; a record of any other version is not admitted.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "target", "members"],
+  "properties": {
+    "schema": { "const": "urn:aihq:core:receipt:0.1.0" },
+    "target": { "type": "string", "minLength": 1, "maxLength": 4096 },
+    "members": {
+      "type": "object",
+      "maxProperties": 8192,
+      "additionalProperties": { "$ref": "#/$defs/member" }
+    },
+    "selections": {
+      "type": "object",
+      "maxProperties": 4096,
+      "additionalProperties": { "$ref": "#/$defs/claim" }
+    },
+    "directories": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "identity"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "identity": { "$ref": "#/$defs/sha256" }
+        }
+      }
+    },
+    "items": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 4096,
+      "additionalProperties": { "$ref": "#/$defs/item" }
+    },
+    "facts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "kind", "framework", "item", "origins"],
+        "properties": {
+          "name": { "type": ["string", "null"] },
+          "kind": { "type": ["string", "null"] },
+          "framework": { "type": ["string", "null"] },
+          "item": {},
+          "origins": { "type": "array" }
+        }
+      }
+    }
+  },
+  "dependentRequired": { "items": ["facts"], "facts": ["items"] },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "acquiredFile": { "type": "object", "additionalProperties": false, "required": ["role", "file", "sha256", "origin"],
+      "description": "Where one acquired file came from (C78): supplied, downloaded from a URL, or built from pinned source. `file` and `sha256` are always the qualification's identity for the file; a built wheel's installed bytes are `built.file` and `built.sha256`, never byte-qualified",
+      "properties": { "role": { "enum": ["artifact", "closure", "interpreter", "build-source", "build-dependency"] }, "file": { "type": "string" }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "origin": { "enum": ["supplied", "downloaded", "built"] }, "url": { "type": "string", "pattern": "^https://" },
+        "built": { "type": "object", "additionalProperties": false, "required": ["file", "sha256", "byteQualified", "source", "dependencies", "tools"],
+          "properties": { "file": { "type": "string" }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "byteQualified": { "const": false }, "source": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+            "dependencies": { "type": "array", "items": { "type": "string", "pattern": "^[a-f0-9]{64}$" } },
+            "tools": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["name", "qualified", "observed"],
+              "properties": { "name": { "type": "string" },
+                "qualified": { "type": "object", "additionalProperties": false, "required": ["version", "sha256"], "properties": { "version": { "type": "string" }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } } },
+                "observed": { "type": "object", "additionalProperties": false, "required": ["version", "sha256"], "properties": { "version": { "type": "string" }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } } } } } },
+            "env": { "type": "object", "additionalProperties": false, "required": ["CC"], "description": "The compiler variables Core set for this build when its record names a C compiler: CC (and CXX, and LDSHARED on Linux) as found on PATH",
+              "properties": { "CC": { "type": "string" }, "CXX": { "type": "string" }, "LDSHARED": { "type": "string" } } } } } },
+      "allOf": [
+        { "if": { "properties": { "origin": { "const": "downloaded" } } }, "then": { "required": ["url"], "properties": { "url": { "type": "string" }, "built": false } } },
+        { "if": { "properties": { "origin": { "const": "supplied" } } }, "then": { "properties": { "url": false, "built": false } } },
+        { "if": { "properties": { "origin": { "const": "built" } } }, "then": { "required": ["built"], "properties": { "built": { "type": "object" }, "url": false, "role": { "const": "closure" } } } }] },
+    "managementId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "scope": { "enum": ["project", "user"] },
+    "claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope"],
+      "properties": {
+        "managementId": { "$ref": "#/$defs/managementId" },
+        "scope": { "$ref": "#/$defs/scope" },
+        "sets": { "type": "array" },
+        "requires": { "type": "array" }
+      }
+    },
+    "member": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["managementId", "recipeIdentity", "sha256", "mode"],
+      "properties": {
+        "managementId": { "$ref": "#/$defs/managementId" },
+        "recipeIdentity": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "mode": { "type": "integer", "minimum": 0, "maximum": 4095 },
+        "path": { "type": "string", "minLength": 1 },
+        "descriptor": { "type": "object" },
+        "claims": { "type": "array", "minItems": 1, "maxItems": 4096, "items": { "$ref": "#/$defs/claim" } },
+        "canonicalSha256": { "$ref": "#/$defs/sha256" },
+        "tomlTable": { "type": "string" },
+        "approval": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["tool"],
+          "properties": { "tool": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" } }
+        },
+        "createdContainer": { "const": true },
+        "createdFile": { "const": true },
+        "createdContainers": { "type": "array", "minItems": 1, "maxItems": 32, "items": { "type": "array", "minItems": 1, "items": { "type": "string" } } },
+        "sharedContent": { "type": "string", "maxLength": 65536 },
+        "displaced": { "type": "object" }
+      }
+    },
+    "item": {
+      "type": "object",
+      "required": ["facts", "managementId", "scope"],
+      "properties": {
+        "facts": { "type": "integer", "minimum": 0 },
+        "managementId": { "$ref": "#/$defs/managementId" },
+        "scope": { "$ref": "#/$defs/scope" },
+        "plan": {
+          "type": "object",
+          "required": ["items", "managementId", "cli", "project", "clis", "data", "origin", "catalog", "profiles", "steps"],
+          "properties": {
+            "items": { "type": "array", "items": { "type": "string" } },
+            "managementId": { "$ref": "#/$defs/managementId" },
+            "cli": { "type": ["string", "null"] },
+            "project": { "type": ["string", "null"] },
+            "clis": { "type": "array", "items": { "type": "string" } },
+            "data": {},
+            "origin": {},
+            "catalog": {},
+            "profiles": { "type": "array" },
+            "steps": { "type": "array" },
+            "sharedSteps": { "type": "array", "minItems": 1,
+              "description": "The steps several items share (C48) that made this claim: path and source facts (null for an entry or render, with the planned bytes' sha256). Only another plan's shared step with the same facts shares the member",
+              "items": { "type": "object", "additionalProperties": false, "required": ["path", "sourceId", "sourcePath", "sha256"],
+                "properties": { "path": { "type": "string", "minLength": 1 }, "sourceId": { "type": ["string", "null"] }, "sourcePath": { "type": ["string", "null"] },
+                  "sha256": { "$ref": "#/$defs/sha256" } } } },
+            "aiSetup": { "type": "object", "additionalProperties": false, "required": ["branch", "interpreter", "fallback", "fallbackReason"],
+              "description": "An AI setup: the interpreter branch its install used (C46) and where each acquired file came from (C78)",
+              "properties": { "branch": { "enum": ["installed", "fallback", null] },
+                "tree": { "description": "The sha256 of the tree manifest the acquisition recorded in its folder.", "type": "string", "pattern": "^[a-f0-9]{64}$" },
+                "interpreter": { "oneOf": [{ "type": "null" }, { "type": "object", "additionalProperties": false, "required": ["path", "version"],
+                  "properties": { "path": { "type": "string" }, "version": { "type": "string" } } }] },
+                "fallback": { "type": "boolean" }, "fallbackReason": { "type": ["string", "null"] },
+                "downloads": { "type": "array", "items": { "$ref": "#/$defs/acquiredFile" } },
+                "executable": { "type": "object", "additionalProperties": false, "required": ["path", "placed"],
+                  "description": "The acquire step's named executable (home-relative) and how Core put it there: the native member, the environment's own entry point, or that entry point linked there (symlink, hardlink) or started by Core's launcher script",
+                  "properties": { "path": { "type": "string" }, "placed": { "enum": ["member", "environment", "symlink", "hardlink", "launcher"] } } } } }
+          }
+        }
+      }
+    }
+  }
+}

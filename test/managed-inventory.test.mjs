@@ -6,8 +6,9 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import inventorySchema from '../dist/core/schemas/managed-inventory-result/1.0.0.json' with { type: 'json' };
-import { apply, listManagedSelections, prepare } from '../dist/core/index.js';
+import { apply, listManagedSelections, prepare } from '../dist/core/engine-api.js';
 import { policy } from './fixture.mjs';
+import { recordOf, receiptText } from './fixtures/ownership-receipt.mjs';
 
 const scratch = mkdtempSync(join(tmpdir(), 'aih-managed-inventory-'));
 const previous = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
@@ -105,10 +106,10 @@ test('two recorded claims on one custody member each report one shared member', 
   assert.equal(applied.completion, 'complete', JSON.stringify(applied.diagnostics));
   const key = createHash('sha256').update(realpathSync.native(project)).digest('hex');
   const receipt = join(home, '.aih', 'core', 'ownership', `${key}.json`);
-  const state = JSON.parse(readFileSync(receipt));
+  const state = recordOf(readFileSync(receipt, 'utf8'));
   const member = Object.values(state.members)[0];
   member.claims.push({ ...member.claims[0], managementId: 'other-guidance' });
-  writeFileSync(receipt, JSON.stringify(state));
+  writeFileSync(receipt, receiptText(state));
   const inventory = await listManagedSelections({ target: { project }, scope: 'project' });
   assert.equal(inventory.status, 'complete', JSON.stringify(inventory.diagnostics));
   assert.deepEqual(inventory.selections, ['other-guidance', 'team-guidance'].map(managementId => ({
@@ -134,10 +135,10 @@ test('claimless custody is reconciled and corrupt foreign custody makes user inv
       assert.equal(exposed.diagnostics[0].reason, 'ownership-unverifiable');
       chmodSync(receipt, 0o600);
     }
-    const legacy = JSON.parse(original);
+    const legacy = recordOf(original.toString('utf8'));
     delete Object.values(legacy.members)[0].claims;
     delete Object.values(legacy.members)[0].descriptor;
-    writeFileSync(receipt, JSON.stringify(legacy));
+    writeFileSync(receipt, receiptText(legacy));
     const listed = await listManagedSelections({ target: { project }, scope: 'project' });
     assert.equal(listed.status, 'complete', JSON.stringify(listed.diagnostics));
     assert.deepEqual(listed.selections, [{ managementId: 'team-guidance', scope: 'project',
@@ -168,13 +169,13 @@ async function freshHome() {
 const receiptFile = root => join(homeNow, '.aih', 'core', 'ownership', `${sha(root)}.json`);
 const claimKey = (scope, id, anchor) => `${scope}:${sha(process.platform === 'win32' ? anchor.toLowerCase() : anchor)}:${id}`;
 const claim = (scope, managementId) => ({ managementId, scope, sets: [], requires: [] });
-const ownership = (target, extra = {}) => ({ schema: 'urn:aihq:core:ownership:1.0.0', target, members: {}, ...extra });
+const ownership = (target, extra = {}) => ({ schema: 'urn:aihq:core:receipt:0.1.0', target, members: {}, ...extra });
 const selectionsOf = (target, claims) => Object.fromEntries(claims.map(item => [claimKey(item.scope, item.managementId, target), item]));
 /** Writes a protected-store receipt the way Core's own tests do, and returns an undo function. */
 function plant(root, value) {
   mkdirSync(join(homeNow, '.aih', 'core', 'ownership'), { recursive: true });
   const path = receiptFile(root); const previous = existsSync(path) ? readFileSync(path) : undefined;
-  writeFileSync(path, typeof value === 'string' ? value : JSON.stringify(value), { mode: 0o600 });
+  writeFileSync(path, typeof value === 'string' ? value : receiptText(value), { mode: 0o600 });
   return () => { if (previous === undefined) rmSync(path, { force: true }); else writeFileSync(path, previous); };
 }
 const valid = result => { const check = new Ajv2020({ strict: true }).compile(inventorySchema); assert.equal(check(result), true, JSON.stringify(check.errors)); };
@@ -271,8 +272,10 @@ test('count, byte and output bounds return incomplete limit-exceeded instead of 
     // Bytes: valid receipts (each under the 1 MiB per-file cap) totalling more than 32 MiB.
     const padded = Array.from({ length: 36 }, (_, index) => {
       const target = join(scratch, `pad-${index}`);
-      const text = JSON.stringify(ownership(target));
-      return [join(store, `${sha(target)}.json`), text + ' '.repeat(1_000_000 - text.length)];
+      // A receipt is admitted only as its one stored form, so it is filled with members rather than padded.
+      const members = Object.fromEntries(Array.from({ length: 4500 }, (_, member) => [`pad/${String(member).padStart(6, '0')}.md`,
+        { managementId: 'pad', recipeIdentity: `sha256:${'a'.repeat(64)}`, sha256: sha(`pad-${member}`), mode: 0o644 }]));
+      return [join(store, `${sha(target)}.json`), receiptText(ownership(target, { members }))];
     });
     for (const [path, text] of padded) writeFileSync(path, text, { mode: 0o600 });
     try { await expectLimit('bytes', 'user'); } finally { padded.forEach(([path]) => rmSync(path, { force: true })); }

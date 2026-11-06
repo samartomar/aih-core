@@ -25,7 +25,9 @@ export const CLAIMS_SCHEMA = 'urn:aihq:report:claims:1.0.0';
 export const CLAIMS_SCHEMA_1_1_0 = 'urn:aihq:report:claims:1.1.0';
 
 /** Every claim-set schema identity this version reads, oldest first; the version gate relies on this order. */
-export const CLAIMS_ACCEPTED_VERSIONS = Object.freeze([CLAIMS_SCHEMA, CLAIMS_SCHEMA_1_1_0]);
+/** The 0.1.0 claim set (`@aihq/core/contracts`): the 1.1.0 shape under its Core format id. */
+export const CLAIMS_SCHEMA_0_1_0 = 'urn:aihq:core:claims:0.1.0';
+export const CLAIMS_ACCEPTED_VERSIONS = Object.freeze([CLAIMS_SCHEMA, CLAIMS_SCHEMA_1_1_0, CLAIMS_SCHEMA_0_1_0]);
 
 /** Versioned identity of the claims projection of a claims 1.0.0 set. */
 export const CLAIMS_PROJECTION_SCHEMA = 'urn:aihq:report:claims-projection:1.0.0';

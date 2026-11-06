@@ -1,0 +1,80 @@
+{
+  "schema": "urn:aihq:core:native-verification-result:0.1.0",
+  "package": {
+    "name": "@aihq/core",
+    "version": "0.1.0"
+  },
+  "status": "refused",
+  "completion": null,
+  "verdict": "unverified",
+  "proofScope": "none",
+  "admission": "admitted",
+  "client": {
+    "id": "claude-code",
+    "observedVersion": null
+  },
+  "adapter": null,
+  "platform": {
+    "os": "darwin",
+    "arch": "arm64",
+    "osRelease": "25.0.0",
+    "execution": "native"
+  },
+  "content": null,
+  "sessions": [],
+  "stages": [
+    {
+      "id": "fixture-integrity",
+      "outcome": "unsupported",
+      "reason": "platform-unsupported",
+      "session": null,
+      "evidence": {
+        "kind": "none"
+      }
+    },
+    {
+      "id": "cleanup",
+      "outcome": "passed",
+      "reason": "observed",
+      "session": null,
+      "evidence": {
+        "kind": "none"
+      }
+    }
+  ],
+  "security": {
+    "sandbox": {
+      "level": "not-started",
+      "mechanism": null,
+      "reason": "not-started"
+    },
+    "hostSecretIsolation": {
+      "outcome": "unavailable",
+      "reason": "isolation-unobserved"
+    }
+  },
+  "authority": "not-evaluated",
+  "survivingProcesses": [],
+  "cleanup": {
+    "processes": "not-created",
+    "files": "not-created",
+    "retainedCell": null
+  },
+  "diagnostics": [
+    {
+      "code": "SCHEMA_UNSUPPORTED",
+      "reason": "platform-unsupported",
+      "message": "This native verification format or cell is not supported."
+    }
+  ],
+  "limits": {
+    "budgetMs": 180000,
+    "elapsedMs": 3,
+    "sessionsStarted": 0,
+    "stagesCompleted": 2,
+    "observedBytes": 0,
+    "telemetryEvents": 0,
+    "rpcMessages": 0,
+    "evidenceTruncated": false
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "schema": "urn:aihq:core:package-support:0.1.0",
+  "package": { "name": "@aihq/core", "version": "0.1.0" },
+  "contracts": "not-a-list",
+  "entries": []
+}

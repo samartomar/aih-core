@@ -310,54 +310,16 @@
   ],
   "$defs": {
     "origin": {
-      "oneOf": [
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "set"
-          ],
-          "properties": {
-            "set": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "framework",
-                "setId",
-                "setSha256"
-              ],
-              "properties": {
-                "framework": {
-                  "type": "string",
-                  "minLength": 1,
-                  "maxLength": 128
-                },
-                "setId": {
-                  "type": "string",
-                  "minLength": 1,
-                  "maxLength": 128
-                },
-                "setSha256": {
-                  "type": "string",
-                  "pattern": "^[a-f0-9]{64}$"
-                }
-              }
-            }
-          }
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "reasonIncluded"
-          ],
-          "properties": {
-            "reasonIncluded": {
-              "const": "chosen"
-            }
-          }
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reasonIncluded"
+      ],
+      "properties": {
+        "reasonIncluded": {
+          "const": "chosen"
         }
-      ]
+      }
     },
     "selector": {
       "type": "object",
