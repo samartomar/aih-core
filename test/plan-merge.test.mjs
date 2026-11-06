@@ -251,6 +251,9 @@ test('a malformed merge step is invalid, and a merge leaving its root is refused
     ['a TOML entry that is not a table', { format: 'toml', key: 'mcp_servers.github', entry: 'text' }, 'invalid'],
     ['a TOML key that is not a bare table', { format: 'toml', key: 'mcp_servers."git.hub"' }, 'invalid'],
     ['a Markdown entry that is not text', { format: 'markdown', key: GITHUB, entry: { text: 1 } }, 'invalid'],
+    ['a Markdown entry holding another block\'s end marker', { format: 'markdown', key: GITHUB, entry: 'Text.\n<!-- aih:end other -->\n' }, 'invalid'],
+    ['a Markdown entry holding another block\'s start marker', { format: 'markdown', key: GITHUB, entry: '<!-- aih:begin other -->\nText.\n' }, 'invalid'],
+    ['a Markdown entry holding a shared block marker', { format: 'markdown', key: GITHUB, entry: '<!-- BEGIN aih:shared -->\n' }, 'invalid'],
     ['a binding without a pointer', { inputs: [{ item: GITHUB, input: 'GITHUB_TOKEN', at: { argv: 1 } }] }, 'invalid'],
     ['a file leaving its root', { file: '../.mcp.json' }, 'refused'],
   ];

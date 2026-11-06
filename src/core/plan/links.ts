@@ -3,7 +3,10 @@
 // Core's private state (its own `~/.aih/core/content/<claim>/links/` folder, contract 5); the link itself is placed just
 // before the first record is written, and removed once no claim's record names it any more.
 import { createHash } from 'node:crypto';
-import { lstatSync, mkdirSync, readFileSync, readlinkSync, rmdirSync, symlinkSync, unlinkSync } from 'node:fs';
+import { lstatSync, mkdirSync, readdirSync, readlinkSync, rmdirSync, symlinkSync, unlinkSync } from 'node:fs';
+import { readOwnership } from '../internal/state.js';
+import { readRegularFileWithStats } from '../internal/fsxn.js';
+import { pathPins, pinsMatch, type PathPin } from '../internal/host-files.js';
 import { join, resolve } from 'node:path';
 import { canonicalJson } from '../internal/canonical.js';
 import type { LinkFacts } from '../internal/custody-items.js';
@@ -39,14 +42,55 @@ export function inspectLink(home: string, path: string, to: string): 'absent' | 
     return fold(found) === fold(resolve(home, ...to.split('/'))) ? 'ours' : 'other';
   } catch { return 'other'; }
 }
-/** The bytes of a file you keep at a link's place, to show in its conflict; `null` for a folder, a link or nothing. */
+/** A link-place file shown in a conflict is read only up to this size; a larger one shows no bytes. */
+const PLACE_BYTES_MAX = 1_048_576;
+/**
+ * The bytes of a file you keep at a link's place, to show in its conflict; `null` for a folder, a link, nothing, or a
+ * file over 1 MiB. The file is opened without following a link and read only within that bound.
+ */
 export function placeBytes(home: string, path: string): Buffer | null {
   const at = join(home, ...path.split('/'));
-  try { return lstatSync(at).isFile() ? readFileSync(at) : null; } catch { return null; }
+  try {
+    if (!lstatSync(at).isFile()) return null;
+    const read = readRegularFileWithStats(at, { maxBytes: PLACE_BYTES_MAX });
+    return read ? Buffer.from(read.contents) : null;
+  } catch { return null; }
 }
 export function linkState(home: string, link: LinkFacts): 'matching' | 'changed-by-you' | 'missing' {
   const found = inspectLink(home, link.path, link.to);
+  // A version folder holding a file no claim recorded is not what Core placed there.
+  if (found === 'ours' && folderExtras(home, link.to).length) return 'changed-by-you';
   return found === 'ours' ? 'matching' : found === 'absent' ? 'missing' : 'changed-by-you';
+}
+/** A version folder is listed only up to this many entries; a larger one counts as holding unrecorded files. */
+const FOLDER_ENTRY_LIMIT = 10_000;
+/**
+ * The entries in a version folder `to` (relative to it, without following links) that are neither among `planned`
+ * (home-relative paths this plan writes) nor a member any receipt in the home records. Empty when the folder is absent.
+ */
+export function folderExtras(home: string, to: string, planned: Iterable<string> = []): string[] {
+  const root = join(home, ...to.split('/'));
+  try { if (!lstatSync(root).isDirectory()) return ['.']; } catch (error) { return (error as NodeJS.ErrnoException).code === 'ENOENT' ? [] : ['.']; }
+  const allowed = new Set([...planned].map(fold));
+  try {
+    for (const [key, owner] of Object.entries(readOwnership(home, false).value.members ?? {}))
+      allowed.add(fold((owner as { descriptor?: { path?: string } }).descriptor?.path ?? key));
+  } catch { /* no receipt: only the planned writes are known */ }
+  const extras: string[] = []; const stack = ['']; let seen = 0;
+  while (stack.length) {
+    const relative = stack.pop()!;
+    let names: string[];
+    try { names = readdirSync(relative ? join(root, ...relative.split('/')) : root); } catch { return ['.']; }
+    for (const name of names) {
+      if (++seen > FOLDER_ENTRY_LIMIT) return [...extras, '…'];
+      const path = relative ? `${relative}/${name}` : name;
+      let stats;
+      try { stats = lstatSync(join(root, ...path.split('/'))); } catch { extras.push(path); continue; }
+      if (stats.isDirectory()) { stack.push(path); continue; }
+      if (!allowed.has(fold(`${to}/${path}`))) extras.push(path);
+    }
+  }
+  return extras.sort();
 }
 /** The link's parent folders that don't exist yet, outermost first: the ones Core creates and removes again. */
 export function missingParents(home: string, path: string): string[] {
@@ -63,7 +107,9 @@ export function missingParents(home: string, path: string): string[] {
  * Places a junction or symlink (Apply, before its record is written). Never replaces what is already there, except, for
  * an update, Core's own link to the earlier version folder `from`, which is repointed (contract 12 "Version folder moved").
  */
-export function placeLink(home: string, link: LinkFacts, from?: string): { status: 'passed' | 'failed'; reason: string; effectsUncertain: boolean } {
+export function placeLink(home: string, link: LinkFacts, from?: string, planned?: readonly string[]): { status: 'passed' | 'failed'; reason: string; effectsUncertain: boolean } {
+  // The version folder still holds only what the plan writes and receipts record (re-listed now, as at Prepare).
+  if (planned && folderExtras(home, link.to, planned).length) return { status: 'failed', reason: 'link-target-changed', effectsUncertain: false };
   let found = inspectLink(home, link.path, link.to);
   if (found === 'ours') return { status: 'passed', reason: 'already-linked', effectsUncertain: false };
   if (from !== undefined && found === 'other' && inspectLink(home, link.path, from) === 'ours') {
@@ -75,15 +121,30 @@ export function placeLink(home: string, link: LinkFacts, from?: string): { statu
   }
   if (found === 'other') return { status: 'failed', reason: 'link-place-taken', effectsUncertain: false };
   const segments = link.path.split('/');
+  const unsafe = { status: 'failed' as const, reason: 'link-parent-unsafe', effectsUncertain: false };
   try {
+    // Every parent is pinned as a real folder (no link anywhere in its chain) once checked or created; the chain is
+    // re-checked against those pins just before the link is made and again after, so a parent swapped for a link in
+    // between is refused, and a link made through it is taken back.
+    let pins: PathPin[] = [];
+    try { pins = pathPins(home); } catch { return unsafe; }
     for (let at = 1; at < segments.length; at++) {
       const parent = join(home, ...segments.slice(0, at));
+      if (!pinsMatch(pins)) return unsafe;
+      try { lstatSync(parent); } catch { mkdirSync(parent); }
       let stats;
-      try { stats = lstatSync(parent); } catch { mkdirSync(parent); continue; }
+      try { stats = lstatSync(parent); } catch { return unsafe; }
       // Never place a link through another link or into something that is not a folder.
-      if (stats.isSymbolicLink() || !stats.isDirectory()) return { status: 'failed', reason: 'link-parent-unsafe', effectsUncertain: false };
+      if (stats.isSymbolicLink() || !stats.isDirectory()) return unsafe;
+      try { pins = pathPins(parent); } catch { return unsafe; }
     }
-    symlinkSync(resolve(home, ...link.to.split('/')), join(home, ...segments), link.linkType === 'junction' ? 'junction' : 'dir');
+    const place = join(home, ...segments);
+    if (!pinsMatch(pins)) return unsafe;
+    symlinkSync(resolve(home, ...link.to.split('/')), place, link.linkType === 'junction' ? 'junction' : 'dir');
+    if (!pinsMatch(pins)) {
+      try { rmdirSync(place); } catch { try { unlinkSync(place); } catch { /* left as found below */ } }
+      return { status: 'failed', reason: 'link-parent-unsafe', effectsUncertain: true };
+    }
     return { status: 'passed', reason: 'linked', effectsUncertain: false };
   } catch { return { status: 'failed', reason: 'link-failed', effectsUncertain: true }; }
 }

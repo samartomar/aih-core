@@ -4,7 +4,7 @@
 // and the junctions made here prove Core's placement only, never that a real client loads them.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -165,7 +165,20 @@ test('a shared place whose CLIs the plan did not record refuses removal by CLI (
 });
 const canonical = value => JSON.stringify(value);
 
-test('your own folder at a link place is never replaced: Prepare is blocked offering skip only, and a skip places the rest', async () => {
+test('a link points only into a shared version folder, never at Core\'s state or another of your folders', async () => {
+  const target = project();
+  for (const to of ['.aih', '.ssh', '.gnupg', '.aihq', 'Documents/notes', '.AIHQ/other/x']) {
+    const request = linkRequest(target);
+    for (const step of request.plan.plan) if (step.op === 'link') step.to = to;
+    const result = await prepare(request);
+    assert.equal(result.status, 'invalid', `${to}: ${JSON.stringify(result)}`);
+    assert.equal(result.handle, undefined);
+    assert.ok(result.problems.some(item => item.reason === 'link-target'), `${to}: ${JSON.stringify(result.problems)}`);
+  }
+  assert.equal(existsSync(join(home, '.claude', 'skills', 'ecc-plan')), false);
+});
+
+test('your own folder at a link place is never replaced:Prepare is blocked offering skip only, and a skip places the rest', async () => {
   const target = project();
   const mine = join(home, '.claude', 'skills', 'ecc-plan');
   mkdirSync(mine, { recursive: true });
@@ -199,6 +212,54 @@ test('your own file at a link place is a conflict carrying its exact bytes and t
   assert.equal(conflict.observedSha256, createHash('sha256').update('my own notes\n').digest('hex'));
   assert.equal(validateFormat(blocked.review).status, 'ok');
   rmSync(join(home, '.claude'), { recursive: true });
+});
+
+test('a version folder holding a file nothing recorded is not linked, and list shows a planted file as changed', async () => {
+  const target = project();
+  const to = join(home, '.aihq', 'shared', 'ecc', 'skill', 'plan', '3f9c0a1b2d4e');
+  mkdirSync(to, { recursive: true }); writeFileSync(join(to, 'evil.sh'), 'echo hi\n');
+  const blocked = await prepare(linkRequest(target, ['claude-code']));
+  assert.equal(blocked.status, 'blocked', JSON.stringify(blocked));
+  const conflict = blocked.review.conflicts.find(item => item.target === '.aihq/shared/ecc/skill/plan/3f9c0a1b2d4e');
+  assert.ok(conflict, JSON.stringify(blocked.review.conflicts));
+  assert.match(conflict.detail, /evil\.sh/);
+  assert.deepEqual(conflict.choices, ['skip']);
+  assert.equal(validateFormat(blocked.review).status, 'ok');
+  assert.equal(existsSync(join(home, '.claude', 'skills', 'ecc-plan')), false);
+  rmSync(join(to, 'evil.sh'));
+
+  await install(linkRequest(target, ['claude-code']));
+  writeFileSync(join(to, 'later.sh'), 'echo hi\n');
+  const listed = await list({ target: { project: target }, scope: 'user' });
+  const link = listed.entries.find(entry => entry.managementId === PLAN).members.find(member => member.kind === 'link');
+  assert.equal(link.state, 'changed-by-you');
+  rmSync(join(to, 'later.sh'));
+  await remove(target, [{ managementId: PLAN }]);
+});
+
+test('a large file at a link place is a conflict that shows no bytes', async () => {
+  const target = project();
+  mkdirSync(join(home, '.claude', 'skills'), { recursive: true });
+  writeFileSync(join(home, '.claude', 'skills', 'ecc-plan'), Buffer.alloc(50 * 1024 * 1024, 0x61));
+  const blocked = await prepare(linkRequest(target));
+  assert.equal(blocked.status, 'blocked', JSON.stringify(blocked).slice(0, 2000));
+  const [conflict] = blocked.review.conflicts;
+  assert.deepEqual([conflict.target, conflict.existing, conflict.observedSha256], ['.claude/skills/ecc-plan', null, null]);
+  rmSync(join(home, '.claude'), { recursive: true });
+});
+
+test('a link parent swapped for a link to another folder after Prepare is refused, and nothing is placed there', async () => {
+  const target = project();
+  const prepared = await prepare(linkRequest(target, ['claude-code']));
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared));
+  const outside = join(scratch, `outside-${counter++}`); mkdirSync(outside);
+  symlinkSync(outside, join(home, '.claude'), 'junction');
+  try {
+    const run = await apply(prepared.handle, approve(prepared.review));
+    assert.notEqual(run.completion, 'complete', JSON.stringify(run));
+    assert.deepEqual(readdirSync(outside), []);
+  } finally { rmSync(join(home, '.claude')); }
+  rmSync(join(home, '.aihq'), { recursive: true, force: true });
 });
 
 // A shared plan step (C48, contract 5 "Shared copies"): its member is claimed by that step's items only. Identical bytes

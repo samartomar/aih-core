@@ -16,7 +16,7 @@ import { bindHookGroup, redactHookBindings } from './internal/hook-bindings.js';
 import { recipeFormatsForPolicy } from './internal/recipe-formats.js';
 import { dependencyOrder, inputAccepts } from './internal/policy-validation.js';
 import { directoryIdentity, directoryMap, directoryRecords, directoryParents, removeCreatedDirectories, type CreatedDirectories } from './internal/created-directories.js';
-import { fileTransaction, pathPins, pinsMatch, projectRoot, userHomeRoot, sha256, validSegment, type PathPin } from './internal/host-files.js';
+import { canonicalTarget, fileTransaction, pathPins, pinsMatch, portableSegment, projectRoot, userHomeRoot, sha256, validSegment, type PathPin } from './internal/host-files.js';
 import { admitWrittenOwnership, contentTransaction, isContentRoot, ownershipDigest, ownershipInventory, lockTarget, waitLockTarget, ownershipPath, protectState, stateWritten, writeStateFile, readOwnership, validateOwnership, stageOwnership, sealOwnership, ownershipText, OWNERSHIP_RECORD_BYTES, stateFiles, stateRoot, writeHistory, type AdmittedImage, type AdmittedReceipts, type Ownership, type Owner } from './internal/state.js';
 import { captureRecipeReference, captureInlineMaterials, createMaterialCaptureBudget, MaterialCaptureError,
   type MaterialCaptureBudget } from './internal/material.js';
@@ -35,6 +35,7 @@ import { resolveExecutable, resolveProgram, runApprovedProcess, type ResolvedExe
 import { operationKey, type OperationKey } from './internal/operation-key.js';
 import { OwnedFileTransaction, type OwnedFileRead, type OwnedFileStep } from './internal/owned-file-transaction.js';
 import { readRegularFile } from './internal/fsxn.js';
+import { originalDigests, releaseOriginals, releaseRunRecovery, sweepOrphanRecovery, touchOriginal } from './internal/recovery-retention.js';
 /** A selection's own material, as reviewed. */
 interface OwnMaterial { id: string; path: string; sha256: string; byteLength: number }
 /** Evidence association is retired (C18); retained results report that none was supplied. */
@@ -325,8 +326,10 @@ export function resolvePath(target: TargetPath, scope: 'project' | 'user', bound
   if (scope === 'project' ? target.root !== 'project' : target.root === 'project') throw new Error('scope-mismatch');
   const segments = target.segments.map(slot => resolveString(slot, bound));
   if (segments.some(segment => !validSegment(segment))) throw new Error('invalid-path');
+  if (segments.some(segment => !portableSegment(segment))) throw new Error('path-escape');
   const root = target.root === 'project' ? project : target.root === 'userHome' ? userHomeRoot() : join(stateRoot(), 'content', selectionKey);
-  return { root, path: segments.join('/'), absolute: join(root, ...segments) };
+  // The review names the real location: existing components carry their canonical names, and an alias is refused.
+  return { root, path: segments.join('/'), absolute: canonicalTarget(root, segments) };
 }
 function resolveProcess(invocation: ProcessInvocation, bound: Record<string, Json>, project: string, selectionKey: string,
     material: { readMaterial(id: string): Buffer | undefined }, privateValues: string[], capturedMissing?: string,
@@ -422,7 +425,7 @@ const originalPath = (digest: string): string => `recovery/originals/${digest}.b
 function keepOriginal(bytes: Buffer): void {
   const digest = sha256(bytes);
   const existing = readRegularFile(join(stateRoot(), originalPath(digest)), { maxBytes: 16 * 1024 * 1024 });
-  if (existing && sha256(existing) === digest) return;
+  if (existing && sha256(existing) === digest) { touchOriginal(originalPath(digest)); return; }
   protectState(); mkdirSync(join(stateRoot(), 'recovery', 'originals'), { recursive: true, mode: 0o700 });
   protectState(['recovery/originals']);
   stateFiles(16 * 1024 * 1024).writeAtomic(originalPath(digest), bytes, 0o600);
@@ -1747,6 +1750,8 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
     if (mutatingRoots.length) protectState();
     // Acquire roots and the aggregate trust lock in one lexical order.
     for (const root of [...new Set([...mutatingRoots, ...(state.trustParticipant ? [state.trustParticipant.lockRoot] : [])])].sort()) unlocks.push(await waitLockTarget(root, controls.signal));
+    // A bounded sweep of run folders earlier completed runs left behind, under this run's locks.
+    if (mutatingRoots.length) try { sweepOrphanRecovery(); } catch { /* kept for a later run */ }
     await state.trustParticipant?.recheck();
     for (const root of mutatingRoots) {
       for (const step of state.steps.filter(item => item.root === root)) assertStep(step, true);
@@ -2155,6 +2160,15 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
     }
     result.completion = state.review.omissions.length === 0 && result.operations.every(op => ['applied', 'already-satisfied'].includes(op.application) &&
       ['unverified', 'passed'].includes(op.verification.status)) ? 'complete' : 'incomplete';
+    // Recovery data a completed run no longer needs goes now, under the run's locks: an install's own snapshots (its
+    // receipts are published; a run that removed or cleaned up anything keeps its snapshots), and kept originals no receipt
+    // names any more. Trust and session custody keep theirs.
+    if (result.completion === 'complete' && mutatingRoots.length && !state.trustParticipant) {
+      try {
+        if (result.recovery && !(state.request.policy.removals?.length) && !state.steps.some(step => step.lifecycle || step.review.effects === 'remove-file')) { releaseRunRecovery(runId); delete result.recovery; }
+        releaseOriginals([...state.ownership.values()].flatMap(tracked => originalDigests(tracked.value)));
+      } catch { result.diagnostics.push(diagnostic('EXECUTION_FAILED', 'recovery-cleanup', 'The run succeeded but its recovery data could not be removed.')); }
+    }
     state.trustParticipant?.finish(result);
   } catch (error) {
     const authority = error instanceof AuthorityFailure ? error : undefined;

@@ -18,7 +18,7 @@ import { argumentsRunnable, resolveExecutable, resolveProgram, type ShimLauncher
 import { mergeConfiguration, writeConfiguration } from './steps/executable.js';
 import { claimIdentity } from '../internal/recipe-lifecycle.js';
 import { claimKey, managementIdOf } from './claims.js';
-import { inspectLink, linkRecordBytes, linkRecordPath, missingParents, placeBytes, placeLink } from './links.js';
+import { folderExtras, inspectLink, linkRecordBytes, linkRecordPath, missingParents, placeBytes, placeLink } from './links.js';
 import type { LinkFacts, SharedStepFacts } from '../internal/custody-items.js';
 import type { LoweredPlugin, LoweredProgram } from './steps/types.js';
 import { cloneEffect, commandEffect, type Verifications } from './program/effect.js';
@@ -264,7 +264,8 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
   const compared = await reviewVersions(request.profiles as unknown[], served, controls.signal);
   // Links (C29): the parent folders Core creates for each, as the first claim recorded them, so whichever claim goes
   // last can remove them; a copy holds the files the plan writes into the linked folder.
-  const linkPlans = new Map<number, { facts: LinkFacts; place: 'absent' | 'ours' | 'other'; files: { path: string; bytes: Buffer; executable: boolean }[] }>();
+  const linkPlans = new Map<number, { facts: LinkFacts; place: 'absent' | 'ours' | 'other'; files: { path: string; bytes: Buffer; executable: boolean }[];
+    planned: string[]; extras: string[] }>();
   const recordedLinks = new Map<string, string[]>();
   const relinks = new Map<number, string>();
   // Which claims (engine keys) record each link place, and what they point it at: an update repoints only its own.
@@ -299,7 +300,11 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
       continue;
     }
     if (moved) relinks.set(step.index, moved.to);
-    linkPlans.set(step.index, { files, place: lowered.linkType === 'copy' ? 'absent' : moved ? 'absent' : inspectLink(home, lowered.path, lowered.to),
+    // Every file already in the version folder must be one this plan writes or a receipt records (contract 8.1).
+    const planned = checked.steps.flatMap(other => other.lowered.kind === 'write' && !other.skipped && other.lowered.root === 'user' &&
+      other.lowered.path.startsWith(`${lowered.to}/`) ? [other.lowered.path] : []);
+    const extras = lowered.linkType === 'copy' ? [] : folderExtras(home, lowered.to, planned);
+    linkPlans.set(step.index, { planned, extras, files, place: lowered.linkType === 'copy' ? 'absent' : moved ? 'absent' : inspectLink(home, lowered.path, lowered.to),
       facts: { step: step.index, path: lowered.path, to: lowered.to, linkType: lowered.linkType,
         created: lowered.linkType === 'copy' ? [] : recordedLinks.get(lowered.path) ?? missingParents(home, lowered.path) } });
   }
@@ -355,7 +360,7 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
         if (lowered.linkType !== 'copy') {
           // The link is placed just before its record is written; each claim's record lives in Core's private state (contract 5).
           const from = relinks.get(step.index);
-          effects.set(operationKey(group.selectionId, id), { async run() { return placeLink(home, planned.facts, from); } });
+          effects.set(operationKey(group.selectionId, id), { async run() { return placeLink(home, planned.facts, from, planned.planned); } });
           return [write(linkRecordPath(lowered.path), linkRecordBytes(lowered.path, lowered.to, lowered.linkType), false, id, requires, 'userState')];
         }
         operations.delete(operationKey(group.selectionId, id));
@@ -552,6 +557,13 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
   // Something already at a link's place that isn't Core's link is yours: never replaced, offered as skip only.
   for (const step of steps) {
     const planned = step.op === 'link' && step.effect !== 'conflict' ? linkPlans.get(step.step as number) : undefined;
+    // A version folder holding files nothing recorded is not linked: they would load as part of the item.
+    if (planned?.extras.length) {
+      step.effect = 'conflict';
+      conflicts.push({ code: 'STATE_CONFLICT', reason: 'existing-content', managementId: step.managementId, step: step.step, target: planned.facts.to,
+        observedSha256: null, existing: null, redacted: [], choices: ['skip'], detail: `unrecorded-files: ${planned.extras.slice(0, 32).join(', ')}` });
+      continue;
+    }
     if (planned?.place !== 'other') continue;
     step.effect = 'conflict';
     // A file there is shown with its exact bytes; a folder or another link has none to show.

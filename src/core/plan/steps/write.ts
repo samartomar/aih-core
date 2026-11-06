@@ -27,6 +27,8 @@ function filled(step: PlanStep & Record<string, Json>, context: StepContext, pat
 const sourceFacts = (from: { [key: string]: Json }): { sourceId?: string; sha256?: string } =>
   ({ ...(typeof from.sourceId === 'string' ? { sourceId: from.sourceId } : {}), ...(typeof from.sha256 === 'string' ? { sha256: from.sha256 } : {}) });
 
+/** The review says when a written file is made executable. */
+const asExecutable = (executable: unknown): string => executable === true ? ' as an executable file' : '';
 export const write: StepHandler = {
   op: 'write',
   async prepare(step, context) {
@@ -41,7 +43,7 @@ export const write: StepHandler = {
       const bytes = filled(step, context, placed.path, served.clis, done.rendered.bytes); if (!('bytes' in bytes)) return bytes;
       const unfilled = unfilledPlaceholder(step, index, bytes.bytes.toString('utf8'), owner.ids, context.inputs(served.clis)); if (unfilled) return unfilled;
       return { lowered: { kind: 'write', managementIds: owner.ids, root: placed.root, path: placed.path, bytes: bytes.bytes,
-        executable: done.rendered.executable, sentence: `Writes \`${placed.path}\`, rendered by your Catalog (\`${done.rendered.name}\`)`,
+        executable: done.rendered.executable, sentence: `Writes \`${placed.path}\`${asExecutable(done.rendered.executable)}, rendered by your Catalog (\`${done.rendered.name}\`)`,
         cantPromise: null, review: { ...owner.review, clis: served.clis, ...(bytes.bound ? { inputs: bytes.bound.review } : {}) },
         ...(bytes.bound ? { bound: bytes.bound } : {}), profiles: done.rendered.profiles } };
     }
@@ -55,7 +57,7 @@ export const write: StepHandler = {
         return refusal('source-mismatch', `Step ${index} names other bytes for \`${from.sourcePath}\` than the content document records.`, index);
       const supplied = context.bytesFor(facts); if ('refusal' in supplied) return supplied;
       return { lowered: { kind: 'write', managementIds: owner.ids, root: placed.root, path: placed.path, bytes: supplied.bytes,
-        executable: facts.executable, sentence: `Writes \`${placed.path}\`, part of the \`${owner.review.framework}\` local plugin`, cantPromise: null,
+        executable: facts.executable, sentence: `Writes \`${placed.path}\`${asExecutable(facts.executable)}, part of the \`${owner.review.framework}\` local plugin`, cantPromise: null,
         review: { ...owner.review, clis: served.clis }, source: { sourceId: facts.sourceId, sourcePath: facts.sourcePath, sha256: facts.sha256 } } };
     }
     // Catalog's `from` is `{ item?, sourceId, sourcePath, sha256 }`: an item's (or edition's) file, or, without `item`, a
@@ -72,7 +74,7 @@ export const write: StepHandler = {
     const bytes = filled(step, context, placed.path, served.clis, supplied.bytes); if (!('bytes' in bytes)) return bytes;
     const unfilled = unfilledPlaceholder(step, index, bytes.bytes.toString('utf8'), owner.ids, context.inputs(served.clis)); if (unfilled) return unfilled;
     return { lowered: { kind: 'write', managementIds: owner.ids, root: placed.root, path: placed.path, bytes: bytes.bytes,
-      executable: facts.executable, sentence: `Writes \`${placed.path}\``, cantPromise: null,
+      executable: facts.executable, sentence: `Writes \`${placed.path}\`${asExecutable(facts.executable)}`, cantPromise: null,
       review: { ...owner.review, clis: served.clis, ...(bytes.bound ? { inputs: bytes.bound.review } : {}) },
       ...(bytes.bound ? { bound: bytes.bound } : {}), source: { sourceId: facts.sourceId, sourcePath: facts.sourcePath, sha256: facts.sha256 } } };
   }

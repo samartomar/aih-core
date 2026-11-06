@@ -5,7 +5,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import tls from 'node:tls';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -412,6 +412,26 @@ test('an upstream setup clones the exact commit, runs its command there, and rem
   assert.equal(conforms(await apply(removal.handle, approve(removal.review))).completion, 'complete');
   assert.equal(existsSync(clone), false, 'the clone goes');
   assert.ok(existsSync(join(home, '.fake-setup-outside')), 'what the command wrote elsewhere stays');
+});
+
+test('removal of an upstream setup keeps your edits and added files in its clone, and reports them', async () => {
+  const project = fresh();
+  const upstream = upstreamRepository(scratch, home);
+  const prepared = await prepare(programRequest(project, { upstream: [upstream] }));
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared));
+  assert.equal((await apply(prepared.handle, approve(prepared.review))).completion, 'complete');
+  const clone = join(home, '.claude', 'skills', 'gstack');
+  writeFileSync(join(clone, 'extra.txt'), 'mine\n');
+  writeFileSync(join(clone, 'built.txt'), 'edited\n');
+  const removal = await prepareRemoval({ target: { project }, scope: 'user', removals: [{ managementId: 'gstack' }] });
+  const removed = conforms(await apply(removal.handle, approve(removal.review)));
+  assert.equal(removed.completion, 'complete', JSON.stringify(removed));
+  assert.equal(readFileSync(join(clone, 'extra.txt'), 'utf8'), 'mine\n');
+  assert.equal(readFileSync(join(clone, 'built.txt'), 'utf8'), 'edited\n');
+  assert.equal(existsSync(join(clone, 'README.md')), false, 'what the clone placed goes');
+  const at = clone.replaceAll('\\', '/');
+  assert.deepEqual(removed.members.filter(member => member.kind === 'kept-unrecorded').map(member => member.path).sort(), [`${at}/built.txt`, `${at}/extra.txt`]);
+  rmSync(clone, { recursive: true, force: true });
 });
 
 test('an upstream setup folder holding files Core did not clone is refused before any effect', async () => {

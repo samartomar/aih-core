@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import { lstatSync, realpathSync, type BigIntStats } from 'node:fs';
-import { dirname, isAbsolute, join, parse, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, parse, relative, resolve } from 'node:path';
 import { OwnedFileTransaction } from './owned-file-transaction.js';
 import { containedPath } from './contained-path.js';
 
@@ -10,6 +10,32 @@ export function validSegment(value: string): boolean {
   if (!value || value === '.' || value === '..' || /[\p{Cc}\p{Cf}\\/:]/u.test(value)) return false;
   return process.platform !== 'win32' || (!/[<>"|?*]/.test(value) && !/[. ]$/.test(value) &&
     !/^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])(?:\.|$)/i.test(value));
+}
+/** Catalog's portable-path rule, enforced by the engine for every request kind: no Git folder at any depth or case, no 8.3 short name. */
+export function portableSegment(value: string): boolean {
+  return value.toLowerCase() !== '.git' && !/~[0-9]/.test(value);
+}
+/**
+ * The real location of `relativeSegments` under `root`: each existing component is replaced by its canonical name. A
+ * component whose canonical name differs from the authored one by more than case is an alias (`path-alias`).
+ */
+export function canonicalTarget(root: string, relativeSegments: readonly string[]): string {
+  let current = root;
+  for (const [at, segment] of relativeSegments.entries()) {
+    const next = join(current, segment);
+    let link: boolean;
+    try { link = lstatSync(next).isSymbolicLink(); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return join(next, ...relativeSegments.slice(at + 1));
+      throw error;
+    }
+    // A link component stays as authored, so the path pins see and refuse it.
+    if (link) return join(next, ...relativeSegments.slice(at + 1));
+    const canonical = realpathSync.native(next);
+    if (dirname(canonical).toLowerCase() !== current.toLowerCase()) return join(next, ...relativeSegments.slice(at + 1));
+    if (basename(canonical).toLowerCase() !== segment.toLowerCase()) throw new Error('path-alias');
+    current = canonical;
+  }
+  return current;
 }
 export interface PathPin { path: string; identity: string }
 const macSystemAliases: Readonly<Record<string, string>> = {
@@ -74,10 +100,19 @@ export function projectRoot(project: string): string {
   return realpathSync.native(project);
 }
 export const userHomeRoot = (): string => projectRoot(homedir());
+/**
+ * Whether `target` is Core's state or inside it. The comparison folds case on macOS as on Windows: their default volumes
+ * are case-insensitive, so `.AIH/Core` would become the state folder once it exists.
+ */
+export function reservedState(stateRoot: string, target: string): boolean {
+  if (containedPath(stateRoot, target)) return true;
+  return process.platform === 'darwin' && containedPath(stateRoot.toLowerCase(), target.toLowerCase());
+}
 export function fileTransaction(root: string, stateRoot: string, directoryCreated?: (path: string) => void): OwnedFileTransaction {
   const assertPath = (parts: readonly string[]) => {
     if (parts.some(part => !validSegment(part))) throw new Error('invalid-path');
-    if (containedPath(stateRoot, resolve(root, ...parts))) throw new Error('reserved-state');
+    if (parts.some(part => !portableSegment(part))) throw new Error('path-escape');
+    if (reservedState(stateRoot, resolve(root, ...parts))) throw new Error('reserved-state');
   };
   return new OwnedFileTransaction(root, {
     label: 'Core file', maxFileBytes: 16 * 1024 * 1024, contentDirectoryMode: 0o700,
