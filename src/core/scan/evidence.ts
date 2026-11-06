@@ -4,7 +4,7 @@
 // what runs: no status, refusal or exit code depends on a score, a label, a signer, a match or Scan being installed.
 import { createHash } from 'node:crypto';
 import { scanRead, type MatchFile, type ScanSigner, type VerifyResult } from './read.js';
-import { memoryKey, readMemory, writeMemory, type MemoryEntry } from './memory.js';
+import { memoryKey, readMemory, rememberEntries, type MemoryEntry } from './memory.js';
 import type { Json } from '../types.js';
 import type { ReviewNotScanned, ReviewScan, ScanFacts } from '../plan/types.js';
 
@@ -110,12 +110,12 @@ export async function evaluateScans(input: { scans: ScanInput[]; inventories: (M
     label: null, coverage: null, score: null, signer: null, withdrawn: false, older: false, lastSeen: null, withdrawals: [],
     managementIds: [], match: { status: 'not-checked', reason: 'scan-unavailable' } })) };
   const memory = readMemory();
-  const before = new Map([...memory.entries].map(([key, entry]) => [key, { ...entry }]));
   const fresh = new Set<string>();
   const now = Date.now();
-  const advance = (scanKey: string, issuer: string, subject: string, change: { revision?: number; withdrawnThrough?: number }) => {
+  const advance = (scanKey: string, issuer: string, subject: string, trusted: boolean, change: { revision?: number; withdrawnThrough?: number }) => {
     const key = memoryKey(scanKey, issuer, subject);
     const entry: MemoryEntry = memory.entries.get(key) ?? { scanKey, issuer, subject, revision: null, withdrawnThrough: null, seen: now };
+    if (trusted) entry.trusted = true;
     if (change.revision !== undefined) entry.revision = Math.max(entry.revision ?? 0, change.revision);
     if (change.withdrawnThrough !== undefined) entry.withdrawnThrough = Math.max(entry.withdrawnThrough ?? 0, change.withdrawnThrough);
     entry.seen = now;
@@ -139,7 +139,9 @@ export async function evaluateScans(input: { scans: ScanInput[]; inventories: (M
       continue;
     }
     const { summary, signer } = result;
-    const remembered = before.get(memoryKey(summary.scanKey, signer.issuer, signer.subject));
+    // The live memory, so an older summary later in this same request is flagged against one shown earlier in it.
+    const live = memory.entries.get(memoryKey(summary.scanKey, signer.issuer, signer.subject));
+    const remembered = live ? { revision: live.revision, withdrawnThrough: live.withdrawnThrough } : undefined;
     const older = remembered?.revision !== null && remembered?.revision !== undefined && summary.revision < remembered.revision;
     const outcomes = result.withdrawals.map(outcome => ({ status: outcome.status, ...(outcome.reason ? { reason: outcome.reason } : {}),
       ...(outcome.throughRevision !== undefined ? { throughRevision: outcome.throughRevision } : {}) }));
@@ -174,8 +176,8 @@ export async function evaluateScans(input: { scans: ScanInput[]; inventories: (M
           { status: 'refused', source, reason: 'reason' in matched && typeof matched.reason === 'string' ? matched.reason : matched.status };
       }
     }
-    advance(summary.scanKey, signer.issuer, signer.subject, { revision: summary.revision });
-    for (const value of through) advance(summary.scanKey, signer.issuer, signer.subject, { withdrawnThrough: value });
+    advance(summary.scanKey, signer.issuer, signer.subject, signer.trusted, { revision: summary.revision });
+    for (const value of through) advance(summary.scanKey, signer.issuer, signer.subject, signer.trusted, { withdrawnThrough: value });
     const shown: ReviewScan = { index, status: 'verified', sentence: sentence(summary, signer, isWithdrawn, older, match, remembered?.revision ?? null),
       scanKey: summary.scanKey, revision: summary.revision, label: summary.label, coverage: summary.coverage, score: summary.score,
       signer: { identity: signer.identity, trusted: signer.trusted, issuer: signer.issuer, subject: signer.subject },
@@ -190,7 +192,7 @@ export async function evaluateScans(input: { scans: ScanInput[]; inventories: (M
   return { scans, facts, remember(held) {
     const warnings: string[] = memory.unreadable ? ['scan-memory-unreadable: Core could not read its Scan memory, so this review has no older-revision or remembered-withdrawal checks.'] : [];
     if (!fresh.size) return warnings;
-    const written = writeMemory(memory.entries, held, fresh);
+    const written = rememberEntries(new Map([...fresh].map(key => [key, memory.entries.get(key)!])), held, fresh);
     if (written.heldEvicted) warnings.push('scan-memory-full: Core\'s Scan memory is full, so it forgot the oldest result it had seen for an installed key; that key\'s older-revision check is lost.');
     if (!written.written) warnings.push('scan-memory-unavailable: Core could not save its Scan memory; the results shown here are not remembered.');
     return warnings;

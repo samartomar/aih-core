@@ -170,6 +170,16 @@ await check('the 2 MiB memory evicts the oldest unheld entries first, then the o
   assert.equal(conforms(await apply(held.handle, approve(held.review))).completion, 'complete');
 });
 
+await check('an older summary later in the same request is flagged against the newer one shown earlier in it', async () => {
+  const previous = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
+  const home = mkdtempSync(join(previous.HOME, 'fresh-home-'));
+  process.env.HOME = home; process.env.USERPROFILE = home;
+  try {
+    const rows = shown(await prepare(scannedRequest(project('replay'), ['notes'], [scanEntry('notes-r5-a'), scanEntry('notes-r3-a')])));
+    assert.deepEqual(rows.map(row => [row.revision, row.older, row.lastSeen]), [[5, false, null], [3, true, 5]]);
+  } finally { process.env.HOME = previous.HOME; process.env.USERPROFILE = previous.USERPROFILE; }
+});
+
 await check('the aih CLI installs a saved request with DO NOT INSTALL and unverifiable evidence, with the ordinary exit codes', async () => {
   const cli = join(here, 'node_modules', '@aihq', 'core', 'dist', 'core', 'cli.js');
   const aih = args => {
