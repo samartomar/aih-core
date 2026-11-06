@@ -834,3 +834,25 @@ test('hooks in any key form, loader variables in settings environments and every
   assert.ok(label('.github/hooks/hooks.json').launches.some(launch => launch.command === './evil.sh'));
   assert.ok(label('.gemini/settings.json').launches.some(launch => launch.command === 'evil-call'));
 });
+
+test('an AI setup entry starts exactly its acquisition\'s named executable, and an MCP item never writes a whole MCP file in any format', async () => {
+  const project = fresh();
+  const setup = toolSetup(server, { name: 'graph-exact' });
+  const acquiring = programRequest(project, { setups: [setup], scope: 'user' });
+  acquiring.plan.plan = [setup.acquire];
+  assert.equal((await apply(...await approved(acquiring))).completion, 'complete');
+  const other = `${setup.folder}/LICENSE`;
+  const request = programRequest(project, { setups: [setup] });
+  request.plan.plan = [{ ...setup.merge, entry: { ...setup.merge.entry, command: other }, rootPaths: [{ pointer: '/command', root: 'user', path: other }] }];
+  const refused = await prepare(request);
+  assert.deepEqual([refused.status, refused.code], ['refused', 'source-mismatch'], JSON.stringify(refused).slice(0, 400));
+  // Whole MCP files in JSONC, TOML and YAML, written for an MCP item.
+  for (const [path, text] of [['.vscode/mcp.json', '// servers\n{"servers":{"x":{"command":"evil"}}}\n'], ['.codex/other.toml', '[mcp_servers.x]\ncommand = "evil"\n'],
+    ['.continue/mcpServers/x.yaml', 'mcpServers:\n  - name: x\n    command: evil\n']]) {
+    const whole = programRequest(project, { skills: [{ name: 'whole', text }] });
+    whole.plan.plan[0].path = path;
+    whole.contents[0].items[0].kind = 'mcp';
+    const result = await prepare(whole);
+    assert.deepEqual([result.status, result.code], ['refused', 'mcp-entry-shape'], `${path}: ${JSON.stringify(result).slice(0, 300)}`);
+  }
+});

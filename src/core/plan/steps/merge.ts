@@ -10,6 +10,7 @@ import { isAbsolute, join } from 'node:path';
 import { homedir } from 'node:os';
 import { projectRoot } from '../../internal/host-files.js';
 import { readOwnership } from '../../internal/state.js';
+import { MCP_FACTS } from '../mcp-facts.js';
 import { acquiredByCore, aiSetupReserved, clis, owners, problem, refusal, target } from './common.js';
 import { renderWrite } from './render.js';
 import { holdsCoreMarker } from '../../internal/recipe-editors.js';
@@ -86,6 +87,8 @@ const argumentsOf = (entries: Json | undefined): string[] => (Array.isArray(entr
 const CONTAINERS = /^(mcpservers|mcp_servers|servers|mcp|context_servers)$/i;
 /** Core's fixed MCP entry keys by concept. A profile may only rename these concepts; it never adds a key. */
 const FIXED = { command: 'command', args: 'args', env: 'env', type: 'type', url: 'url', headers: 'headers' } as const;
+/** The names clients give an MCP entry's tool lists; a profile naming another adds nothing. */
+const TOOL_LISTS = new Set(['tools', 'enabled_tools', 'disabled_tools', 'disabledTools', 'includeTools', 'excludeTools']);
 /** Names no profile may give an MCP entry key, whatever concept it claims they stand for. */
 const NEVER = /^(cwd|trust|set|envfile|env_file|workingdirectory|working_directory|autoapprove|alwaysallow)$/i;
 /** A profile's names for the fixed concepts, narrowed to plain names; `set` is the fixed `type` value only. */
@@ -103,8 +106,11 @@ function mcpProfiles(context: StepContext, step: PlanStep & Record<string, Json>
   const served = Array.isArray(step.clis) ? step.clis : [];
   return (context.request.profiles as unknown as Record<string, Json>[]).filter(profile => !served.length || served.includes(profile.id as Json))
     .flatMap(profile => {
-      const mcpFile = plain(profile.mcpFile) ? profile.mcpFile : undefined;
-      const places = plain(profile.places) && plain(profile.places.mcp) ? Object.values(profile.places.mcp).filter(plain) : [];
+      // A known client's MCP shape is Core's own fact: a request's profile never redefines it.
+      const facts = typeof profile.id === 'string' && Object.hasOwn(MCP_FACTS, profile.id) ? MCP_FACTS[profile.id] : undefined;
+      const mcpFile = facts ? facts.mcpFile : plain(profile.mcpFile) ? profile.mcpFile : undefined;
+      const placesOf = facts ? facts.places : plain(profile.places) && plain(profile.places.mcp) ? profile.places.mcp : {};
+      const places = Object.values(placesOf).filter(plain);
       const place = places.find(entry => entry.file === file && typeof entry.key === 'string');
       if (!mcpFile && !place) return [];
       const stdio = mcpFile && plain(mcpFile.stdio) ? mcpFile.stdio : {};
@@ -202,14 +208,28 @@ function bindMcpEntry(step: PlanStep & Record<string, Json>, context: StepContex
   const [{ item, framework }] = named as [{ item: Record<string, Json>; framework: string }];
   const id = String(item.id);
   if (item.name !== place.name) return shape(`writes \`${id}\` under the server name \`${place.name}\`, not its own \`${String(item.name)}\`.`);
-  // Core's fixed keys under the names the served profiles give the same concepts, and their tool lists.
+  // Each concept is reached by exactly one key: the served profiles' name for it when they give one (they must agree),
+  // otherwise Core's fixed name. The other name of a renamed concept is refused, never merely allowed.
   const stdio = profiles.find(profile => Object.keys(profile.stdio).length)?.stdio ?? {};
-  const names = { command: stdio.command ?? FIXED.command, args: stdio.args ?? FIXED.args, argv: stdio.argv, env: stdio.env ?? FIXED.env };
-  const stdioKeys = new Set<string>([FIXED.command, FIXED.args, FIXED.env, FIXED.type, ...profiles.flatMap(profile =>
-    [profile.stdio.command, profile.stdio.args, profile.stdio.argv, profile.stdio.env].filter((name): name is string => name !== undefined))]);
-  const remoteKeys = new Set<string>([FIXED.url, FIXED.headers, FIXED.type, ...profiles.flatMap(profile => Object.values(profile.remote)
-    .flatMap(form => [form.url, form.headers].filter((name): name is string => name !== undefined)))]);
-  const toolKeys = new Set(profiles.flatMap(profile => profile.tools));
+  const stdioProfiles = profiles.filter(profile => Object.keys(profile.stdio).length);
+  const remoteForms = profiles.flatMap(profile => Object.values(profile.remote));
+  const agreed = (values: (string | undefined)[], fixed: string | undefined): string | undefined | null => {
+    const found = new Set(values.filter((value): value is string => value !== undefined));
+    return found.size > 1 ? null : found.size ? [...found][0] : fixed;
+  };
+  const argvName = agreed(stdioProfiles.map(profile => profile.stdio.argv), undefined);
+  const commandName = argvName ? undefined : agreed(stdioProfiles.map(profile => profile.stdio.command), FIXED.command);
+  const argsName = argvName ? undefined : agreed(stdioProfiles.map(profile => profile.stdio.args), FIXED.args);
+  const envName = agreed(stdioProfiles.map(profile => profile.stdio.env), FIXED.env);
+  const urlName = agreed(remoteForms.map(form => form.url), FIXED.url);
+  const headersName = agreed(remoteForms.map(form => form.headers), FIXED.headers);
+  if ([argvName, commandName, argsName, envName, urlName, headersName].includes(null))
+    return shape('serves clients whose MCP entries name the same field differently.');
+  const names = { command: commandName ?? argvName!, args: argsName ?? FIXED.args, argv: argvName ?? undefined, env: envName! };
+  const stdioKeys = new Set<string>([...(argvName ? [argvName] : [commandName!, argsName!]), envName!, FIXED.type]);
+  const remoteKeys = new Set<string>([urlName!, headersName!, FIXED.type]);
+  // Tool lists only by the names clients use for them.
+  const toolKeys = new Set(profiles.flatMap(profile => profile.tools).filter(name => TOOL_LISTS.has(name)));
   const allowed = new Set([...stdioKeys, ...remoteKeys, ...toolKeys]);
   const unknown = Object.keys(entry).find(key => !allowed.has(key) || NEVER.test(key));
   if (unknown !== undefined) return shape(`writes the MCP entry key \`${unknown}\`, which no client's MCP entry takes from a plan.`);
@@ -249,7 +269,10 @@ function bindMcpEntry(step: PlanStep & Record<string, Json>, context: StepContex
     const inside = (path: string) => acquire && typeof acquire.into === 'string' ? path.startsWith(acquire.into.replace(/\/$/, '') + '/') : acquiredByCore(path, setupId);
     // The command is the binding to the acquired program itself: its `rootPaths` pointer is the command's.
     const binding = rootPaths.find(rootPath => rootPath.pointer === commandPointer);
-    if (!argv || typeof argv[0] !== 'string' || !binding || binding.path !== argv[0] || binding.root !== 'user' || !inside(String(binding.path)))
+    // Exactly the acquisition's named executable: the acquire step's in this plan, else the one its receipt records.
+    const named = acquire ? (typeof acquire.executable === 'string' ? acquire.executable : undefined) : recordedExecutable(setupId);
+    if (!argv || typeof argv[0] !== 'string' || !binding || binding.path !== argv[0] || binding.root !== 'user' || !inside(String(binding.path)) ||
+        named === undefined || binding.path !== named)
       return mismatch('program (not the acquired program of its AI setup)', source);
     const launch = plain(setup.item.aiSetup) && plain(setup.item.aiSetup.launch) ? setup.item.aiSetup.launch : undefined;
     const cli = Array.isArray(step.clis) && typeof step.clis[0] === 'string' ? step.clis[0] : undefined;
@@ -302,8 +325,8 @@ function bindMcpEntry(step: PlanStep & Record<string, Json>, context: StepContex
   if (!remote || typeof remote.url !== 'string') return mismatch('(a remote, where it declares none)', declares);
   if ([...stdioKeys].some(key => !remoteKeys.has(key) && entry[key] !== undefined)) return mismatch('(a program beside the remote)', declares);
   const form = profiles.map(profile => profile.remote[String(remote.type)]).find(Boolean);
-  const urlKey = form?.url ?? FIXED.url;
-  const headersKey = form?.headers ?? FIXED.headers;
+  const urlKey = urlName!;
+  const headersKey = headersName!;
   if (entry[urlKey] !== remote.url) return mismatch('URL', declares);
   if (!typeHolds(form?.type, 'remote')) return mismatch('type', declares);
   const declaredHeaders = new Set((Array.isArray(remote.headers) ? remote.headers : []).flatMap(header => plain(header) && typeof header.name === 'string' ? [header.name] : []));
@@ -355,6 +378,14 @@ function boundMcpEntry(before: Json, after: Json, slots: McpSlots, index: number
   if (typeof command === 'string' && /(^|[\\/])\.aihq[\\/]ai-setup([\\/]|$)/i.test(command) && !isAbsolute(command))
     return refusal('source-mismatch', `Step ${index}'s MCP entry starts \`${command}\`, a relative path into an AI setup folder; only the acquired program's absolute path is started.`, index);
   return undefined;
+}
+/** The named executable an AI setup's user-scope receipt records (`aiSetup.executable.path`, from the user root). */
+function recordedExecutable(setup: string): string | undefined {
+  try {
+    const item = Object.values(readOwnership(projectRoot(homedir())).value.items ?? {}).find(entry => entry.scope === 'user' &&
+      !!entry.plan?.aiSetup?.executable && (entry.plan.managementId ?? entry.managementId) === setup);
+    return item?.plan?.aiSetup?.executable?.path;
+  } catch { return undefined; }
 }
 /** Whether an AI setup is acquired by this plan (an acquire step names it) or recorded on a user-scope receipt. */
 function acquiredSetup(context: StepContext, setup: string): boolean {

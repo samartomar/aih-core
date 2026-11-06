@@ -112,7 +112,14 @@ function treeMatches(folder: string, entries: { path?: unknown; sha256?: unknown
       if (!relative && (name === MANIFEST || name === TREE_MANIFEST)) continue;
       const absolute = join(folder, ...path.split('/'));
       const stats = lstatSync(absolute);
-      if (stats.isDirectory()) { if (name !== '__pycache__') stack.push(path); continue; }
+      if (stats.isDirectory()) {
+        // A compiled-module cache holds only regular `.pyc` files: anything else in it (a folder, a link, a program) is a change.
+        if (name === '__pycache__') {
+          for (const inner of readdirSync(absolute)) if (!/\.pyc$/i.test(inner) || !lstatSync(join(absolute, inner)).isFile()) return false;
+          continue;
+        }
+        stack.push(path); continue;
+      }
       const entry = recorded.get(path);
       if (!entry || ++seen > recorded.size) return false;
       if (stats.isSymbolicLink()) { if (entry.link === undefined || readlinkSync(absolute) !== entry.link) return false; continue; }
