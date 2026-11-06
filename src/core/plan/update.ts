@@ -11,7 +11,7 @@ import { lstatSync, readFileSync } from 'node:fs';
 import { canonicalJson, codeUnitCompare } from '../internal/canonical.js';
 import { memberPointer, publicKind, type PlanItemFacts } from '../internal/custody-items.js';
 import { claimIdentity } from '../internal/recipe-lifecycle.js';
-import { lockTarget, ownershipPath, ownershipText, OWNERSHIP_RECORD_BYTES, protectState, readOwnership, sealOwnership,
+import { waitLockTarget, ownershipPath, ownershipText, OWNERSHIP_RECORD_BYTES, protectState, readOwnership, sealOwnership,
   validateOwnership, writeStateFile } from '../internal/state.js';
 import { projectRoot } from '../internal/host-files.js';
 import type { PlannedMember } from '../internal/update-plan.js';
@@ -335,9 +335,11 @@ function entryOf(managementId: string, prepared: Exclude<PlanPreparation, Refusa
 /**
  * After an update's run: when every step it reviewed for application succeeded (your kept edits aside), each claim of
  * the new plan records the new data and origin (contract 12). A failed, interrupted, cancelled or rejected run leaves
- * the earlier data and origin recorded, with the run's own truthful outcome.
+ * the earlier data and origin recorded, with the run's own truthful outcome. The record is rewritten under the target's
+ * state lock (waiting for another holder, within `signal`) and atomically replaced; a record that can't be written
+ * leaves the earlier one and makes the run `incomplete` with reason `record-not-updated`.
  */
-export function recordUpdate(run: Run, record: NonNullable<HandleState['record']>): void {
+export async function recordUpdate(run: Run, record: NonNullable<HandleState['record']>, signal?: AbortSignal): Promise<void> {
   if (run.completion !== 'complete' && run.completion !== 'incomplete') return;
   const kept = new Set(record.kept);
   const settled = run.steps.every(step => step.verification.status !== 'failed' && (step.application === 'applied' ||
@@ -348,7 +350,7 @@ export function recordUpdate(run: Run, record: NonNullable<HandleState['record']
   for (const [root, identities] of roots) {
     let release: (() => void) | undefined;
     try {
-      release = lockTarget(root);
+      release = await waitLockTarget(root, signal);
       const stored = readOwnership(root, false).value;
       const items = { ...stored.items };
       let changed = false;
@@ -363,7 +365,10 @@ export function recordUpdate(run: Run, record: NonNullable<HandleState['record']
       validateOwnership(next, root);
       protectState([ownershipPath(root)]);
       writeStateFile(ownershipPath(root), Buffer.from(ownershipText(next)), 0o600, false, OWNERSHIP_RECORD_BYTES);
-    } catch { /* The earlier data and origin stay recorded; the members the run wrote are its outcome. */ }
+    } catch {
+      // The earlier data and origin stay recorded; the members the run wrote are its outcome, which is not complete.
+      run.completion = 'incomplete'; run.reason = 'record-not-updated';
+    }
     finally { try { release?.(); } catch { /* a lock left behind is reclaimed later */ } }
   }
 }

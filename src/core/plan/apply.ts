@@ -96,7 +96,7 @@ export async function applyPlan(handle: unknown, approval: unknown, rawControls?
   removeReleasedSetups(run);
   if (state.links) removeReleasedLinks(run, state.links);
   if (!state.before) await checkPresence(run, state.programs ?? new Map(), 'present', controls);
-  if (state.record) recordUpdate(run, state.record);
+  if (state.record) await recordUpdate(run, state.record, controls.signal);
   if (before) {
     run.steps = [...before.steps, ...run.steps].sort((a, b) => (a.step as number) - (b.step as number));
     if (run.completion === 'complete' && before.completion !== 'complete') run.completion = 'incomplete';
