@@ -47,7 +47,7 @@ function effectiveRepairGate(variant, executablePaths) {
 
 // Process observations are separate from native admission. No store, account or configuration writes.
 // Package-manager queries can update their ordinary network caches; callers select disposable homes for fixtures.
-import { lstatSync, readFileSync } from 'node:fs';
+import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { isProxy } from 'node:util/types';
 import { performance } from 'node:perf_hooks';
 
@@ -546,13 +546,17 @@ const nodeInvocation = (script, args = []) => ({ executable: { name: process.exe
 const check = (id, purpose, name, args, env = {}, timeoutMs = 25000) => ({ id, purpose, kind: 'process.exit',
   executable: { name }, args: args.map(value => typeof value === 'string' ? literal(value) : value), cwd, env,
   timeoutMs, maxOutputBytes: 16384, acceptedExitCodes: [0] });
+/** The Windows folder, from the kernel's `\SystemRoot` link rather than the inherited `%SystemRoot%`. */
+export const windowsDirectory = () => realpathSync.native('\\\\?\\GLOBALROOT\\SystemRoot');
+/** The same lookup as JavaScript source, for the fixed `node -e` helpers. */
+export const windowsDirectorySource = "require('node:fs').realpathSync.native('\\\\\\\\?\\\\GLOBALROOT\\\\SystemRoot')";
 const digestScript = "const f=require('node:fs'),c=require('node:crypto');process.exit(c.createHash('sha256').update(f.readFileSync(process.argv[1])).digest('hex')===process.argv[2]?0:1)";
 const envReadScript = key => `$v=[Environment]::GetEnvironmentVariable('${key}','User');` +
   "if($null -eq $v){[Console]::Out.Write('ABSENT')}else{[Console]::Out.Write('VALUE:'+ [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($v)))}";
-const envCheckScript = key => "const c=require('node:child_process'),p=require('node:path');const r=c.spawnSync(p.join(process.env.SystemRoot||'C:\\\\Windows','System32','WindowsPowerShell','v1.0','powershell.exe')," +
+const envCheckScript = key => "const c=require('node:child_process'),p=require('node:path');const r=c.spawnSync(p.join(" + windowsDirectorySource + ",'System32','WindowsPowerShell','v1.0','powershell.exe')," +
   JSON.stringify(['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', envReadScript(key)]) +
   ",{encoding:'utf8',timeout:10000,maxBuffer:4096,windowsHide:true});process.exit(r.status===0&&r.stdout==='VALUE:'+Buffer.from(process.argv[1]).toString('base64')?0:1)";
-const envSetScript = key => "const c=require('node:child_process'),p=require('node:path');const r=c.spawnSync(p.join(process.env.SystemRoot||'C:\\\\Windows','System32','setx.exe')," +
+const envSetScript = key => "const c=require('node:child_process'),p=require('node:path');const r=c.spawnSync(p.join(" + windowsDirectorySource + ",'System32','setx.exe')," +
   `[${JSON.stringify(key)},process.argv[1]],{shell:false,timeout:10000,maxBuffer:4096,windowsHide:true});process.exit(r.status===0?0:1)`;
 const pythonTls = "import os,ssl,hashlib,sys,urllib.request\nassert os.environ['SSL_CERT_FILE']==os.environ['REQUESTS_CA_BUNDLE']\nctx=ssl.create_default_context()\nloaded={hashlib.sha256(c).hexdigest() for c in ctx.get_ca_certs(binary_form=True)}\nassert set(sys.argv[1].split(',')).issubset(loaded)\nwith urllib.request.urlopen('https://pypi.org/simple/pip/',context=ctx,timeout=15) as r: assert r.status==200";
 // Invoke the actual tools after checking their effective trust, never replacing the CA with a verification-only override.
@@ -715,7 +719,7 @@ export function userToolsObservationRequests(request) {
   if (process.platform !== 'win32' || !request.targets.includes('python')) return [];
   return [['ssl', 'SSL_CERT_FILE'], ['requests', 'REQUESTS_CA_BUNDLE']].map(([suffix, key]) => ({
     id: `python-user-env-${suffix}`, operationId: `python-persist-${suffix}`,
-    executable: join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+    executable: join(windowsDirectory(), 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
     args: ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', envReadScript(key)], timeoutMs: 10000, maxOutputBytes: 4096
   }));
 }

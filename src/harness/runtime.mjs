@@ -35,7 +35,7 @@ export { readGitHubPolicy } from './github-policy.mjs';
 export { readLocalPolicy } from './local-policy.mjs';
 export { inspectToolHost } from './tool-host.mjs';
 export { inspectUserToolTrust } from './user-trust.mjs';
-import { inspectUserToolTrust } from './user-trust.mjs';
+import { inspectUserToolTrust, windowsDirectory, windowsDirectorySource } from './user-trust.mjs';
 export { detectProjectFacts } from './project-facts.mjs';
 export { renderMacosSessionLaunchAgent,
   observeMacosGuiSession, observeMacosApplication, readMacosGuiDomainKey } from './macos-session-public.mjs';
@@ -94,11 +94,11 @@ const windowsEnvCheckScript = "const cp=require('node:child_process'),p=require(
   "const script=\"$v=[Environment]::GetEnvironmentVariable('NODE_EXTRA_CA_CERTS','User');" +
   "if($null -eq $v){[Console]::Out.Write('ABSENT')}else{[Console]::Out.Write('VALUE:'+" +
   "[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($v)))}\";" +
-  "const file=p.join(process.env.SystemRoot||'C:\\\\Windows','System32','WindowsPowerShell','v1.0','powershell.exe');" +
+  "const file=p.join(" + windowsDirectorySource + ",'System32','WindowsPowerShell','v1.0','powershell.exe');" +
   "const r=cp.spawnSync(file,['-NoLogo','-NoProfile','-NonInteractive','-Command',script],{encoding:'utf8',timeout:10000,maxBuffer:4096,windowsHide:true});" +
   "process.exit(r.status===0&&r.stdout==='VALUE:'+Buffer.from(process.argv[1]).toString('base64')?0:1)";
 const windowsSetxScript = "const cp=require('node:child_process'),p=require('node:path');" +
-  "const file=p.join(process.env.SystemRoot||'C:\\\\Windows','System32','setx.exe');" +
+  "const file=p.join(" + windowsDirectorySource + ",'System32','setx.exe');" +
   "const r=cp.spawnSync(file,['NODE_EXTRA_CA_CERTS',process.argv[1]]," +
   "{shell:false,timeout:10000,maxBuffer:4096,windowsHide:true});" +
   "process.exit(r.status===0?0:1)";
@@ -423,7 +423,7 @@ export function repairObservationRequests(request) {
   if (!['node-npm-ca', 'node-os-trust'].includes(request.id)) throw new Error('repair-unsupported');
   if (process.platform !== 'win32' || !request.targets.includes('node')) return [];
   const system = request.id === 'node-os-trust' && request.variantRef?.endsWith('/system-ca');
-  return [{ id: 'node-user-env', operationId: 'node-persist', executable: join(process.env.SystemRoot || 'C:\\Windows',
+  return [{ id: 'node-user-env', operationId: 'node-persist', executable: join(windowsDirectory(),
     'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
     args: ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command',
       `$v=[Environment]::GetEnvironmentVariable('${system ? 'NODE_USE_SYSTEM_CA' : 'NODE_EXTRA_CA_CERTS'}','User');` +
