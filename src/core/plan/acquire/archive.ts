@@ -26,9 +26,33 @@ export function linkInside(path: string, target: string): boolean {
   return true;
 }
 export function readArchive(bytes: Buffer, file: string): ArchiveEntry[] {
-  if (/\.zip$/i.test(file)) return readZip(bytes);
-  if (/\.(tar\.gz|tgz)$/i.test(file)) return readTar(bytes);
+  if (/\.zip$/i.test(file)) return linksContained(readZip(bytes));
+  if (/\.(tar\.gz|tgz)$/i.test(file)) return linksContained(readTar(bytes));
   throw new AcquireError('archive-unsupported');
+}
+/**
+ * Links stay inside the archive on disk, not only by their own text: no member lies under a link, and no link's target
+ * leads through or onto another link, so a chain of links each lexically inside can never leave the root.
+ */
+function linksContained(entries: ArchiveEntry[]): ArchiveEntry[] {
+  const fold = (path: string) => path.toLowerCase();
+  const links = new Set(entries.filter(entry => entry.type === 'symlink').map(entry => fold(entry.path)));
+  if (!links.size) return entries;
+  const throughLink = (path: string, self: boolean): boolean => {
+    const segments = path.split('/');
+    for (let length = 1; length < segments.length + (self ? 1 : 0); length++) if (links.has(fold(segments.slice(0, length).join('/')))) return true;
+    return false;
+  };
+  for (const entry of entries) {
+    if (throughLink(entry.path, false)) fail();
+    if (entry.type !== 'symlink') continue;
+    const parts = entry.path.split('/').slice(0, -1);
+    for (const segment of entry.target!.split('/')) {
+      if (segment === '..') parts.pop(); else if (segment && segment !== '.') parts.push(segment);
+    }
+    if (parts.length && throughLink(parts.join('/'), true)) fail();
+  }
+  return entries;
 }
 function bounded(entries: ArchiveEntry[], size: number): void {
   if (entries.length > limitValue('artifact-members') || size > limitValue('artifact-expanded-bytes')) throw new AcquireError('limit-exceeded');
