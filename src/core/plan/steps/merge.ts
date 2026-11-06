@@ -96,6 +96,8 @@ type McpProfile = {
   stdio: { command?: string; args?: string; argv?: string; env?: string; type?: string };
   remote: Record<string, { url?: string; headers?: string; type?: string }>;
   tools: string[]; place?: string[];
+  /** Whether this client keeps its MCP servers in the step's file (one of its MCP places is that file). */
+  owns: boolean;
 };
 const fieldName = (value: Json | undefined): string | undefined =>
   typeof value === 'string' && /^[A-Za-z_][A-Za-z0-9_-]{0,63}$/.test(value) && !NEVER.test(value) ? value : undefined;
@@ -125,7 +127,7 @@ function mcpProfiles(context: StepContext, step: PlanStep & Record<string, Json>
           [kind, narrowed({ url: fieldName((form as Record<string, Json>).url), headers: fieldName((form as Record<string, Json>).headers), type: fixedType((form as Record<string, Json>).set) })])),
         tools: [tools.enabled, tools.disabled].map(fieldName).filter((name): name is string => name !== undefined),
         // A profile's MCP place narrows where the container is; it never names a container Core doesn't know.
-        ...(container && container.length && CONTAINERS.test(container.at(-1)!) ? { place: container } : {}) }];
+        ...(container && container.length && CONTAINERS.test(container.at(-1)!) ? { place: container } : {}), owns: place !== undefined }];
     });
 }
 /**
@@ -208,11 +210,13 @@ function bindMcpEntry(step: PlanStep & Record<string, Json>, context: StepContex
   const [{ item, framework }] = named as [{ item: Record<string, Json>; framework: string }];
   const id = String(item.id);
   if (item.name !== place.name) return shape(`writes \`${id}\` under the server name \`${place.name}\`, not its own \`${String(item.name)}\`.`);
-  // Each concept is reached by exactly one key: the served profiles' name for it when they give one (they must agree),
-  // otherwise Core's fixed name. The other name of a renamed concept is refused, never merely allowed.
-  const stdio = profiles.find(profile => Object.keys(profile.stdio).length)?.stdio ?? {};
-  const stdioProfiles = profiles.filter(profile => Object.keys(profile.stdio).length);
-  const remoteForms = profiles.flatMap(profile => Object.values(profile.remote));
+  // Each concept is reached by exactly one key: the name the served clients whose MCP place is this file give it (they
+  // must agree), otherwise Core's fixed name. A client that doesn't keep its servers here renames nothing in it, and the
+  // other name of a renamed concept is refused, never merely allowed.
+  const keeping = profiles.filter(profile => profile.owns);
+  const stdio = keeping.find(profile => Object.keys(profile.stdio).length)?.stdio ?? {};
+  const stdioProfiles = keeping.filter(profile => Object.keys(profile.stdio).length);
+  const remoteForms = keeping.flatMap(profile => Object.values(profile.remote));
   const agreed = (values: (string | undefined)[], fixed: string | undefined): string | undefined | null => {
     const found = new Set(values.filter((value): value is string => value !== undefined));
     return found.size > 1 ? null : found.size ? [...found][0] : fixed;
@@ -229,7 +233,7 @@ function bindMcpEntry(step: PlanStep & Record<string, Json>, context: StepContex
   const stdioKeys = new Set<string>([...(argvName ? [argvName] : [commandName!, argsName!]), envName!, FIXED.type]);
   const remoteKeys = new Set<string>([urlName!, headersName!, FIXED.type]);
   // Tool lists only by the names clients use for them.
-  const toolKeys = new Set(profiles.flatMap(profile => profile.tools).filter(name => TOOL_LISTS.has(name)));
+  const toolKeys = new Set(keeping.flatMap(profile => profile.tools).filter(name => TOOL_LISTS.has(name)));
   const allowed = new Set([...stdioKeys, ...remoteKeys, ...toolKeys]);
   const unknown = Object.keys(entry).find(key => !allowed.has(key) || NEVER.test(key));
   if (unknown !== undefined) return shape(`writes the MCP entry key \`${unknown}\`, which no client's MCP entry takes from a plan.`);
@@ -324,7 +328,7 @@ function bindMcpEntry(step: PlanStep & Record<string, Json>, context: StepContex
   }
   if (!remote || typeof remote.url !== 'string') return mismatch('(a remote, where it declares none)', declares);
   if ([...stdioKeys].some(key => !remoteKeys.has(key) && entry[key] !== undefined)) return mismatch('(a program beside the remote)', declares);
-  const form = profiles.map(profile => profile.remote[String(remote.type)]).find(Boolean);
+  const form = keeping.map(profile => profile.remote[String(remote.type)]).find(Boolean);
   const urlKey = urlName!;
   const headersKey = headersName!;
   if (entry[urlKey] !== remote.url) return mismatch('URL', declares);

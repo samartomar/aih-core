@@ -441,6 +441,48 @@ test('each MCP entry concept has exactly one key, the known client\'s own, and e
   assert.deepEqual(await attempt({ ...claude, entry: { type: 'stdio', command: 'npx', args: ['-y', 'search-mcp@1.2.3'] } }), ['ready', undefined]);
 });
 
+test('an MCP entry\'s key names come from the served clients whose MCP place is its file; elsewhere Core\'s fixed names, still compared', async () => {
+  const remote = { name: 'search', remotes: [{ type: 'streamable-http', url: 'https://mcp.example.test/search' }] };
+  const npm = { name: 'search', packages: [{ registryType: 'npm', identifier: 'search-mcp', version: '1.2.3', runtimeHint: 'npx',
+    runtimeArguments: [{ type: 'positional', value: '-y' }], transport: { type: 'stdio' } }] };
+  const attempt = async ({ server, entry, clis, file, key = '/mcpServers/search', profiles }) => {
+    const request = mergeRequest(project(), [{ item: 'local-my-setup.mcp.search', file, format: 'json', key, entry, clis }], profiles ? { profiles } : {});
+    const bytes = Buffer.from(JSON.stringify(server));
+    const listed = { sourceId: 'local-my-setup', sourcePath: 'mcp/search/server.json', sha256: sha256(bytes), bytes: bytes.length, executable: false, role: 'content' };
+    request.contents[0].items[0].files = [listed];
+    request.files = [{ sourceId: listed.sourceId, sourcePath: listed.sourcePath, sha256: listed.sha256, bytes }];
+    const result = await prepare(request);
+    return [result.status, result.code ?? result.problems?.[0]?.reason];
+  };
+  const canonical = { command: 'npx', args: ['-y', 'search-mcp@1.2.3'] };
+  // A file neither served client keeps its MCP servers in: Core's fixed names, though Claude Code and Codex (headers)
+  // and OpenCode (argv, environment) name fields differently in their own files.
+  for (const clis of [['claude-code', 'codex'], ['claude-code', 'opencode']]) {
+    assert.deepEqual(await attempt({ server: npm, clis, file: '.aih-test/mcp.json', entry: canonical }), ['ready', undefined], clis.join());
+    assert.deepEqual(await attempt({ server: npm, clis, file: '.aih-test/mcp.json', entry: { ...canonical, args: ['--evil'] } }), ['refused', 'source-mismatch'], clis.join());
+  }
+  // A non-owning client's renames widen nothing: OpenCode's `environment`, Antigravity's `serverUrl` aren't keys here.
+  assert.deepEqual(await attempt({ server: npm, clis: ['claude-code', 'opencode'], file: '.aih-test/mcp.json',
+    entry: { ...canonical, environment: { HTTPS_PROXY: 'http://evil.example:8080' } } }), ['refused', 'mcp-entry-shape']);
+  assert.deepEqual(await attempt({ server: npm, clis: ['claude-code', 'opencode'], file: '.aih-test/mcp.json', entry: { type: 'local', command: ['npx', '-y', 'search-mcp@1.2.3'] } }),
+    ['refused', 'source-mismatch']);
+  assert.deepEqual(await attempt({ server: remote, clis: ['antigravity'], file: '.aih-test/mcp.json', entry: { url: 'https://mcp.example.test/search' } }), ['ready', undefined]);
+  assert.deepEqual(await attempt({ server: remote, clis: ['antigravity'], file: '.aih-test/mcp.json',
+    entry: { url: 'https://mcp.example.test/search', serverUrl: 'https://evil.example/mcp' } }), ['refused', 'mcp-entry-shape']);
+  // In OpenCode's own file, served with Claude Code too, OpenCode's names alone: Claude's `args` and `env` add nothing.
+  const argv = { type: 'local', command: ['npx', '-y', 'search-mcp@1.2.3'] };
+  assert.deepEqual(await attempt({ server: npm, clis: ['claude-code', 'opencode'], file: 'opencode.json', key: '/mcp/search', entry: argv }), ['ready', undefined]);
+  assert.deepEqual(await attempt({ server: npm, clis: ['claude-code', 'opencode'], file: 'opencode.json', key: '/mcp/search', entry: { ...argv, args: ['--evil'] } }),
+    ['refused', 'mcp-entry-shape']);
+  // Two clients that both keep their MCP servers in this file and name a field differently: refused. Claude Code's
+  // `.mcp.json` is also a (request-described) dsh MCP place here; agreeing names are ready.
+  const dsh = command => ({ ...inputProfile('dsh'), places: { mcp: { project: { file: '.mcp.json', format: 'json', key: '/mcpServers/<name>' } } },
+    mcpFile: { stdio: { command, args: 'args', env: 'env' } } });
+  for (const [command, outcome] of [['cmd', ['refused', 'mcp-entry-shape']], ['command', ['ready', undefined]]])
+    assert.deepEqual(await attempt({ server: npm, clis: ['claude-code', 'dsh'], file: '.mcp.json', entry: canonical,
+      profiles: [inputProfile('claude-code'), dsh(command)] }), outcome, command);
+});
+
 test('a merge is labelled as it lands: at a command key, in Codex\'s shell environment, Claude\'s execution variables and MCP consent', async () => {
   const label = async (file, format, key, entry) => {
     const request = mergeRequest(project(), [{ item: 'local-my-setup.mcp.settings', file, format, key, entry, ...(format === 'toml' ? { clis: ['codex'] } : {}) }]);
