@@ -5,11 +5,15 @@ import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { devNull, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { resolveExecutable } from '../../internal/approved-process.js';
+import { childEnvironment, resolveExecutable, stopTree, treeSpawnOptions } from '../../internal/approved-process.js';
 import { inRange } from './range.js';
 import type { InstalledInterpreter } from './types.js';
 
-/** Core's fixed helper. It is always run as `python <helper> <command> …`, never with interpreter flags. */
+/**
+ * Core's fixed helper. It is always run as `python <helper> <command> …`, never with interpreter flags, and with no
+ * `PYTHON*` variable of the host's: only `PYTHONNOUSERSITE`, `PYTHONSAFEPATH` and `PYTHONUTF8` as Core sets them, which
+ * isolate it as `-I` would. Its own pip runs are isolated (`-I`).
+ */
 const HELPER = `import json, os, subprocess, sys
 command = sys.argv[1]
 if command == 'probe':
@@ -19,7 +23,7 @@ elif command == 'venv':
     venv.EnvBuilder(with_pip=True, symlinks=(os.name != 'nt')).create(sys.argv[2])
     print(json.dumps({'ok': True}))
 elif command == 'install':
-    result = subprocess.run([sys.executable, '-m', 'pip', 'install', '--isolated', '--no-index', '--no-deps', '--only-binary=:all:', '--no-cache-dir',
+    result = subprocess.run([sys.executable, '-I', '-m', 'pip', 'install', '--isolated', '--no-index', '--no-deps', '--only-binary=:all:', '--no-cache-dir',
                              '--disable-pip-version-check', '--no-input', *sys.argv[2:]], stdout=sys.stderr)
     sys.exit(result.returncode)
 elif command == 'compatible':
@@ -33,16 +37,16 @@ elif command == 'buildenv':
     pinned = {normal(os.path.basename(path).split('-')[0]) for path in sys.argv[2:]}
     extra = sorted({dist.metadata['Name'] for dist in importlib.metadata.distributions() if normal(dist.metadata['Name']) not in pinned | {'pip'}})
     if extra:
-        result = subprocess.run([sys.executable, '-m', 'pip', 'uninstall', '--isolated', '-y', *extra], stdout=sys.stderr)
+        result = subprocess.run([sys.executable, '-I', '-m', 'pip', 'uninstall', '--isolated', '-y', *extra], stdout=sys.stderr)
         if result.returncode:
             sys.exit(result.returncode)
     if len(sys.argv) > 2:
-        result = subprocess.run([sys.executable, '-m', 'pip', 'install', '--isolated', '--no-index', '--no-deps', '--only-binary=:all:', '--no-cache-dir',
+        result = subprocess.run([sys.executable, '-I', '-m', 'pip', 'install', '--isolated', '--no-index', '--no-deps', '--only-binary=:all:', '--no-cache-dir',
                                  '--disable-pip-version-check', '--no-input', *sys.argv[2:]], stdout=sys.stderr)
         sys.exit(result.returncode)
 elif command == 'build':
     out = sys.argv[3]
-    result = subprocess.run([sys.executable, '-m', 'pip', 'wheel', '--isolated', '--no-index', '--no-deps', '--no-build-isolation', '--no-cache-dir',
+    result = subprocess.run([sys.executable, '-I', '-m', 'pip', 'wheel', '--isolated', '--no-index', '--no-deps', '--no-build-isolation', '--no-cache-dir',
                              '--disable-pip-version-check', '--no-input', '--wheel-dir', out, sys.argv[2]], stdout=sys.stderr)
     if result.returncode:
         sys.exit(result.returncode)
@@ -62,32 +66,44 @@ export interface PythonResult { ok: boolean; output: unknown; reason: string; lo
 const LOG_TAIL_BYTES = 65_536;
 
 /** Runs the helper with one interpreter; output is bounded, and a deadline or the caller's signal stops it. */
-/** Host variables a source build never receives. */
-const BUILD_DROPPED = /^(CC|CXX|LDSHARED|LDCXXSHARED|CFLAGS|CXXFLAGS|CPPFLAGS|LDFLAGS|SETUPTOOLS_.*|DISTUTILS_.*)$/i;
+/**
+ * The host variables a source build receives (C78): only what finds programs and describes the machine, the locale, and
+ * Node's own options and certificates. Everything else, such as compiler and linker flags (`CL`, `INCLUDE`, `LIB`,
+ * `RUSTFLAGS`, `CARGO_*`), package settings and proxies, never reaches a build; Core sets the rest itself.
+ */
+const BUILD_KEPT = /^(PATH|PATHEXT|SYSTEMROOT|SYSTEMDRIVE|WINDIR|COMSPEC|OS|NUMBER_OF_PROCESSORS|PROCESSOR_(ARCHITECTURE|IDENTIFIER|LEVEL|REVISION)|PROGRAMFILES|PROGRAMFILES(X86)|PROGRAMW6432|PROGRAMDATA|COMMONPROGRAMFILES|COMMONPROGRAMFILES(X86)|COMMONPROGRAMW6432|LOCALAPPDATA|USERNAME|USERDOMAIN|COMPUTERNAME|USER|LOGNAME|SHELL|TERM|LANG|LANGUAGE|LC_[A-Z]+|TZ|NODE_OPTIONS|NODE_EXTRA_CA_CERTS|SSL_CERT_FILE|SSL_CERT_DIR)$/i;
+/** What Core sets for every source build: offline package tools. */
+const BUILD_SET = { PIP_NO_INDEX: '1', CARGO_NET_OFFLINE: 'true' };
 export async function runHelper(executable: string, args: string[], options: { signal?: AbortSignal; timeoutMs: number; cwd: string; env?: Record<string, string>; build?: boolean }): Promise<PythonResult> {
   const resolved = resolveExecutable(executable);
   if (!resolved) return { ok: false, output: null, reason: 'interpreter-unavailable' };
   const dir = mkdtempSync(join(tmpdir(), 'aih-python-'));
   const helper = join(dir, 'aih_acquire_helper.py');
   writeFileSync(helper, HELPER, { mode: 0o600 });
-  const env: Record<string, string | undefined> = { ...process.env, PYTHONNOUSERSITE: '1', PIP_NO_INPUT: '1', PIP_DISABLE_PIP_VERSION_CHECK: '1',
-    PYTHONUTF8: '1' };
-  delete env.PYTHONPATH; delete env.PYTHONHOME; delete env.PYTHONSTARTUP; delete env.VIRTUAL_ENV;
+  const env: Record<string, string | undefined> = { ...process.env };
+  // No host Python setting reaches the helper or pip (`-I`'s isolation, set by environment).
+  for (const key of Object.keys(env)) if (/^PYTHON/i.test(key) || key.toUpperCase() === 'VIRTUAL_ENV') delete env[key];
+  Object.assign(env, { PYTHONNOUSERSITE: '1', PYTHONSAFEPATH: '1', PYTHONUTF8: '1', PIP_NO_INPUT: '1', PIP_DISABLE_PIP_VERSION_CHECK: '1' });
   // pip's configuration, user site and index variables never reach an install or build (C78): only the files Core names.
   for (const key of Object.keys(env)) if (/^PIP_/i.test(key) && !['PIP_NO_INPUT', 'PIP_DISABLE_PIP_VERSION_CHECK'].includes(key)) delete env[key];
   env.PIP_CONFIG_FILE = devNull; env.PIP_NO_INDEX = '1';
-  // A source build never takes the host's compiler, flags or setuptools/distutils settings (C78).
-  if (options.build) for (const key of Object.keys(env)) if (BUILD_DROPPED.test(key)) delete env[key];
+  // A source build never takes the host's compiler, flags, package settings or proxies (C78): an allowlist.
+  if (options.build) {
+    for (const key of Object.keys(env)) if (!BUILD_KEPT.test(key) && !/^(PYTHON|PIP_)/i.test(key)) delete env[key];
+    Object.assign(env, BUILD_SET);
+  }
   Object.assign(env, options.env ?? {});
   try {
     return await new Promise<PythonResult>(resolve => {
       let child: ReturnType<typeof spawn>;
       const out: Buffer[] = []; let size = 0; let settled = false;
       let tail = Buffer.alloc(0);
-      const done = (result: PythonResult) => { if (!settled) { settled = true; if (tail.length) result.log = tail.toString('utf8'); clearTimeout(timer); options.signal?.removeEventListener('abort', stop); resolve(result); } };
-      const stop = () => { try { child.kill(); } catch { /* close settles */ } };
+      const done = (result: PythonResult) => { if (!settled) { settled = true; if (tail.length) result.log = tail.toString('utf8'); clearTimeout(timer); if (force) clearTimeout(force); options.signal?.removeEventListener('abort', stop); resolve(result); } };
+      let force: ReturnType<typeof setTimeout> | undefined;
+      const stop = () => { if (!child) return; stopTree(child); force ??= setTimeout(() => stopTree(child, true), 2_000); force.unref?.(); };
       const timer = setTimeout(stop, options.timeoutMs); timer.unref?.();
-      try { child = spawn(resolved.launchPath, [helper, ...args], { shell: false, windowsHide: true, cwd: options.cwd, env, stdio: ['ignore', 'pipe', 'pipe'] }); }
+      try { child = spawn(resolved.launchPath, [helper, ...args], { shell: false, windowsHide: true, cwd: options.cwd, env: childEnvironment(env),
+        stdio: ['ignore', 'pipe', 'pipe'], ...treeSpawnOptions() }); }
       catch { done({ ok: false, output: null, reason: 'interpreter-unavailable' }); return; }
       options.signal?.addEventListener('abort', stop, { once: true });
       child.stdout?.on('data', (chunk: Buffer) => { size += chunk.length; if (size > 1_048_576) stop(); else out.push(chunk); });
@@ -114,6 +130,11 @@ export async function probeInterpreter(path: string, signal?: AbortSignal): Prom
   if (!result.ok || !output || typeof output.version !== 'string') return undefined;
   return { path, version: output.version };
 }
+/** The file an interpreter path resolves to and its sha256 now: Apply runs only the one Prepare found. */
+export function interpreterIdentity(path: string): { realpath: string; sha256: string } | undefined {
+  const found = resolveExecutable(path);
+  return found ? { realpath: found.path, sha256: found.sha256 } : undefined;
+}
 /** The first interpreter on PATH whose version is inside `range` (C46), or `null` when none is. */
 export async function discoverInterpreter(range: string, signal?: AbortSignal): Promise<InstalledInterpreter | null> {
   const seen = new Set<string>();
@@ -122,7 +143,7 @@ export async function discoverInterpreter(range: string, signal?: AbortSignal): 
     if (!found || seen.has(found.path)) continue;
     seen.add(found.path);
     const probed = await probeInterpreter(found.launchPath, signal);
-    if (probed && inRange(probed.version, range)) return probed;
+    if (probed && inRange(probed.version, range)) return { ...probed, identity: { realpath: found.path, sha256: found.sha256 } };
   }
   return null;
 }

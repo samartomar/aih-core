@@ -4,9 +4,9 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import tls from 'node:tls';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { apply, list, prepare, prepareRemoval } from '../dist/core/index.js';
 import { refusalCodes, validateFormat } from '../dist/core/contracts.js';
 import { artifactServer, documentSha, fakeEnvironment, fakeInterpreterBase, fakePython, fallbackArchive, nativeSetup, pythonSetup,
@@ -261,7 +261,7 @@ test('a Python tool uses the installed interpreter in range first; the review sh
   assert.equal(interpreter.installed.note, 'in range, not qualified');
   assert.equal(interpreter.installed.path.toLowerCase(), installed.toLowerCase());
   assert.deepEqual(interpreter.fallback, { version: '3.14.5', file: 'cpython-3.14.5-install_only.tar.gz', sha256: python.qualification.observed.interpreter.sha256 });
-  assert.deepEqual(interpreter.switchesOn, ['outside-range', 'wheel-install-failed', 'readback-failed']);
+  assert.deepEqual(interpreter.switchesOn, ['none-found', 'outside-range', 'wheel-install-failed', 'readback-failed']);
   assert.match(prepared.review.steps[0].cantPromise, /never byte-qualified/);
 
   const run = await apply(prepared.handle, approve(prepared.review));
@@ -274,6 +274,24 @@ test('a Python tool uses the installed interpreter in range first; the review sh
   const entry = listed.entries.find(row => row.managementId === python.id);
   assert.deepEqual([entry.aiSetup.branch, entry.aiSetup.fallback, entry.aiSetup.interpreter.version], ['installed', false, '3.13.1']);
   for (const document of [prepared.review, run, listed]) assert.equal(validateFormat(document).status, 'ok', JSON.stringify(validateFormat(document)));
+});
+
+test('an installed interpreter replaced after Prepare is not run: the reviewed fallback is, even at the same version', async () => {
+  installedPython({ version: '3.13.1' });
+  const target = project();
+  const python = pythonSetup(server, { name: 'p-replaced', fallbackBytes });
+  const prepared = await prepare(setupRequest(target, [python]));
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared));
+  // Other bytes at the same path, reporting the same version.
+  const replaced = join(scratch, 'replaced-base', process.platform === 'win32' ? 'node-copy.exe' : 'node-copy');
+  mkdirSync(dirname(replaced), { recursive: true });
+  writeFileSync(replaced, Buffer.concat([readFileSync(base), Buffer.from('changed')]));
+  if (process.platform !== 'win32') chmodSync(replaced, 0o755);
+  rmSync(bin, { recursive: true, force: true });
+  fakePython(replaced, bin, { version: '3.13.1' });
+  const run = await apply(prepared.handle, approve(prepared.review));
+  assert.equal(run.completion, 'complete', JSON.stringify(run));
+  assert.deepEqual([run.steps[0].interpreter.branch, run.steps[0].interpreter.fallbackReason], ['fallback', 'none-found']);
 });
 
 test('a real failure on the installed interpreter switches to the reviewed fallback, and only to it', async () => {

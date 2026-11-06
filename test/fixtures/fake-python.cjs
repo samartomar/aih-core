@@ -5,7 +5,7 @@
 // incompatible?, failBuild? }`. `compatible` calls a wheel installable unless its file name starts with an `incompatible`
 // prefix; `install` makes each wheel's `console_scripts=` line into scripts in the environment and `readback <dist>
 // <script>` checks the script is that distribution's; `buildenv` records the dependency wheels it was given; `build` writes `<name>-<version>-py3-none-any.whl` named
-// after the sdist (`<name>-<version>.tar.gz`), unless `failBuild` (then a 60-line log on stderr, echoing `AIH_FIXTURE_TOKEN`).
+// after the sdist (`<name>-<version>.tar.gz`), unless `failBuild` (then a 60-line log on stderr, echoing the sidecar's `token`).
 // It proves Core's branch logic only; it is not a real interpreter, pip or wheel install.
 'use strict';
 const { basename, dirname, join } = require('node:path');
@@ -55,12 +55,13 @@ if (/^python/i.test(basename(process.execPath))) {
     if (facts.failBuild || !fs.existsSync(args[0])) {
       // A long build log; a secret-named host variable's value appears in it, as a real build might print it.
       for (let line = 0; line < 60; line++) process.stderr.write(`fixture: compiling unit ${line}\n`);
-      if (process.env.AIH_FIXTURE_TOKEN) process.stderr.write(`fixture: token ${process.env.AIH_FIXTURE_TOKEN}\n`);
+      if (facts.token) process.stderr.write(`fixture: token ${facts.token}\n`);
       process.stderr.write('fixture: build failed\n'); process.exit(1);
     }
-    // The environment a build ran with, for tests that check what reaches it (`AIH_FAKE_BUILD_RECORD` names the file).
-    if (process.env.AIH_FAKE_BUILD_RECORD) fs.writeFileSync(process.env.AIH_FAKE_BUILD_RECORD, JSON.stringify(Object.fromEntries(
-      Object.entries(process.env).filter(([key]) => /^(HOME|USERPROFILE|APPDATA|TMP|TEMP|TMPDIR|CC|CXX|LDSHARED|CFLAGS|CPPFLAGS|LDFLAGS|SETUPTOOLS_.*|DISTUTILS_.*)$/i.test(key)))));
+    // The environment a build ran with, for tests that check what reaches it (the sidecar's `buildRecord` names the file;
+    // a build receives no host variable such a test could use).
+    if (facts.buildRecord) fs.writeFileSync(facts.buildRecord, JSON.stringify(Object.fromEntries(
+      Object.entries(process.env).filter(([key]) => /^(HOME|USERPROFILE|APPDATA|TMP|TEMP|TMPDIR|CC|CXX|LDSHARED|CFLAGS|CPPFLAGS|LDFLAGS|SETUPTOOLS_.*|DISTUTILS_.*|CL|_CL_|INCLUDE|LIB|RUSTFLAGS|CARGO_.*|PIP_.*|HTTPS?_PROXY|ALL_PROXY|MAKEFLAGS|PYTHON.*)$/i.test(key)))));
     const [, name, version] = /^(.+)-([^-]+)\.tar\.gz$/.exec(basename(args[0]));
     const file = `${name}-${version}-py3-none-any.whl`;
     fs.mkdirSync(args[1], { recursive: true });

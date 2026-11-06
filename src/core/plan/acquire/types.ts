@@ -42,7 +42,8 @@ export interface AcquireSpec {
   executable: { path: string; script: string | null } | null;
 }
 /** The interpreter Prepare found (C46): in range, never byte-qualified. */
-export interface InstalledInterpreter { path: string; version: string }
+/** `identity`: the file Prepare found (its real path and sha256); never recorded, only compared at Apply. */
+export interface InstalledInterpreter { path: string; version: string; identity?: { realpath: string; sha256: string } }
 /** What one acquisition did: which interpreter branch ran, and why the fallback did (C46). */
 export interface AcquireFacts {
   branch: 'installed' | 'fallback' | null;

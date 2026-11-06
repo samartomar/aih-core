@@ -759,7 +759,8 @@ function acquireReview(step: CheckedStep, installed: Map<number, InstalledInterp
     installed: found ? { path: found.path, version: found.version, note: 'in range, not qualified' as const } : null,
     range: spec.interpreter.range,
     fallback: { version: spec.interpreter.fallback.version, file: spec.interpreter.fallback.file, sha256: spec.interpreter.fallback.sha256 },
-    switchesOn: found ? FALLBACK_REASONS.filter(reason => reason !== 'none-found' && (builds || reason !== 'build-failed')) : ['none-found'] } } : {}) };
+    // An installed interpreter that is no longer the file Prepare found (its real path or bytes changed) is `none-found`.
+    switchesOn: found ? FALLBACK_REASONS.filter(reason => builds || reason !== 'build-failed') : ['none-found'] } } : {}) };
 }
 
 const REDACTED = '[REDACTED]';
