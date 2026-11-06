@@ -85,7 +85,9 @@ await check('an older revision is flagged per key and signer, and the memory out
 await check('an organization adds or replaces the allowed signers: trust follows the authenticated issuer and subject, never a label', async () => {
   const request = () => enterprise(scannedRequest(project('org'), ['notes'], [scanEntry('notes-r1-a'), scanEntry('notes-r1-b')], { clis: ['codex'] }));
   const added = shown(await prepare(request(), { organization: organizationFile({ add: [A] }) }));
-  assert.deepEqual(added.map(row => [row.signer.subject, row.signer.trusted, row.signer.identity]), [[A.subject, true, A.identity], [B.subject, false, B.subject]]);
+  // A signer the organization added is labelled so, whatever identity it claims.
+  assert.deepEqual(added.map(row => [row.signer.subject, row.signer.trusted, row.signer.identity]), [[A.subject, true, `organization-added: ${A.identity}`], [B.subject, false, B.subject]]);
+  assert.ok(added[0].sentence.includes(`signed by organization-added: ${A.identity}`), added[0].sentence);
   const replaced = shown(await prepare(request(), { organization: organizationFile({ replace: [B] }) }));
   assert.deepEqual(replaced.map(row => [row.signer.subject, row.signer.trusted]), [[A.subject, false], [B.subject, true]]);
   // A label naming signer A but another subject trusts nobody.
@@ -168,6 +170,16 @@ await check('the 2 MiB memory evicts the oldest unheld entries first, then the o
   assert.ok(held.review.warnings.some(text => text.startsWith('scan-memory-full')), JSON.stringify(held.review.warnings));
   assert.ok(statSync(MEMORY).size <= 2 * 1_048_576);
   assert.equal(conforms(await apply(held.handle, approve(held.review))).completion, 'complete');
+});
+
+await check('an older summary later in the same request is flagged against the newer one shown earlier in it', async () => {
+  const previous = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
+  const home = mkdtempSync(join(previous.HOME, 'fresh-home-'));
+  process.env.HOME = home; process.env.USERPROFILE = home;
+  try {
+    const rows = shown(await prepare(scannedRequest(project('replay'), ['notes'], [scanEntry('notes-r5-a'), scanEntry('notes-r3-a')])));
+    assert.deepEqual(rows.map(row => [row.revision, row.older, row.lastSeen]), [[5, false, null], [3, true, 5]]);
+  } finally { process.env.HOME = previous.HOME; process.env.USERPROFILE = previous.USERPROFILE; }
 });
 
 await check('the aih CLI installs a saved request with DO NOT INSTALL and unverifiable evidence, with the ordinary exit codes', async () => {

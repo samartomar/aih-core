@@ -1,4 +1,4 @@
-// Regression tests for samartomar/aihq#89: recipe identity must order materials by
+// Regression tests: recipe identity must order materials by
 // ascending UTF-16 code-unit order of `id`, never by runtime locale collation.
 // Expected identities are independent known-answer vectors: each digest is the
 // node:crypto SHA-256 of a canonical descriptor JSON string written literally

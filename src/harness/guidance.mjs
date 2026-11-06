@@ -26,6 +26,7 @@ const reasons = Object.freeze({
   'node-certificate-chain': 'OS and Node trust differ', 'certificate-chain': 'Certificate chain rejected',
   'connection-failed': 'Connection failed', 'authentication-required-or-denied': 'Authentication required or denied',
   'organization-permission-incomplete': 'Managed permission incomplete', 'state-protection': 'State protection refused access',
+  'state-protection-unverified': 'State protection could not be checked in time; try again',
   'state-unwritable': 'State is not writable', 'permission-denied': 'Access denied', 'EACCES': 'Access denied', 'EPERM': 'Access denied',
   'authority-denied': 'Organization authority denied', 'authority-unavailable': 'Organization authority unavailable',
   'loading-unverified': 'Native loading unverified', 'path-resolution': 'Selected PATH executable', 'wsl-launcher': 'Ambiguous WSL launcher',

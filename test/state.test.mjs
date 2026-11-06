@@ -88,7 +88,7 @@ test('Windows state checks a file Core did not write, even in a folder already p
   protectState(['runs/a.json']);
   // Another program creates a file with a wider access list in the proven folder.
   const foreign = join(stateRoot(), 'runs/b.json'); writeFileSync(foreign, '{}'); grantEveryone(foreign);
-  assert.throws(() => protectState(['runs/b.json']), /state-protection/);
+  assert.throws(() => protectState(['runs/b.json']), { message: 'state-protection' }, 'a real access-list problem is not the retryable unverified refusal');
 }));
 
 test('Windows state checks a proven file again once it is replaced', { skip: process.platform !== 'win32' }, () => withHome('aih-state-replaced-', () => {

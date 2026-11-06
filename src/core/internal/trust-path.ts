@@ -2,6 +2,7 @@ import { lstatSync, realpathSync, readdirSync, statfsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { dirname, join, relative, parse } from 'node:path';
 import { canonicalJson } from './canonical.js';
+import { system32, windowsPowerShell } from './system-root.js';
 import { pathPins, userHomeRoot, validSegment, type PathPin } from './host-files.js';
 
 export interface TrustPath { home: string; path: string; relativePath: string; pathKey: string; pins: PathPin[] }
@@ -26,6 +27,8 @@ function canonicalSegments(home: string, segments: string[]): string[] {
   }
   return result;
 }
+/** A Windows system program's absolute path; one that can't be located fails closed like an unproven name. */
+function systemProgram(path: () => string): string { try { return path(); } catch { throw new Error('output-path-alias'); } }
 /** Prove the nearest existing directory's native name behavior for absent aliases. */
 function nameBehavior(path: string): 'sensitive' | 'insensitive' {
   let parent = dirname(path);
@@ -33,9 +36,9 @@ function nameBehavior(path: string): 'sensitive' | 'insensitive' {
     catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       const next = dirname(parent); if (next === parent) throw new Error('output-path-alias'); parent = next; } }
   if (process.platform === 'win32') {
-    const volume = spawnSync('fsutil.exe', ['fsinfo', 'volumeinfo', parse(parent).root], { encoding: 'utf8', windowsHide: true, timeout: 5000, maxBuffer: 65536 });
+    const volume = spawnSync(systemProgram(() => system32('fsutil.exe')), ['fsinfo', 'volumeinfo', parse(parent).root], { encoding: 'utf8', windowsHide: true, timeout: 5000, maxBuffer: 65536 });
     if (volume.status !== 0 || !/NTFS/.test(volume.stdout)) throw new Error('output-path-alias');
-    const query = spawnSync('fsutil.exe', ['file', 'queryCaseSensitiveInfo', parent], { encoding: 'utf8', windowsHide: true, timeout: 5000, maxBuffer: 65536 });
+    const query = spawnSync(systemProgram(() => system32('fsutil.exe')), ['file', 'queryCaseSensitiveInfo', parent], { encoding: 'utf8', windowsHide: true, timeout: 5000, maxBuffer: 65536 });
     if (query.status !== 0) throw new Error('output-path-alias');
     if (/is disabled\./.test(query.stdout)) return 'insensitive';
     if (/is enabled\./.test(query.stdout)) return 'sensitive';
@@ -55,7 +58,7 @@ function insensitiveEquivalent(a: string, b: string): boolean {
   // Unicode equivalence requires the volume's full collation proof; fail closed.
   if (/[^\x20-\x7e]/.test(a + b)) throw new Error('output-path-alias');
   const script = "$ErrorActionPreference='Stop'; Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class AihName { [DllImport(\"kernel32.dll\", CharSet=CharSet.Unicode)] public static extern int CompareStringOrdinal(string a,int al,string b,int bl,bool ignoreCase); }'; [AihName]::CompareStringOrdinal($env:AIH_NAME_A,-1,$env:AIH_NAME_B,-1,$true)";
-  const result = spawnSync('powershell.exe',['-NoProfile','-NonInteractive','-Command',script],{ encoding:'utf8',windowsHide:true,timeout:10000,maxBuffer:65536,
+  const result = spawnSync(systemProgram(windowsPowerShell),['-NoProfile','-NonInteractive','-Command',script],{ encoding:'utf8',windowsHide:true,timeout:10000,maxBuffer:65536,
     env:{...process.env,AIH_NAME_A:a,AIH_NAME_B:b} });
   if (result.status !== 0 || !/^[123]\s*$/.test(result.stdout)) throw new Error('output-path-alias');
   return result.stdout.trim() === '2';

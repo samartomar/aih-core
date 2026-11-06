@@ -11,6 +11,7 @@ import { listManagedSelections } from '../managed-inventory.js';
 import { prepareManagedRemovals, prepareRepairRemoval } from '../managed-removal.js';
 import type { RemovalMember as EngineRemovalMember } from '../removal-types.js';
 import { repairIndex } from '../../harness/contracts.mjs';
+import { windowsUserEnvironmentKept } from '../../harness/runtime.mjs';
 import { deepFreezeStrictJsonV1 } from '../internal/strict-json.js';
 import { projectRoot } from '../internal/host-files.js';
 import { forgetProvenState, readOwnership } from '../internal/state.js';
@@ -377,8 +378,14 @@ export async function prepareRemoval(request: unknown, controls: unknown = {}): 
     const results = obligations(enterprise.state.bound.organization, enterprise.target, [], projected(recorded, releasing, []));
     return { denials, review: organizationReview(enterprise.state.bound, enterprise.target, denials, results) };
   })() : undefined;
+  // A Windows repair's setx values stay: Core can't undo them, and the review says which (contract 10).
+  const kept = repairCustody !== undefined && process.platform === 'win32' ? windowsUserEnvironmentKept(Object.values(receipt.members).flatMap(owner =>
+    owner.descriptor?.kind === 'block' && (owner.managementId === repairCustody || owner.claims?.some(claim => claim.managementId === repairCustody)) ?
+      [owner.descriptor.blockId] : [])) : [];
+  const warnings = kept.length ? [`user-environment-kept: Core can't undo the Windows user environment values this repair set with setx ` +
+    `(${kept.join(', ')}); removal leaves them as they are. Clear them yourself if you no longer want them.`] : [];
   const body: Omit<Review, 'reviewDigest'> = { schema: REVIEW, request: 'removal', scope, target: { project: located.project }, steps,
-    conflicts: [], failureRule: FAILURE_RULE, warnings: [], ...(admission ? { organization: admission.review } : {}) };
+    conflicts: [], failureRule: FAILURE_RULE, warnings, ...(admission ? { organization: admission.review } : {}) };
   const reviewDigest = digestOf(body, engine.review.reviewDigest + (program ? '\0' + program.engineDigest : ''));
   const review = deepFreezeStrictJsonV1({ ...body, reviewDigest } as unknown as Json) as unknown as Review;
   // An organization denial blocks the whole removal: no handle, every prepared entry blocked (contract 11).

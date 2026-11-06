@@ -1,6 +1,7 @@
 // The one Scan import (contract 2, 13, C18): `@aihq/scan/read` for `verifySummary` and `matchScan`, nothing else. Scan
 // is an optional peer: it is loaded only when a request supplies Scan evidence, and its absence is a result, never a
-// failure, so building, installing and running Core never need Scan.
+// failure, so building, installing and running Core never need Scan. It is loaded only from beside Core (`loadPeer`).
+import { loadPeer } from '../internal/peer.js';
 
 /** A Scan signer in Scan's shape; `identity` is only a label, trust comes from the authenticated issuer and subject. */
 export interface ScanSigner { identity: string; issuer: string; subject: string; extensions?: Record<string, string> }
@@ -24,16 +25,14 @@ let loaded: ScanRead | undefined;
 /** The caller's installed `@aihq/scan/read`, or why it can't be used. Never throws. */
 export async function scanRead(): Promise<ScanRead | { unavailable: string }> {
   if (loaded) return loaded;
-  try {
-    const module = await import(SPECIFIER) as Partial<ScanRead>;
-    if (typeof module.verifySummary !== 'function' || typeof module.matchScan !== 'function')
-      return { unavailable: 'The installed `@aihq/scan` has no `verifySummary` and `matchScan` in `@aihq/scan/read`.' };
-    loaded = { verifySummary: module.verifySummary.bind(module), matchScan: module.matchScan.bind(module) };
-    return loaded;
-  } catch (error) {
-    const code = (error as { code?: unknown })?.code;
-    return { unavailable: code === 'ERR_PACKAGE_PATH_NOT_EXPORTED' ?
-      'The installed `@aihq/scan` has no `@aihq/scan/read`; it needs Scan 0.1.0.' :
-      '`@aihq/scan` is not installed beside Core, so the supplied Scan evidence was not checked.' };
-  }
+  const peer = await loadPeer(SPECIFIER);
+  if (peer.status === 'not-exported') return { unavailable: 'The installed `@aihq/scan` has no `@aihq/scan/read`; it needs Scan 0.1.0.' };
+  if (peer.status === 'outside')
+    return { unavailable: '`@aihq/scan` was found outside the folder Core is installed in, so it was not loaded and the supplied Scan evidence was not checked.' };
+  if (peer.status !== 'loaded') return { unavailable: '`@aihq/scan` is not installed beside Core, so the supplied Scan evidence was not checked.' };
+  const module = peer.module as Partial<ScanRead>;
+  if (typeof module.verifySummary !== 'function' || typeof module.matchScan !== 'function')
+    return { unavailable: 'The installed `@aihq/scan` has no `verifySummary` and `matchScan` in `@aihq/scan/read`.' };
+  loaded = { verifySummary: module.verifySummary.bind(module), matchScan: module.matchScan.bind(module) };
+  return loaded;
 }

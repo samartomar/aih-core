@@ -41,7 +41,7 @@ test('a packed consumer shows Scan evidence with signer-bound memory, and Scan n
       copyFileSync(new URL(`./fixtures/${name}`, import.meta.url), join(consumer, name));
     const receipt = JSON.parse(run(['plan-scan-consumer.mjs']).trim().split('\n').at(-1));
     assert.equal(receipt.status, 'passed');
-    assert.equal(receipt.checks.length, 9, JSON.stringify(receipt.checks));
+    assert.equal(receipt.checks.length, 10, JSON.stringify(receipt.checks));
     // Without Scan installed, supplied evidence is an explicit unavailable result, never a crash or a gate.
     rmSync(join(consumer, 'node_modules/@aihq/scan'), { recursive: true });
     const without = JSON.parse(run(['plan-scan-consumer.mjs', 'without-scan']).trim().split('\n').at(-1));

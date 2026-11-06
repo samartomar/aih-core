@@ -262,11 +262,20 @@ export function obligations(organization: Organization, target: DeclaredTarget, 
   return { advisory, fulfilment };
 }
 
-/** The allowed Scan signers: the defaults, replaced or extended by the organization (C35). Never a gate. */
+/** The label prefix the review shows for a signer the organization supplied that is not one of Core's defaults. */
+export const ORGANIZATION_ADDED = 'organization-added: ';
+/**
+ * The allowed Scan signers: the defaults, replaced or extended by the organization (C35). Never a gate. A signer the
+ * organization supplies that is not a default (by issuer and subject) is labelled `organization-added`, so it can't
+ * borrow a default signer's name in the review.
+ */
 export function allowedSigners(defaults: readonly ScanSigner[], organization: Organization | undefined): ScanSigner[] {
   const signers = organization?.scanSigners;
-  const base = signers?.replace ? signers.replace : defaults;
-  const all = [...base, ...(signers?.add ?? [])].map(signer => structuredClone(signer));
+  const defaultKeys = new Set(defaults.map(signer => `${signer.issuer} ${signer.subject}`));
+  const label = (signer: ScanSigner): ScanSigner => defaultKeys.has(`${signer.issuer} ${signer.subject}`) ? structuredClone(signer) :
+    { ...structuredClone(signer), identity: (ORGANIZATION_ADDED + (signer.identity ?? signer.subject)).slice(0, 2048) };
+  const base = signers?.replace ? signers.replace.map(label) : defaults.map(signer => structuredClone(signer));
+  const all = [...base, ...(signers?.add ?? []).map(label)];
   const seen = new Set<string>();
   return all.filter(signer => { const key = `${signer.issuer}\0${signer.subject}`; if (seen.has(key)) return false; seen.add(key); return true; });
 }
