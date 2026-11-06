@@ -58,4 +58,8 @@ export interface AcquireFacts {
 /** The real failures that switch an installed interpreter to the reviewed fallback (D105); `build-failed` only with a build. */
 export const FALLBACK_REASONS = ['none-found', 'outside-range', 'wheel-install-failed', 'readback-failed', 'build-failed'] as const;
 export const MANIFEST = '.aih-acquired';
+/** How the marker file of a folder Core acquired begins; the acquire step writes it and later plans recognise it by it. */
+export const ACQUIRED_MARKER_PREFIX = 'Managed by AIH Core:';
+/** Where AI setups are acquired, under the user root: only an acquire step places anything there. */
+export const AI_SETUP_ROOT = '.aihq/ai-setup';
 export const ACQUIRING = '.aih-acquiring';

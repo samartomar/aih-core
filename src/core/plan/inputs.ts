@@ -48,6 +48,29 @@ const problemAt = (index: number, field: string, reason: string, message: string
   ({ problem: { path: `/plan/plan/${index}/${field}`, reason, message } });
 const marker = (input: string) => `{${input}}`;
 
+/**
+ * Variables that change how a program, its runtime, loader or package manager finds and runs code, or where programs
+ * find their configuration: a binding never sets one, for a command Core runs or an entry a client starts. The same
+ * list Catalog keeps for MCP server environments, plus Windows' own program lookup; names compare without case.
+ */
+const LOADER_NAMES = new Set(['NODE_OPTIONS', 'NODE_PATH', 'NODE_EXTRA_CA_CERTS', 'NODE_TLS_REJECT_UNAUTHORIZED', 'ELECTRON_RUN_AS_NODE',
+  'PATH', 'PATHEXT', 'COMSPEC', 'PSMODULEPATH', 'SHELL', 'BASH_ENV', 'ENV', 'ZDOTDIR', 'PERL5LIB', 'PERL5OPT', 'PERLLIB', 'RUBYLIB', 'RUBYOPT',
+  'GEM_HOME', 'GEM_PATH', 'JAVA_TOOL_OPTIONS', '_JAVA_OPTIONS', 'JDK_JAVA_OPTIONS', 'CLASSPATH', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA',
+  'HOMEDRIVE', 'HOMEPATH', 'PROGRAMDATA', 'ALLUSERSPROFILE', 'KIMI_CODE_HOME', 'OPENCODE_CONFIG', 'OPENCODE_CONFIG_DIR', 'OPENCODE_CONFIG_CONTENT',
+  'COPILOT_HOME', 'CURSOR_CONFIG_DIR', 'PAGER', 'EDITOR', 'VISUAL', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'REQUESTS_CA_BUNDLE', 'CURL_CA_BUNDLE',
+  'SYSTEMROOT', 'WINDIR', 'NODEFAULTCURRENTDIRECTORYINEXEPATH']);
+const LOADER_PREFIXES = ['LD_', 'DYLD_', 'PYTHON', 'UV_', 'PIP_', 'NPM_CONFIG_', 'YARN_', 'PNPM_', 'COREPACK_', 'BUN_', 'DENO_', 'CONDA_', 'VIRTUAL_ENV',
+  'GIT_', 'XDG_'];
+/** Interpreter switches that only choose a text encoding, never what code runs. */
+const ENCODING_ONLY = new Set(['PYTHONUTF8', 'PYTHONIOENCODING']);
+export function isLoaderVariable(name: string): boolean {
+  const upper = name.toUpperCase();
+  if (ENCODING_ONLY.has(upper)) return false;
+  return LOADER_NAMES.has(upper) || LOADER_PREFIXES.some(prefix => upper.startsWith(prefix));
+}
+const loaderProblem = (index: number, name: string) => problemAt(index, 'inputs', 'input-binding',
+  `A binding never sets \`${name}\`: it changes which program or code runs.`);
+
 /** The declared inputs of every item in the request's contents, by item id then input name. */
 export function declarations(contents: PlanRequest['contents']): Map<string, Map<string, InputDeclaration>> {
   const out = new Map<string, Map<string, InputDeclaration>>();
@@ -218,7 +241,9 @@ export function bindEntry(entry: Json, segments: string[], bindings: Binding[], 
     if ('pointer' in binding.at) {
       relative = pointerSegments(binding.at.pointer)!;
       surface = pointerSurface(relative, mcpFields(context));
+      if (surface === 'mcp-env' && relative.length === 2 && isLoaderVariable(relative[1]!)) return loaderProblem(context.index, relative[1]!);
     } else if ('env' in binding.at) {
+      if (isLoaderVariable(binding.at.env)) return loaderProblem(context.index, binding.at.env);
       const field = fields?.stdio?.env;
       if (typeof field !== 'string') return conflicting(`Step ${context.index}'s profiles do not say where its entry's environment is.`);
       relative = [field, binding.at.env]; surface = 'mcp-env';
@@ -339,6 +364,7 @@ export function bindProcess(argv: string[], bindings: Binding[], context: InputC
   const drop: number[] = [];
   for (const binding of bindings) {
     if (!('argv' in binding.at) && !('env' in binding.at)) return problemAt(context.index, 'inputs', 'input-binding', 'A command binds inputs at argv slots or environment names.');
+    if ('env' in binding.at && isLoaderVariable(binding.at.env)) return loaderProblem(context.index, binding.at.env);
     const landed = land(binding, undefined, context);
     if (!('landing' in landed)) return landed;
     const { landing, declaration } = landed;

@@ -4,7 +4,7 @@
 // `restore: { argv }` names `<prior>` once: Apply runs the readback first and keeps its output as the prior value, and the
 // receipt's undo is the restore with that value, read back as it (C30, C54). Without a restore Core can't undo it.
 import { hexOf } from './acquire.js';
-import { refusal, target } from './common.js';
+import { acquiredByCore, refusal, target } from './common.js';
 import { bindCommand, isArgv, launchable, readbackOf, shapeProblem } from './program.js';
 import type { Json } from '../../types.js';
 import type { StepHandler } from './types.js';
@@ -51,6 +51,10 @@ export const toolCommand: StepHandler = {
     if (qualified && !qualification) return refusal('qualification-missing', `Step ${index} names qualification \`sha256:${sha}\`, which was not supplied.`, index);
     if (qualification && (!object(qualification.subject) || qualification.subject.aiSetup !== aiSetup))
       return refusal('qualification-mismatch', `Step ${index}'s AI setup differs from qualification \`sha256:${named}\`.`, index);
+    // Without an acquire step of this plan, the program must be in a folder Core acquired: never one a plan supplied.
+    if (!acquire && !acquiredByCore(placed.path))
+      return { problem: { path: `/plan/plan/${index}/executable`, reason: 'root-path-unplaced',
+        message: `Step ${index} runs \`~/${placed.path}\`, which no acquire step of this plan places and no AI setup Core acquired holds; replan for a qualified AI setup.` } };
     let sha256: string | null = null;
     if (acquire && typeof acquire.into === 'string') {
       const into = acquire.into.replace(/\/$/, '') + '/';

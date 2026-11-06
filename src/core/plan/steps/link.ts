@@ -1,6 +1,6 @@
 // `link` (Catalog 9, contract 8.1): a user-scope folder link from a CLI's place to a shared version folder. How it lands
 // on this host (junction, symlink or copy, C29) is decided here from the CLIs the step records.
-import { clis, owners, problem, target } from './common.js';
+import { aiSetupReserved, clis, owners, problem, target } from './common.js';
 import { linkTypeFor } from '../links.js';
 import type { StepHandler } from './types.js';
 
@@ -10,6 +10,7 @@ export const link: StepHandler = {
     const { index } = context;
     const owner = owners(step, index); if ('problem' in owner) return owner;
     const placed = target(step, index); if (!('root' in placed)) return placed;
+    const reserved = aiSetupReserved(placed.root, placed.path, index); if (reserved) return reserved;
     const linked = target(step, index, 'to'); if (!('root' in linked)) return linked;
     if (placed.root !== 'user') return problem(index, 'root', 'link-scope', 'A link is placed only in user scope.');
     const fold = (value: string) => process.platform === 'win32' || process.platform === 'darwin' ? value.toLowerCase() : value;
