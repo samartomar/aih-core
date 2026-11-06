@@ -281,10 +281,10 @@ test('a restore that is not `{ argv }` with `<prior>` once, as a whole argument,
   }
 });
 
-test('an upstream installer runs its exact pinned argv, is managed: false, and removal says what Core cannot remove', async () => {
+test('a user-scope upstream installer runs its exact pinned argv, is managed: false, and removal says what Core cannot remove', async () => {
   const project = fresh();
   const installer = installerStep();
-  const prepared = await prepare(programRequest(project, { installers: [installer] }));
+  const prepared = await prepare(programRequest(project, { installers: [installer], scope: 'user' }));
   assert.equal(prepared.status, 'ready', JSON.stringify(prepared));
   conforms(prepared.review);
   const [step] = prepared.review.steps;
@@ -333,6 +333,49 @@ test('an upstream installer for an AI setup Core already acquired leaves the man
   assert.equal(removal.status, 'ok', JSON.stringify(removal));
   assert.equal(conforms(await apply(removal.handle, approve(removal.review))).completion, 'complete');
   assert.equal(existsSync(join(home, ...setup.folder.split('/'))), false, 'removing it removes the acquired folder');
+});
+
+test('a project-scope upstream installer is listed and removed in that project, and the user-scope acquisition stays as it was', async () => {
+  const project = fresh();
+  const setup = toolSetup(server, { name: 'graph-scope', settings: [] });
+  const managed = programRequest(project, { setups: [setup], scope: 'user' });
+  managed.plan.plan = [setup.acquire];
+  const installed = await prepare(managed);
+  assert.equal(installed.status, 'ready', JSON.stringify(installed));
+  assert.equal((await apply(installed.handle, approve(installed.review))).completion, 'complete');
+  const marker = join(home, ...setup.folder.split('/'), '.aih-acquired');
+  const userEntry = async () => (await list({ target: { project }, scope: 'user' })).entries.find(entry => entry.managementId === setup.id);
+  const before = await userEntry();
+  assert.ok(before, 'the managed acquisition is listed');
+
+  // A project-scope plan runs the setup's own installer. Catalog's step carries `root: "user"`, a field its contract
+  // does not give this step: the run belongs to the plan's scope, never to that field.
+  const installer = installerStep('graph-scope');
+  installer.step.root = 'user';
+  const prepared = await prepare(programRequest(project, { installers: [installer], scope: 'project' }));
+  assert.equal(prepared.status, 'ready', JSON.stringify(prepared));
+  conforms(prepared.review);
+  const run = conforms(await apply(prepared.handle, approve(prepared.review)));
+  assert.deepEqual(outcomes(run), [[0, setup.id, 'applied', 'command-effects-unknown']]);
+  const [call] = fakeState(state, 'fake-installer').calls;
+  assert.equal(call.cwd, project, 'the installer runs in the project it was installed for');
+
+  const inProject = await list({ target: { project }, scope: 'project' });
+  assert.deepEqual(inProject.entries.map(entry => [entry.managementId, entry.scope, entry.installState]), [[setup.id, 'project', 'complete']]);
+  assert.deepEqual(inProject.entries[0].programs.map(program => [program.op, program.argv, program.managed]),
+    [['upstream-installer', installer.step.argv, false]]);
+  assert.deepEqual(await userEntry(), before, 'the user-scope entry is unchanged');
+
+  const removal = await prepareRemoval({ target: { project }, scope: 'project', removals: [{ managementId: setup.id }] });
+  assert.equal(removal.status, 'ok', JSON.stringify(removal));
+  assert.match(removal.review.steps.find(item => item.op === 'upstream-installer').cantPromise, /can't remove/);
+  const removed = conforms(await apply(removal.handle, approve(removal.review)));
+  assert.equal(removed.completion, 'complete', JSON.stringify(removed));
+  assert.deepEqual(removed.members.filter(member => member.intent === 'remove'), [], 'only the receipt is released');
+  assert.equal((await list({ target: { project }, scope: 'project' })).entries.length, 0);
+  assert.ok(existsSync(join(home, '.fake-installed')), 'what the installer wrote stays');
+  assert.ok(existsSync(marker), 'the acquisition marker stays');
+  assert.deepEqual(await userEntry(), before, 'the user-scope entry is still unchanged');
 });
 
 test('an installer this host cannot run is refused before any effect', async () => {

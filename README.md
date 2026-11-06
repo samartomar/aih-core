@@ -972,9 +972,12 @@ the undo, and `cantRemove`, which says what Core can't remove around it.
   keeps the receipt. Without `restore`, the review and the removal say Core can't undo the command.
 - **`upstream-installer`** (`managed: false`) runs the AI setup's own installer argv, whose program is found on `PATH` and
   pinned by sha256 at Prepare. Core clones nothing and can't remove what it installs; removal releases only its receipt.
-  Its claim is at user scope (the review's `root: user`), with the project that made it. An installer for an AI setup
-  Core already acquired there leaves that acquisition and its claim as they are: an install never releases a member
-  its review doesn't show (only `prepareUpdate` drops members). Removing the AI setup removes both.
+  Its claim is in the scope of the plan that ran it (the review's `root`), and the program runs from that root: a
+  project-scope plan lists and removes it in that project, a user-scope plan at user scope with the project that made
+  it. An installer for an AI setup Core already acquired leaves that acquisition and its claim as they are: an install
+  never releases a member its review doesn't show (only `prepareUpdate` drops members). Removing the user-scope AI
+  setup removes the acquisition and a user-scope installer's receipt; a project-scope installer's receipt is removed
+  in its project.
 - **`upstream-setup`** clones `repository` at the exact `commit` into `into` with the `git` Prepare pinned (`clone
   --no-checkout`, `checkout --detach <commit>`, and `HEAD` must be that commit), marks the clone with `.aih-setup`, then
   runs `command` inside it: `./<file>` from the clone, or a program on `PATH` pinned at Prepare. The review lists what the
