@@ -16,7 +16,7 @@ import { bindHookGroup, redactHookBindings } from './internal/hook-bindings.js';
 import { recipeFormatsForPolicy } from './internal/recipe-formats.js';
 import { dependencyOrder, inputAccepts } from './internal/policy-validation.js';
 import { directoryIdentity, directoryMap, directoryRecords, directoryParents, removeCreatedDirectories, type CreatedDirectories } from './internal/created-directories.js';
-import { fileTransaction, pathPins, pinsMatch, projectRoot, userHomeRoot, sha256, validSegment, type PathPin } from './internal/host-files.js';
+import { canonicalTarget, fileTransaction, pathPins, pinsMatch, portableSegment, projectRoot, userHomeRoot, sha256, validSegment, type PathPin } from './internal/host-files.js';
 import { admitWrittenOwnership, contentTransaction, isContentRoot, ownershipDigest, ownershipInventory, lockTarget, waitLockTarget, ownershipPath, protectState, stateWritten, writeStateFile, readOwnership, validateOwnership, stageOwnership, sealOwnership, ownershipText, OWNERSHIP_RECORD_BYTES, stateFiles, stateRoot, writeHistory, type AdmittedImage, type AdmittedReceipts, type Ownership, type Owner } from './internal/state.js';
 import { captureRecipeReference, captureInlineMaterials, createMaterialCaptureBudget, MaterialCaptureError,
   type MaterialCaptureBudget } from './internal/material.js';
@@ -325,8 +325,10 @@ export function resolvePath(target: TargetPath, scope: 'project' | 'user', bound
   if (scope === 'project' ? target.root !== 'project' : target.root === 'project') throw new Error('scope-mismatch');
   const segments = target.segments.map(slot => resolveString(slot, bound));
   if (segments.some(segment => !validSegment(segment))) throw new Error('invalid-path');
+  if (segments.some(segment => !portableSegment(segment))) throw new Error('path-escape');
   const root = target.root === 'project' ? project : target.root === 'userHome' ? userHomeRoot() : join(stateRoot(), 'content', selectionKey);
-  return { root, path: segments.join('/'), absolute: join(root, ...segments) };
+  // The review names the real location: existing components carry their canonical names, and an alias is refused.
+  return { root, path: segments.join('/'), absolute: canonicalTarget(root, segments) };
 }
 function resolveProcess(invocation: ProcessInvocation, bound: Record<string, Json>, project: string, selectionKey: string,
     material: { readMaterial(id: string): Buffer | undefined }, privateValues: string[], capturedMissing?: string,
