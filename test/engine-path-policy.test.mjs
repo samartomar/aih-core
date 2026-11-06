@@ -61,3 +61,17 @@ test('a user-scope change can never create Core\'s state folder under another le
   assert.equal(prepared.handle, undefined);
   assert.equal(existsSync(join(process.env.HOME, '.AIH', 'Core', 'ownership', 'x.json')), false);
 });
+
+test('a project that is itself a Git folder, or reaches one through a short name, is refused and nothing is written', async t => {
+  const repo = project();
+  for (const [label, root] of [['the Git folder', join(repo, '.git')], ['a short name of it', join(repo, 'GIT~1')]]) {
+    if (!existsSync(root)) { t.diagnostic(`${label}: no 8.3 short names on this volume`); continue; }
+    const prepared = await prepare(changeRequest([{ managementId: 'note', change: writeTo(['hooks', 'pre-commit']) }], { project: root }));
+    assert.notEqual(prepared.status, 'ready', `${label}: ${JSON.stringify(prepared)}`);
+    assert.equal(prepared.handle, undefined, label);
+    assert.equal(existsSync(join(repo, '.git', 'hooks', 'pre-commit')), false, label);
+  }
+  mkdirSync(join(repo, '.git', 'sub'));
+  const nested = await prepare(changeRequest([{ managementId: 'note', change: writeTo(['x']) }], { project: join(repo, '.git', 'sub') }));
+  assert.notEqual(nested.status, 'ready', JSON.stringify(nested));
+});

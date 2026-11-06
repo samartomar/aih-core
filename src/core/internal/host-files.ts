@@ -97,7 +97,10 @@ export function projectRoot(project: string): string {
   if (typeof project !== 'string' || !isAbsolute(project)) throw new Error('project-absolute');
   pathPins(project);
   if (!lstatSync(project).isDirectory()) throw new Error('project-directory');
-  return realpathSync.native(project);
+  const canonical = realpathSync.native(project);
+  // A root inside a Git folder (named directly, or through a short name the real path resolves) is never a place to write.
+  if (canonical.split(/[\\/]/).some(segment => segment.toLowerCase() === '.git')) throw new Error('project-git');
+  return canonical;
 }
 export const userHomeRoot = (): string => projectRoot(homedir());
 /**
