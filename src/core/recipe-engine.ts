@@ -35,7 +35,7 @@ import { resolveExecutable, resolveProgram, runApprovedProcess, type ResolvedExe
 import { operationKey, type OperationKey } from './internal/operation-key.js';
 import { OwnedFileTransaction, type OwnedFileRead, type OwnedFileStep } from './internal/owned-file-transaction.js';
 import { readRegularFile } from './internal/fsxn.js';
-import { originalDigests, releaseOriginals, releaseRunRecovery, sweepOrphanRecovery, touchOriginal } from './internal/recovery-retention.js';
+import { namedRuns, originalDigests, releaseNamedRuns, releaseOriginals, releaseRunRecovery, sweepOrphanRecovery, touchOriginal } from './internal/recovery-retention.js';
 /** A selection's own material, as reviewed. */
 interface OwnMaterial { id: string; path: string; sha256: string; byteLength: number }
 /** Evidence association is retired (C18); retained results report that none was supplied. */
@@ -1754,6 +1754,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
     if (mutatingRoots.length) try { sweepOrphanRecovery(); } catch { /* kept for a later run */ }
     // The originals the receipts name before this run: those this run releases are deleted at its end, at once.
     const priorOriginals = [...state.ownership.values()].flatMap(tracked => originalDigests(tracked.value));
+    const priorRuns = [...state.ownership.values()].flatMap(tracked => namedRuns(tracked.value));
     await state.trustParticipant?.recheck();
     for (const root of mutatingRoots) {
       for (const step of state.steps.filter(item => item.root === root)) assertStep(step, true);
@@ -2169,6 +2170,7 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
       try {
         if (result.recovery && !(state.request.policy.removals?.length) && !state.steps.some(step => step.lifecycle || step.review.effects === 'remove-file')) { releaseRunRecovery(runId); delete result.recovery; }
         releaseOriginals(priorOriginals, runId);
+        releaseNamedRuns(priorRuns, runId);
       } catch { result.diagnostics.push(diagnostic('EXECUTION_FAILED', 'recovery-cleanup', 'The run succeeded but its recovery data could not be removed.')); }
     }
     state.trustParticipant?.finish(result);
