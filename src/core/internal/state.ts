@@ -556,11 +556,13 @@ export function writeHistory(runId: string, result: unknown, logging: 'on' | 'of
 }
 
 const LOCK_HOLDER = 'holder.json';
+/** How old an empty lock folder (no holder record) or a reclaim guard must be before it counts as a crash leftover. */
+export const STALE_LOCK_MS = 120_000;
 /**
  * Take a target's state lock. The lock names its holder (process and host), so a lock left by a process that no longer
- * runs on this host can be reclaimed after a crash. A lock without a readable holder, from another host, or held by a
- * running process is never taken over; leftovers need deliberate inspection. Reclaiming assumes one process namespace
- * per host name.
+ * runs on this host can be reclaimed after a crash. An empty lock folder older than `STALE_LOCK_MS` (a crash between
+ * creating the lock and naming its holder) is reclaimable too. A lock from another host, or held by a running process,
+ * is never taken over. Reclaiming assumes one process namespace per host name.
  */
 export function lockTarget(target: string): () => void {
   const root = stateRoot(); const lock = join(root, `lock-${sha256(target)}`);
@@ -571,7 +573,12 @@ export function lockTarget(target: string): () => void {
   }
   const pins = pathPins(lock);
   const holder = join(lock, LOCK_HOLDER);
-  try { writeFileSync(holder, JSON.stringify({ pid: process.pid, host: hostname() }), { flag: 'wx', mode: 0o600 }); } catch { /* An unnamed lock is only ever released by its own process. */ }
+  try { writeFileSync(holder, JSON.stringify({ pid: process.pid, host: hostname() }), { flag: 'wx', mode: 0o600 }); }
+  catch (error) {
+    // A lock that cannot name its holder is released at once rather than left for others to wait on.
+    try { rmdirSync(lock); } catch { /* An empty leftover is reclaimable once stale. */ }
+    throw error;
+  }
   return () => {
     // Never recursively delete locks; leftovers need deliberate inspection.
     if (pathPins(lock).at(-1)?.identity !== pins.at(-1)?.identity) return;
@@ -580,31 +587,40 @@ export function lockTarget(target: string): () => void {
   };
 }
 /**
- * `lockTarget`, waiting while another Apply in this process holds the root's lock (at most `waitMs`), so competing
- * applies on one root run one after the other and the later one re-checks what it reviewed once it holds the lock.
- * A lock any other process holds is refused at once, as `lockTarget` does.
+ * `lockTarget`, waiting while another Apply holds the root's lock, in this process or another (at most `waitMs`, and
+ * never past `signal`), so competing applies on one root run one after the other and the later one re-checks what it
+ * reviewed once it holds the lock. The wait backs off from 20 ms to 250 ms between attempts; each attempt re-checks
+ * whether the holder is gone.
  */
 export async function waitLockTarget(target: string, signal?: AbortSignal, waitMs = 60_000): Promise<() => void> {
   const deadline = Date.now() + waitMs;
-  for (;;) {
+  for (let pause = 20; ; pause = Math.min(pause * 2, 250)) {
     try { return lockTarget(target); }
     catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST' || Date.now() >= deadline || signal?.aborted || !heldHere(join(stateRoot(), `lock-${sha256(target)}`))) throw error;
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST' || Date.now() >= deadline || signal?.aborted) throw error;
     }
-    await new Promise(resolve => setTimeout(resolve, 20));
+    await new Promise<void>(resolve => {
+      const done = () => { clearTimeout(timer); signal?.removeEventListener('abort', done); resolve(); };
+      const timer = setTimeout(done, Math.max(1, Math.min(pause, deadline - Date.now())));
+      signal?.addEventListener('abort', done, { once: true });
+    });
   }
 }
-/** The lock's recorded holder is this very process. */
-function heldHere(lock: string): boolean {
-  try { return (JSON.parse(readFileSync(join(lock, LOCK_HOLDER), 'utf8')) as { pid?: unknown; host?: unknown }).pid === process.pid; }
-  catch { return false; }
+/** A crash leftover: an empty folder of this user's, older than `STALE_LOCK_MS`. */
+function staleEmptyFolder(path: string): boolean {
+  try {
+    const stats = lstatSync(path);
+    if (!stats.isDirectory() || readdirSync(path).length !== 0 || Date.now() - stats.mtimeMs < STALE_LOCK_MS) return false;
+    return process.platform === 'win32' || typeof process.getuid !== 'function' || stats.uid === process.getuid();
+  } catch { return false; }
 }
-/** The lock's recorded holder is on this host and no longer runs. */
+/** The lock's recorded holder is on this host and no longer runs, or the lock is an empty crash leftover. */
 function holderGone(lock: string): boolean {
   let holder: { pid: unknown; host: unknown };
   try {
     pathPins(lock);
     if (!lstatSync(lock).isDirectory() || readdirSync(lock).some(name => name !== LOCK_HOLDER)) return false;
+    if (staleEmptyFolder(lock)) return true;
     holder = JSON.parse(readFileSync(join(lock, LOCK_HOLDER), 'utf8')) as typeof holder;
   } catch { return false; }
   if (!Number.isSafeInteger(holder.pid) || (holder.pid as number) <= 0 || holder.host !== hostname() || holder.pid === process.pid) return false;
@@ -620,11 +636,17 @@ function holderGone(lock: string): boolean {
 function reclaimLock(lock: string): boolean {
   if (!holderGone(lock)) return false;
   const guard = `${lock}.reclaim`;
-  try { mkdirSync(guard, { mode: 0o700 }); } catch { return false; }
+  try { mkdirSync(guard, { mode: 0o700 }); }
+  catch {
+    // A guard left by a reclaimer that crashed is an empty, stale folder: clear it once and try again.
+    if (!staleEmptyFolder(guard)) return false;
+    try { rmdirSync(guard); mkdirSync(guard, { mode: 0o700 }); } catch { return false; }
+  }
   try {
     try { lstatSync(lock); } catch (error) { return (error as NodeJS.ErrnoException).code === 'ENOENT'; }
     if (!holderGone(lock)) return false;
-    unlinkSync(join(lock, LOCK_HOLDER)); rmdirSync(lock);
+    try { unlinkSync(join(lock, LOCK_HOLDER)); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+    rmdirSync(lock);
     return true;
   } catch { return false; }
   finally { rmdirSync(guard); }
