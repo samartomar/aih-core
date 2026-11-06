@@ -1,7 +1,7 @@
 // `write` (Catalog 9, contract 8.1): one file from an item file or a source notice, checked by sha256.
 // A `render` is carried out by the caller's Catalog (C51, `./render.ts`). Input bindings (`inputs`, D121) are filled at
 // the placeholders the item declares for that file, after any render (`../inputs.ts`).
-import { clis, owners, problem, refusal, target } from './common.js';
+import { aiSetupReserved, clis, owners, problem, refusal, target } from './common.js';
 import { renderWrite } from './render.js';
 import { bindText, parseBindings, unfilledPlaceholder, type BoundInputs } from '../inputs.js';
 import type { Json } from '../../types.js';
@@ -33,6 +33,7 @@ export const write: StepHandler = {
     const { index } = context;
     const owner = owners(step, index); if ('problem' in owner) return owner;
     const placed = target(step, index); if (!('root' in placed)) return placed;
+    const reserved = aiSetupReserved(placed.root, placed.path, index); if (reserved) return reserved;
     const served = clis(step, index); if (!('clis' in served)) return served;
     if (step.render !== undefined) {
       const done = await renderWrite(step, context, placed.path, owner.ids);

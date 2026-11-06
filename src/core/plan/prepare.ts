@@ -14,7 +14,8 @@ import { projectRoot } from '../internal/host-files.js';
 import { forgetProvenState, ownershipInventory, readOwnership, useStateSignal } from '../internal/state.js';
 import { checkPlanRequest, type CheckedStep } from './request.js';
 import { register, type HandleState, type ProgramCheck, type StepRef } from './handles.js';
-import { resolveExecutable, resolveProgram } from '../internal/approved-process.js';
+import { argumentsRunnable, resolveExecutable, resolveProgram, type ShimLauncher } from '../internal/approved-process.js';
+import { mergeConfiguration, writeConfiguration } from './steps/executable.js';
 import { claimIdentity } from '../internal/recipe-lifecycle.js';
 import { claimKey, managementIdOf } from './claims.js';
 import { inspectLink, linkRecordBytes, linkRecordPath, missingParents, placeBytes, placeLink } from './links.js';
@@ -26,6 +27,7 @@ import { existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ResolvedExecutable } from '../internal/approved-process.js';
 import type { PluginFacts, ProgramFacts } from '../internal/custody-items.js';
+import type { ProgramEnv } from './types.js';
 import { proveOrigin } from './origin.js';
 import { evaluateScans, notScanned, type ScanEvaluation, type ScanInput } from '../scan/evidence.js';
 import { allowedSigners } from '../enterprise/admission.js';
@@ -47,7 +49,8 @@ import type { PlanItemFacts } from '../internal/custody-items.js';
 import type { Lowered, LoweredMerge } from './steps/types.js';
 import type { ExecutionPolicy, Json, Recipe } from '../types.js';
 import type { PreparationResult, ReviewOperation } from '../host-types.js';
-import { REVIEW, type PlanControls, type PlanPreparation, type Problem, type Review, type ReviewConflict, type ReviewStep } from './types.js';
+import { REVIEW, type PlanControls, type PlanPreparation, type Problem, type Refusal, type Review, type ReviewCommand, type ReviewConflict,
+  type ReviewLauncher, type ReviewStep } from './types.js';
 
 export const FAILURE_RULE = 'A failed step stops the rest of its item and every item that depends on it; unrelated items continue.';
 const sha256 = (value: string | Buffer): string => createHash('sha256').update(value).digest('hex');
@@ -519,7 +522,7 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
       `${lowered.sentence}, replacing your file; your original is kept for restore`;
     steps.push({ step: ref.step, op: step.op, managementId: ref.managementId, sentence, cantPromise: lowered.cantPromise, effect,
       root: lowered.root, path: lowered.path, ...lowered.review, ...(lowered.kind === 'merge' ? { entry: presentedEntry(lowered) } : acquireReview(step, installed, sourced)),
-      ...(replacing && displaces ? { displaces } : {}) });
+      ...(replacing && displaces ? { displaces } : {}), ...executableReview(lowered, privateValues) });
     if (lowered.kind === 'merge' && lowered.guidance && !conflict && facts?.after)
       guidance.set(`${lowered.root}\0${lowered.path}`, { step: ref.step as number, path: lowered.path, size: facts.after.length, ...lowered.guidance });
     if (!conflict) continue;
@@ -565,12 +568,18 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
     const lowered = step.lowered;
     if (lowered.kind !== 'plugin' || step.skipped) continue;
     const pinned = programCommands.get(step.index) ?? [];
+    const commands = lowered.commands.map((argv, at) => pinnedCommand(argv, pinned[at]!));
+    // A command the pinned program could never be given as reviewed is refused now, before the first one runs.
+    const unrunnable = commands.findIndex(command => command === undefined);
+    if (unrunnable >= 0) return shimRefusal(step.index, lowered.commands[unrunnable]!);
     let presence: ReviewStep['presenceCheck'] = 'none';
     if (lowered.presenceCheck !== 'none') {
       const executable = resolveProgram(lowered.presenceCheck.argv[0]!);
       if (!executable) return { status: 'refused', code: 'program-unavailable',
         reason: `Step ${step.index}'s presence check runs \`${lowered.presenceCheck.argv[0]}\`, which this host cannot run.`, step: step.index };
-      presence = { ...lowered.presenceCheck, executable: executable.launchPath, executableSha256: executable.sha256 };
+      if (!argumentsRunnable(executable, lowered.presenceCheck.argv.slice(1))) return shimRefusal(step.index, lowered.presenceCheck.argv);
+      presence = { ...lowered.presenceCheck, executable: executable.launchPath, executableSha256: executable.sha256,
+        ...(executable.launcher ? { launcher: launcherReview(executable.launcher) } : {}) };
       programs.set(step.index, { executable, argv: lowered.presenceCheck.argv, expect: lowered.presenceCheck.expect,
         cwd: lowered.root === 'project' ? project! : home });
     }
@@ -579,7 +588,7 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
     steps.push({ step: step.index, op: step.op, managementId: lowered.framework, sentence: lowered.sentence,
       cantPromise: interrupted ? `${lowered.cantPromise} An earlier run of this install was interrupted, so its effects are uncertain; approving runs it again.` : lowered.cantPromise,
       effect: 'run-program', framework: lowered.framework, cli: lowered.cli, clis: [lowered.cli], plugin: lowered.plugin, commit: lowered.commit,
-      ...(lowered.review.pin ? { pin: lowered.review.pin } : {}), contains: lowered.contains, commands: lowered.commands.map((argv, at) => ({ argv, ...pinned[at]! })), undo: lowered.undo,
+      ...(lowered.review.pin ? { pin: lowered.review.pin } : {}), contains: lowered.contains, commands: commands as ReviewCommand[], undo: lowered.undo,
       presenceCheck: presence, ...(interrupted ? { previous: 'interrupted' as const } : {}) });
   }
   for (const step of checked.steps) {
@@ -589,15 +598,22 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
     const interrupted = readOwnership(root).value.items?.[claimIdentity(lowered.root, claimKey(lowered.managementIds[0], lowered.root, lowered.review.clis?.[0] ?? null, project), project ?? home)]?.installState === 'interrupted';
     const pinned = lowered.op === 'upstream-installer' ? programCommands.get(step.index)?.[0] :
       pinnedPrograms.has(step.index) ? { executable: pinnedPrograms.get(step.index)!.launchPath, executableSha256: pinnedPrograms.get(step.index)!.sha256 } : undefined;
+    // The arguments must reach the program as reviewed: a PATH program as pinned, an acquired or cloned one by its path.
+    const launched = pinned ? pinnedCommand(lowered.argv, pinned) : { argv: lowered.argv, executable: '', executableSha256: '' };
+    const args = lowered.op === 'tool-command' ? lowered.argv : lowered.argv.slice(1);
+    if (!launched || !pinned && lowered.executable.from !== 'path' && !argumentsRunnable({ launchPath: lowered.executable.path }, args))
+      return shimRefusal(step.index, lowered.shown);
     steps.push({ step: step.index, op: step.op, managementId: lowered.managementIds[0], sentence: lowered.sentence,
       cantPromise: interrupted ? `${lowered.cantPromise} An earlier run of this install was interrupted, so its effects are uncertain; approving runs it again.` : lowered.cantPromise,
-      effect: 'run-program', root: lowered.root, ...lowered.review, program: programReview(lowered, root, pinned, git),
+      effect: 'run-program', root: lowered.root, ...lowered.review,
+      program: { ...programReview(lowered, root, pinned, git), ...(launched.launcher ? { launcher: launched.launcher } : {}) },
       ...(interrupted ? { previous: 'interrupted' as const } : {}) });
   }
   for (const step of checked.steps) if (step.skipped && step.lowered.kind !== 'plugin' && step.lowered.kind !== 'program') for (const managementId of step.lowered.managementIds)
     steps.push({ step: step.index, op: step.op, managementId, sentence: step.lowered.sentence, cantPromise: step.lowered.cantPromise,
       effect: 'skipped', root: step.lowered.root, path: step.lowered.path, ...step.lowered.review,
-      ...(step.lowered.kind === 'merge' ? { entry: presentedEntry(step.lowered) } : acquireReview(step, installed, sourced)) });
+      ...(step.lowered.kind === 'merge' ? { entry: presentedEntry(step.lowered) } : acquireReview(step, installed, sourced)),
+      ...executableReview(step.lowered, privateValues) });
   // Plan steps in plan order, then an update's cleanup steps in engine order.
   const rank = (step: ReviewStep) => typeof step.step === 'number' ? step.step : Number.MAX_SAFE_INTEGER;
   steps.sort((a, b) => rank(a) - rank(b) || (typeof a.step === 'string' && typeof b.step === 'string' ? 0 : codeUnitCompare(a.managementId, b.managementId)));
@@ -699,6 +715,22 @@ function commandOperations(lowered: LoweredProgram, index: number, group: { sele
     requires: lowered.clone ? [`step-${index}`] : requires, checks: [] });
   return ops;
 }
+/** An npm shim's pinned node and JS entry, as the review shows them. */
+export const launcherReview = (launcher: ShimLauncher): ReviewLauncher =>
+  ({ node: launcher.node.launchPath, nodeSha256: launcher.node.sha256, script: launcher.script.path, scriptSha256: launcher.script.sha256 });
+/**
+ * One reviewed command with the program its engine operation pinned: an npm shim also shows the node and JS entry Core
+ * starts for it (the shim as pinned, by its sha256). `undefined` when that program could never be given these
+ * arguments (a command shim run by `cmd.exe` refuses `"`, `%` and line breaks).
+ */
+export function pinnedCommand(argv: string[], pinned: { executable: string; executableSha256: string }): ReviewCommand | undefined {
+  const found = resolveProgram(pinned.executable);
+  const launcher = found && found.sha256 === pinned.executableSha256 ? found.launcher : undefined;
+  if (!argumentsRunnable({ launchPath: pinned.executable, ...(launcher ? { launcher } : {}) }, argv.slice(1))) return undefined;
+  return { argv, ...pinned, ...(launcher ? { launcher: launcherReview(launcher) } : {}) };
+}
+export const shimRefusal = (step: number, argv: string[]): Refusal => ({ status: 'refused', code: 'program-unavailable', step,
+  reason: `Step ${step} runs \`${argv.join(' ')}\` through a command shim that could not pass its arguments as written (\`"\`, \`%\` or a line break).` });
 /** How the review shows one program step: the exact command, its program, folder, environment names, checks and undo. */
 function programReview(lowered: LoweredProgram, root: string, pinned: { executable: string; executableSha256: string } | undefined,
     git: ResolvedExecutable | undefined): NonNullable<ReviewStep['program']> {
@@ -721,8 +753,17 @@ function programFacts(steps: CheckedStep[]): { programs?: ProgramFacts[] } {
     argv: step.lowered.shown, executable: step.lowered.executable.from === 'acquired' ? step.lowered.executable.path : null,
     managed: step.lowered.managed, undo: step.lowered.undo ? structuredClone(step.lowered.undo) : null,
     ...(step.lowered.kept ? { prior: step.lowered.kept } : {}),
-    ...(step.lowered.clone ? { clone: { repository: step.lowered.clone.repository, commit: step.lowered.clone.commit, into: step.lowered.clone.into } } : {}) }] : []);
+    ...(step.lowered.clone ? { clone: { repository: step.lowered.clone.repository, commit: step.lowered.clone.commit, into: step.lowered.clone.into } } : {}),
+    root: step.lowered.root, cwd: step.lowered.cwd, ...(Object.keys(step.lowered.env).length ? { env: programEnv(step.lowered) } : {}) }] : []);
   return programs.length ? { programs } : {};
+}
+/** A command's environment as its receipt keeps it: ordinary values, and each secret by the input that gave it, never its value. */
+function programEnv(lowered: LoweredProgram): ProgramEnv[] {
+  return Object.keys(lowered.env).sort(codeUnitCompare).map(name => {
+    const row = lowered.bound?.review.find(entry => (entry.at as { env?: string }).env === name);
+    const secret = row?.secret === true || lowered.shownEnv[name] !== lowered.env[name];
+    return secret && row ? { name, input: { item: row.item, input: row.input } } : { name, value: secret ? REDACTED : lowered.env[name]! };
+  });
 }
 /** The receipt's plugin undo facts for one management id's steps (C54). */
 function pluginFacts(steps: CheckedStep[]): { plugins?: PluginFacts[] } {
@@ -760,10 +801,18 @@ function acquireReview(step: CheckedStep, installed: Map<number, InstalledInterp
     installed: found ? { path: found.path, version: found.version, note: 'in range, not qualified' as const } : null,
     range: spec.interpreter.range,
     fallback: { version: spec.interpreter.fallback.version, file: spec.interpreter.fallback.file, sha256: spec.interpreter.fallback.sha256 },
-    switchesOn: found ? FALLBACK_REASONS.filter(reason => reason !== 'none-found' && (builds || reason !== 'build-failed')) : ['none-found'] } } : {}) };
+    // An installed interpreter that is no longer the file Prepare found (its real path or bytes changed) is `none-found`.
+    switchesOn: found ? FALLBACK_REASONS.filter(reason => builds || reason !== 'build-failed') : ['none-found'] } } : {}) };
 }
 
 const REDACTED = '[REDACTED]';
+/** The review's executable-configuration label of a merge or write step, if it configures a program a client starts. */
+function executableReview(lowered: Lowered, privateValues: string[]): Pick<ReviewStep, 'executableConfiguration'> {
+  const hide = (text: string) => privateValues.reduce((out, value) => value ? out.split(value).join(REDACTED) : out, text);
+  const found = lowered.kind === 'merge' ? lowered.format === 'markdown' ? undefined : mergeConfiguration(lowered.segments, presentedEntry(lowered), hide) :
+    lowered.kind === 'write' ? writeConfiguration(lowered.path, lowered.bytes, lowered.executable, hide) : undefined;
+  return found ? { executableConfiguration: found } : {};
+}
 const markers = (key: string) => ({ startMarker: `<!-- aih:begin ${key} -->`, endMarker: `<!-- aih:end ${key} -->` });
 const pointerOf = (segments: string[]): string => segments.map(segment => '/' + segment.replaceAll('~', '~0').replaceAll('/', '~1')).join('');
 const under = (path: string[], prefix: string[]): boolean => path.length > prefix.length && prefix.every((part, at) => part === path[at]);

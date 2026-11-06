@@ -11,6 +11,8 @@ export interface StepRef { step: number | string; managementId: string; /** A pl
   /** A program step's command (tool-command, upstream installer or setup, or a restore command at removal). */ command?: true }
 /** A reviewed presence check for one plugin step: the executable pinned at Prepare, its argv and expected line. */
 export interface ProgramCheck { executable: ResolvedExecutable; argv: string[]; expect: string; cwd: string;
+  /** The environment the check runs with: the one the command ran with (a tool-command's readback). */
+  env?: Record<string, string>;
   /** A tool-command readback (D57): the output must show `expect`, whatever presence is wanted. */
   readback?: true }
 /** The switch-off block a run reads back: the file, its markers, and the `plugin:skill` name it must turn off. */

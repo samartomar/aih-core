@@ -6,7 +6,7 @@
 import { canonicalJson } from '../../internal/canonical.js';
 import { limitValue } from '../limits.js';
 import { parseRange } from '../acquire/range.js';
-import { ACQUIRING, MANIFEST, type AcquireSpec, type ArchiveMember, type ClosureWheel, type Download, type WheelBuild } from '../acquire/types.js';
+import { ACQUIRED_MARKER_PREFIX, ACQUIRING, MANIFEST, type AcquireSpec, type ArchiveMember, type ClosureWheel, type Download, type WheelBuild } from '../acquire/types.js';
 import { problem, refusal } from './common.js';
 import type { Json } from '../../types.js';
 import type { StepHandler } from './types.js';
@@ -201,7 +201,7 @@ export const acquire: StepHandler = {
     // A closure wheel with a recorded build may be built here from its pinned source (C78): the review says so.
     const built = closure.filter(wheel => wheel.build).length;
     const buildNote = !built ? '' : ` ${built === 1 ? 'One closure wheel' : `${built} closure wheels`} may be built here from pinned source when the qualified bytes are not obtainable or not installable; a built wheel is never byte-qualified.`;
-    const marker = Buffer.from(`Managed by AIH Core:${step.aiSetup} ${step.version} ${step.cell}\nqualification sha256:${sha}\nartifact sha256:${artifact.sha256}\n`);
+    const marker = Buffer.from(`${ACQUIRED_MARKER_PREFIX}${step.aiSetup} ${step.version} ${step.cell}\nqualification sha256:${sha}\nartifact sha256:${artifact.sha256}\n`);
     return { lowered: { kind: 'write', managementIds: [step.aiSetup], root: 'user', path: `${into}/${MANIFEST}`, bytes: marker, executable: false,
       sentence: python ? `Downloads \`${artifact.file}\` into \`~/${into}/\` and installs it with its ${closure.length}-wheel closure in a dedicated environment${built ? ` (${built === 1 ? 'one wheel' : `${built} wheels`} may be built from pinned source)` : ''}` :
         `Downloads \`${artifact.file}\` and extracts its ${listed.length} qualified member${listed.length === 1 ? '' : 's'} into \`~/${into}/\``,

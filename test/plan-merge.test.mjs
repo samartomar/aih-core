@@ -261,3 +261,28 @@ test('a malformed merge step is invalid, and a merge leaving its root is refused
   }
   assert.deepEqual(snapshot(target), before);
 });
+
+test('an MCP entry is bound to the item\'s scanned server.json: a command, arguments or URL it does not declare is refused', async () => {
+  const declared = (server, entry) => {
+    const request = mergeRequest(project(), [{ item: 'local-my-setup.mcp.search', file: '.mcp.json', format: 'json', key: '/mcpServers/search', entry }]);
+    const bytes = Buffer.from(JSON.stringify(server));
+    const file = { sourceId: 'local-my-setup', sourcePath: 'mcp/search/server.json', sha256: sha256(bytes), bytes: bytes.length, executable: false, role: 'content' };
+    request.contents[0].items[0].files = [file];
+    request.files = [{ sourceId: file.sourceId, sourcePath: file.sourcePath, sha256: file.sha256, bytes }];
+    return prepare(request);
+  };
+  const npm = { name: 'search', packages: [{ registryType: 'npm', identifier: 'search-mcp', version: '1.2.3', runtimeHint: 'npx',
+    runtimeArguments: [{ type: 'positional', value: '-y' }], packageArguments: [{ type: 'positional', value: '{ROOT}' }], transport: { type: 'stdio' } }] };
+  // Catalog's lowering of the package: its runner, the runner's flags, the exact package and the package's arguments.
+  const ok = await declared(npm, { type: 'stdio', command: 'npx', args: ['-y', 'search-mcp@1.2.3', '{ROOT}'] });
+  assert.equal(ok.status, 'ready', JSON.stringify(ok).slice(0, 1500));
+  for (const entry of [{ type: 'stdio', command: 'node', args: ['-y', 'search-mcp@1.2.3', '{ROOT}'] },
+    { type: 'stdio', command: 'npx', args: ['-y', 'search-mcp@9.9.9', '{ROOT}'] }, { type: 'stdio', command: 'npx', args: ['-y', 'search-mcp@1.2.3', '{ROOT}', '--eval'] }]) {
+    const refused = await declared(npm, entry);
+    assert.deepEqual([refused.status, refused.code], ['refused', 'source-mismatch'], JSON.stringify(entry));
+  }
+  const remote = { name: 'search', remotes: [{ type: 'streamable-http', url: 'https://mcp.example.test/search' }] };
+  assert.equal((await declared(remote, { type: 'http', url: 'https://mcp.example.test/search' })).status, 'ready');
+  const elsewhere = await declared(remote, { type: 'http', url: 'https://other.example.test/search' });
+  assert.deepEqual([elsewhere.status, elsewhere.code], ['refused', 'source-mismatch']);
+});

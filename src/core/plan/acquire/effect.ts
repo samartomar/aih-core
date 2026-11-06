@@ -10,11 +10,11 @@ import { execFile } from 'node:child_process';
 import { chmodSync, existsSync, linkSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname, join, relative } from 'node:path';
-import { resolveExecutable, resolveProgram } from '../../internal/approved-process.js';
+import { childEnvironment, resolveExecutable, resolveProgram } from '../../internal/approved-process.js';
 import { directoryIdentity, type CreatedDirectories } from '../../internal/created-directories.js';
 import { readArchive } from './archive.js';
 import { AcquireError } from './download.js';
-import { environmentPython, probeInterpreter, runHelper, standalonePython } from './interpreter.js';
+import { environmentPython, interpreterIdentity, probeInterpreter, runHelper, standalonePython } from './interpreter.js';
 import { inRange } from './range.js';
 import { obtain, sourceKey, type Sources } from './sources.js';
 import { ACQUIRING, MANIFEST, type AcquireFacts, type AcquireSpec, type ClosureWheel, type Download, type DownloadRecord, type DownloadRole,
@@ -107,7 +107,8 @@ async function observeTool(name: string, signal?: AbortSignal): Promise<ToolReco
   let digest: string;
   try { digest = sha256(readFileSync(found.path)); } catch { return undefined; }
   const version = await new Promise<string>(resolve => {
-    execFile(found.launchPath, ['--version'], { timeout: 15_000, windowsHide: true, maxBuffer: 1_048_576, ...(signal ? { signal } : {}) },
+    execFile(found.launchPath, ['--version'], { timeout: 15_000, windowsHide: true, maxBuffer: 1_048_576, env: childEnvironment(process.env),
+      ...(signal ? { signal } : {}) },
       (_error, stdout) => resolve(String(stdout ?? '').split(/\r?\n/)[0]!.trim().slice(0, 512)));
   });
   return { version, sha256: digest };
@@ -349,9 +350,13 @@ export function acquisition(spec: AcquireSpec, home: string, installed: Installe
     let reason: string;
     if (installed === null) reason = 'none-found';
     else {
-      const now = await probeInterpreter(installed.path, signal);
+      // Only the interpreter Prepare found runs: the same real file with the same bytes, not just the same version.
+      const identity = installed.identity ? interpreterIdentity(installed.path) : undefined;
+      const same = !installed.identity || identity?.realpath === installed.identity.realpath && identity.sha256 === installed.identity.sha256;
+      const now = same ? await probeInterpreter(installed.path, signal) : undefined;
       if (signal?.aborted) throw new AcquireError('cancelled');
-      if (!now || !inRange(now.version, spec.interpreter!.range)) reason = 'outside-range';
+      if (!same) reason = 'none-found';
+      else if (!now || !inRange(now.version, spec.interpreter!.range)) reason = 'outside-range';
       else {
         const outcome = await install(now.path, 'installed', wheels, qualified, environment, signal);
         if (outcome === 'cancelled') throw new AcquireError('cancelled');

@@ -154,8 +154,21 @@
         "presenceCheck": { "oneOf": [{ "const": "none" }, {
           "type": "object", "additionalProperties": false, "required": ["argv", "executable", "executableSha256", "expect"],
           "properties": { "argv": { "$ref": "#/$defs/argv" }, "executable": { "type": "string" },
-            "executableSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "expect": { "type": "string", "minLength": 1 } } }] },
+            "executableSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "expect": { "type": "string", "minLength": 1 },
+            "launcher": { "$ref": "#/$defs/launcher" } } }] },
         "previous": { "const": "interrupted" },
+        "executableConfiguration": {
+          "description": "A step that makes a client start a program later (an MCP server, a hook, a settings key that runs a command) or writes an executable file: the programs and arguments it configures, or the written bytes' sha256 and executable flag.",
+          "type": "object", "additionalProperties": false, "required": ["label", "kind", "launches"],
+          "properties": {
+            "label": { "const": "executable-configuration" },
+            "kind": { "enum": ["mcp-server", "hook", "settings-command", "executable-file"] },
+            "launches": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["command", "args"],
+              "properties": { "command": { "type": "string" }, "args": { "type": "array", "items": { "type": "string" } } } } },
+            "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+            "executable": { "type": "boolean" }
+          }
+        },
         "program": {
           "type": "object", "additionalProperties": false,
           "required": ["kind", "argv", "executable", "executableSha256", "from", "cwd", "env", "managed", "readback", "undo", "cantRemove"],
@@ -176,10 +189,17 @@
             "clone": { "type": "object", "additionalProperties": false, "required": ["repository", "commit", "into", "git", "gitSha256"],
               "properties": { "repository": { "type": "string" }, "commit": { "type": "string", "pattern": "^[a-f0-9]{40}$" }, "into": { "type": "string" },
                 "git": { "type": "string" }, "gitSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } } },
-            "needs": { "type": "array", "items": { "type": "string" } }
+            "needs": { "type": "array", "items": { "type": "string" } },
+            "launcher": { "$ref": "#/$defs/launcher" }
           }
         }
       }
+    },
+    "launcher": {
+      "description": "An npm command shim's pinned node and JS entry: what Core starts for the shim, each by its sha256, never through cmd.exe.",
+      "type": "object", "additionalProperties": false, "required": ["node", "nodeSha256", "script", "scriptSha256"],
+      "properties": { "node": { "type": "string" }, "nodeSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "script": { "type": "string" }, "scriptSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } }
     },
     "argv": { "type": "array", "minItems": 1, "items": { "type": "string" } },
     "input": {
@@ -205,7 +225,8 @@
       "properties": {
         "argv": { "$ref": "#/$defs/argv" },
         "executable": { "type": "string" },
-        "executableSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+        "executableSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "launcher": { "$ref": "#/$defs/launcher" }
       }
     },
     "conflict": {

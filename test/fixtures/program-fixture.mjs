@@ -4,7 +4,7 @@
 // (test/plan-program.test.mjs compares them with test/fixtures/catalog-26df4c0). The programs are `fake-tool.cjs` fakes; the upstream repository is a local git repository reached through a disposable home's
 // `url.<local>.insteadOf` rule. Nothing here proves a real tool, installer, setup or repository.
 import { execFileSync } from 'node:child_process';
-import { chmodSync, copyFileSync, linkSync, mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { chmodSync, copyFileSync, mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { delimiter, dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { documentSha, FAKE_PYTHON, hostCell, QUALIFICATION, tarGz } from './acquire-fixture.mjs';
@@ -19,13 +19,16 @@ export function fakeProgramBytes(name) {
   return windows ? readFileSync(process.execPath) :
     Buffer.from(`#!/bin/sh\nFAKE_TOOL_NAME=${name} exec "${process.execPath}" "${FAKE_TOOL}" "$@"\n`);
 }
-/** Fake programs on PATH in `bin` (`fake-setup`, `fake-installer`). */
+/**
+ * Fake programs on PATH in `bin` (`fake-setup`, `fake-installer`). On Windows each is a copy of the Node executable, never
+ * a hard link to it: a link left behind by a failed run would tie the real Node to a temporary folder.
+ */
 export function installFakePrograms(bin, names = ['fake-setup', 'fake-installer']) {
   mkdirSync(bin, { recursive: true });
   for (const name of names) {
     const target = join(bin, exe(name));
     if (existsSync(target)) continue;
-    if (windows) { try { linkSync(process.execPath, target); } catch { copyFileSync(process.execPath, target); } }
+    if (windows) copyFileSync(process.execPath, target);
     else { writeFileSync(target, fakeProgramBytes(name)); chmodSync(target, 0o755); }
   }
 }
@@ -66,10 +69,11 @@ export function fakeState(state, name) {
  * A native-archive AI setup whose qualified executable member is the fake tool (`bin/fake-tool`), with its MCP item and
  * a `tool-command` per settings command (`config set <key> <value>`, read back with `config get <key>`). `restore`
  * adds Catalog's `restore: { argv: ['config', 'set', <key>, '<prior>'] }`. `token` binds the item's secret `TOOL_TOKEN`
- * to the command's environment.
+ * to the command's environment; `stateInput` binds the ordinary input `TOOL_STATE` to `FAKE_TOOL_STATE`, the folder the fake
+ * keeps its settings in.
  */
 export function toolSetup(server, { name = 'code-graph', version = '1.4.0', settings = [['auto_index', 'false']], restore = true, token = false,
-    archive, shim = false } = {}) {
+    archive, shim = false, stateInput = false } = {}) {
   const id = `fixture.ai-setup.${name}`;
   const cell = hostCell();
   // `shim` (Windows only): the executable member is a `.cmd` command shim that runs the fake with this Node.
@@ -93,10 +97,12 @@ export function toolSetup(server, { name = 'code-graph', version = '1.4.0', sett
   const toolCommands = commands.map(command => ({ op: 'tool-command', aiSetup: id, qualification: qualificationSha,
     executable: { root: 'user', path: `${into}${program}` }, argv: command.argv, readback: command.readback,
     ...(command.restore ? { restore: command.restore } : {}), approval: 'required',
-    ...(token ? { inputs: [{ item: id, input: 'TOOL_TOKEN', at: { env: 'TOOL_TOKEN' } }] } : {}) }));
+    ...(token || stateInput ? { inputs: [...(token ? [{ item: id, input: 'TOOL_TOKEN', at: { env: 'TOOL_TOKEN' } }] : []),
+      ...(stateInput ? [{ item: id, input: 'TOOL_STATE', at: { env: 'FAKE_TOOL_STATE' } }] : [])] } : {}) }));
   const mcpItem = `fixture.mcp.${name}`;
   const item = { id, kind: 'ai-setup', name, files: [], aiSetup: { version, mcpItem, settings: { commands, files: [] } },
-    ...(token ? { requirements: { inputs: { TOOL_TOKEN: { isRequired: true, isSecret: true } } } } : {}) };
+    ...(token || stateInput ? { requirements: { inputs: { ...(token ? { TOOL_TOKEN: { isRequired: true, isSecret: true } } : {}),
+      ...(stateInput ? { TOOL_STATE: { isRequired: true, isSecret: false } } : {}) } } } : {}) };
   const mcp = { id: mcpItem, kind: 'mcp', name: `${name}-mcp`, description: 'Fixture MCP item', files: [] };
   const merge = { op: 'merge', item: mcpItem, root: 'project', file: '.mcp.json', format: 'json', key: `/mcpServers/${name}`,
     entry: { command: join(process.env.HOME ?? '', ...`${into}${program}`.split('/')), args: ['serve'] }, clis: ['claude-code'] };

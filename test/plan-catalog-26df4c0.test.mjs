@@ -165,13 +165,30 @@ test('the qualified linux-x64 cbm plan carries settings commands with a restore 
   for (const merge of steps.filter(step => step.rootPaths)) for (const rootPath of merge.rootPaths) assert.ok(rootPath.path.startsWith(acquire.into));
 });
 
+/**
+ * A Core-side stand-in for an acquisition Core recorded earlier: the acquire step's marker file in its folder, so a plan
+ * that keeps only the tool-commands runs a program Core placed (a tool-command never runs one no acquisition placed).
+ */
+function acquiredEarlier(request) {
+  const acquire = recorded.cbm.plans['linux-x64'].plan.find(step => step.op === 'acquire');
+  const folder = join(home, ...acquire.into.replace(/\/$/, '').split('/'));
+  mkdirSync(folder, { recursive: true });
+  writeFileSync(join(folder, '.aih-acquired'), `Managed by AIH Core:${acquire.aiSetup} ${acquire.version} ${acquire.cell}\n`);
+  return request;
+}
+/** Removes that stand-in again, so later tests see no earlier acquisition. */
+function forgetEarlier() {
+  rmSync(join(home, '.aihq', 'ai-setup'), { recursive: true, force: true });
+}
+
 test('Core lowers the real linux-x64 settings commands: the review shows the readback run first and the restore it plans', async () => {
-  // Core-side change of the real plan: only its three tool-commands are kept (the acquire is not run on this host); on
-  // Windows the executable path gains `.exe`, as Core runs only an `.exe`, `.com`, `.cmd` or `.bat` there.
-  const request = cbmRequest(project(), 'linux-x64');
+  // Core-side change of the real plan: only its three tool-commands are kept (the acquire is not run on this host, and
+  // an earlier acquisition's marker stands in for it); on Windows the executable path gains `.exe`, as Core runs only an
+  // `.exe`, `.com`, `.cmd` or `.bat` there.
+  const request = acquiredEarlier(cbmRequest(project(), 'linux-x64'));
   request.plan.plan = request.plan.plan.filter(step => step.op === 'tool-command').map(step => process.platform === 'win32' ?
     { ...step, executable: { ...step.executable, path: `${step.executable.path}.exe` } } : step);
-  const prepared = await prepare(request, { catalog });
+  const prepared = await prepare(request, { catalog }).finally(forgetEarlier);
   assert.equal(prepared.status, 'ready', JSON.stringify(prepared).slice(0, 2000));
   conforms(prepared.review);
   assert.deepEqual(prepared.review.steps.map(step => [step.op, step.program.prior, step.program.restore, step.program.undo]),
@@ -305,10 +322,10 @@ test('a plugin step whose pin Catalog marks unverified says so in the review: Co
 test('a settings command with no qualification (a recipe\'s replacement settings) is lowered and its review says no qualification ran it', async () => {
   // Core-side change of the real linux-x64 plan, as in the test above, with each command's qualification dropped: the
   // shape Catalog 26df4c0 plans for a recipe's own settings.
-  const request = cbmRequest(project(), 'linux-x64');
+  const request = acquiredEarlier(cbmRequest(project(), 'linux-x64'));
   request.plan.plan = request.plan.plan.filter(step => step.op === 'tool-command').map(({ qualification, ...step }) => process.platform === 'win32' ?
     { ...step, executable: { ...step.executable, path: `${step.executable.path}.exe` } } : step);
-  const prepared = await prepare(request, { catalog });
+  const prepared = await prepare(request, { catalog }).finally(forgetEarlier);
   assert.equal(prepared.status, 'ready', JSON.stringify(prepared).slice(0, 2000));
   conforms(prepared.review);
   for (const step of prepared.review.steps)

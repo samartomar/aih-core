@@ -13,11 +13,7 @@ import { checkValues, declarations, unboundInput } from './inputs.js';
 import type { Json } from '../types.js';
 import type { Invalid, PlanControls, PlanRequest, Problem, Refusal, UnsupportedVersion } from './types.js';
 import { PLAN_REQUEST } from './types.js';
-import { MANIFEST } from './acquire/types.js';
-import { existsSync, readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
-import { projectRoot } from '../internal/host-files.js';
+import { acquiredByCore } from './steps/common.js';
 import type { Lowered, SourceFacts, StepContext } from './steps/types.js';
 
 const sha256 = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
@@ -51,15 +47,6 @@ export interface CheckedPlan {
 function rootPathProblems(document: PlanRequest, steps: CheckedStep[]): Problem[] {
   const under = (path: string, folder: string) => path.startsWith(folder.replace(/\/+$/, '') + '/');
   const acquired = steps.flatMap(step => step.lowered.acquire ? [{ into: step.lowered.acquire.into, skipped: step.skipped }] : []);
-  let home: string | null = null;
-  try { home = projectRoot(homedir()); } catch { home = null; }
-  const pattern = /^(\.aihq\/ai-setup\/[^/]+\/[^/]+\/[^/]+)\//;
-  const coreAcquired = (path: string): boolean => {
-    const folder = pattern.exec(path)?.[1];
-    if (!folder || home === null) return false;
-    const marker = join(home, ...folder.split('/'), MANIFEST);
-    try { return existsSync(marker) && readFileSync(marker, 'utf8').startsWith('Managed by AIH Core: '); } catch { return false; }
-  };
   const problems: Problem[] = [];
   for (const step of steps) {
     if (step.lowered.kind !== 'merge') continue;
@@ -68,7 +55,7 @@ function rootPathProblems(document: PlanRequest, steps: CheckedStep[]): Problem[
       const placing = acquired.filter(entry => under(rootPath.path, entry.into));
       if (placing.some(entry => !entry.skipped)) continue;
       if (placing.length) { step.skipped = true; continue; }
-      if (coreAcquired(rootPath.path)) continue;
+      if (acquiredByCore(rootPath.path)) continue;
       problems.push({ path: `/plan/plan/${step.index}/rootPaths/${at}`, reason: 'root-path-unplaced',
         message: `Step ${step.index} names \`~/${rootPath.path}\`, which no acquire step of this plan places and no AI setup Core acquired holds; replan for a qualified AI setup.` });
     }

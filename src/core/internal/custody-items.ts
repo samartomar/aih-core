@@ -410,7 +410,12 @@ function validPluginFacts(value: unknown): boolean {
 }
 
 function validProgramFacts(value: unknown): boolean {
-  if (!exact(value, ['step', 'op', 'argv', 'executable', 'managed', 'undo'], ['clone', 'prior'])) return false;
+  if (!exact(value, ['step', 'op', 'argv', 'executable', 'managed', 'undo'], ['clone', 'prior', 'root', 'cwd', 'env'])) return false;
+  if (value.root !== undefined && value.root !== 'project' && value.root !== 'user' || value.cwd !== undefined && !(value.cwd === '' || text(value.cwd, 4096))) return false;
+  const name = (entry: unknown): boolean => typeof entry === 'string' && /^[A-Za-z_][A-Za-z0-9_-]{0,127}$/.test(entry);
+  if (value.env !== undefined && !(Array.isArray(value.env) && value.env.length <= 64 && value.env.every(entry =>
+    exact(entry, ['name', 'value']) && name(entry.name) && typeof entry.value === 'string' && entry.value.length <= 4096 ||
+    exact(entry, ['name', 'input']) && name(entry.name) && exact(entry.input, ['item', 'input']) && text(entry.input.item, 256) && text(entry.input.input, 256)))) return false;
   if (value.prior !== undefined && !(value.op === 'tool-command' && (value.prior === 'read' ? value.undo !== null : value.prior === 'withheld' && value.undo === null))) return false;
   const readback = (entry: unknown): boolean => exact(entry, ['argv', 'expected']) && argv(entry.argv) && typeof entry.expected === 'string' && entry.expected.length <= 4096;
   return Number.isSafeInteger(value.step) && (value.step as number) >= 0 && ['tool-command', 'upstream-installer', 'upstream-setup'].includes(value.op as string) &&

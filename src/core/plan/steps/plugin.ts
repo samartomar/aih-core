@@ -27,7 +27,7 @@ const isRepository = (value: string): boolean => {
 };
 const isMarketplace = (value: string): boolean => {
   if (value.length <= 256 && value.split('/').length === 2 && value.split('/').every(part => SEGMENT.test(part))) return true;
-  const match = value.length <= 2048 && !/\s/.test(value) ? /^https:\/\/([^/?#@]+)(\/[^?#@]*)?$/.exec(value) : null;
+  const match = value.length <= 2048 && !/[\s"%]/.test(value) ? /^https:\/\/([^/?#@]+)(\/[^?#@]*)?$/.exec(value) : null;
   return !!match && HOST.test(match[1]!);
 };
 const PLACEHOLDER = /<([a-z-]+)>/g;
@@ -44,7 +44,8 @@ export const plugin: StepHandler = {
     const { index, request } = context;
     const { cli, framework, plugin: name, repository, commit, scanKey } = step;
     if (typeof framework !== 'string' || !ID.test(framework) || typeof cli !== 'string' || !ID.test(cli) ||
-        typeof name !== 'string' || name.length === 0 || name.length > 256 || /[<>\s]/.test(name) ||
+        // Nothing a CLI would read as an option, or a command processor would read inside quotes.
+        typeof name !== 'string' || name.length === 0 || name.length > 256 || /[<>\s"%\u0000-\u001f\u007f]/.test(name) || name.startsWith('-') ||
         typeof repository !== 'string' || repository.length > 512 || !isRepository(repository) ||
         typeof commit !== 'string' || !COMMIT.test(commit) || typeof scanKey !== 'string' || scanKey.length === 0 ||
         step.marketplaceName !== undefined && (typeof step.marketplaceName !== 'string' || !ID.test(step.marketplaceName)))

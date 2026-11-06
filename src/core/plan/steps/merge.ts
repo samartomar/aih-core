@@ -9,7 +9,7 @@ import { basename } from 'node:path/posix';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { projectRoot } from '../../internal/host-files.js';
-import { clis, owners, problem, refusal, target } from './common.js';
+import { aiSetupReserved, clis, owners, problem, refusal, target } from './common.js';
 import { renderWrite } from './render.js';
 import { bindEntry, bindText, parseBindings, unfilledPlaceholder, type BoundInputs, type SlotTemplate } from '../inputs.js';
 import type { Json } from '../../types.js';
@@ -73,6 +73,64 @@ function rootPathsFilled(step: PlanStep & Record<string, Json>, index: number, e
   return { entry: filled };
 }
 
+/** The registries whose packages Catalog starts, by their runner (Catalog's `server.json` lowering). */
+const RUNNERS: Record<string, { command: string; spec: (identifier: string, version: string) => string }> = {
+  npm: { command: 'npx', spec: (identifier, version) => `${identifier}@${version}` },
+  pypi: { command: 'uvx', spec: (identifier, version) => `${identifier}==${version}` },
+};
+const argumentsOf = (entries: Json | undefined): string[] => (Array.isArray(entries) ? entries : []).flatMap(entry => !plain(entry) ? [] :
+  entry.type === 'named' ? [String(entry.name), ...(typeof entry.value === 'string' ? [entry.value] : [])] : typeof entry.value === 'string' ? [entry.value] : []);
+/**
+ * An MCP item's merge entry is bound to the item's scanned `server.json` when the plan supplies that file's bytes: the
+ * command and arguments the entry starts, or the URL it names, must be exactly what that file declares, lowered the way
+ * Catalog lowers it (the registry's runner, its flags, `identifier@version` or `identifier==version`, the package's
+ * arguments). An AI setup's MCP item is not: its entry starts the acquired, qualified program instead.
+ */
+function serverMismatch(step: PlanStep & Record<string, Json>, context: StepContext, owners: string[], entry: Json): Exclude<StepOutcome, { lowered: unknown }> | undefined {
+  if (owners.length !== 1 || !plain(entry)) return undefined;
+  const id = owners[0]!;
+  const items = (context.request.contents as unknown as { items?: Record<string, Json>[] }[]).flatMap(content => Array.isArray(content.items) ? content.items : []);
+  const item = items.find(candidate => candidate.id === id);
+  if (!item || item.kind !== 'mcp' || items.some(other => plain(other.aiSetup) && other.aiSetup.mcpItem === id)) return undefined;
+  const file = (Array.isArray(item.files) ? item.files : []).find(entry => plain(entry) && typeof entry.sourcePath === 'string' &&
+    /(^|\/)server\.json$/.test(entry.sourcePath)) as Record<string, Json> | undefined;
+  if (!file) return undefined;
+  const facts = context.itemFile(id, file.sourcePath as string, { ...(typeof file.sourceId === 'string' ? { sourceId: file.sourceId } : {}),
+    ...(typeof file.sha256 === 'string' ? { sha256: file.sha256 } : {}) });
+  if (!facts) return undefined;
+  const supplied = context.bytesFor(facts);
+  // Without the file's bytes nothing was scanned to bind to.
+  if ('refusal' in supplied) return supplied.refusal.code === 'source-missing' ? undefined : supplied;
+  const mismatch = (what: string) => refusal('source-mismatch', `Step ${context.index}'s MCP entry ${what} differs from what \`${facts.sourcePath}\` declares.`, context.index);
+  let server: Json;
+  try { server = JSON.parse(supplied.bytes.toString('utf8')) as Json; } catch { return mismatch('(an unreadable server.json)'); }
+  if (!plain(server)) return mismatch('(an unreadable server.json)');
+  const pkg = (Array.isArray(server.packages) ? server.packages : []).find(candidate => plain(candidate) && typeof candidate.registryType === 'string' &&
+    Object.hasOwn(RUNNERS, candidate.registryType) && (!plain(candidate.transport) || (candidate.transport.type ?? 'stdio') === 'stdio')) as Record<string, Json> | undefined;
+  const fields = mcpFieldNames(context, step, plain(server) && Array.isArray(server.remotes) && plain(server.remotes[0]) ? String(server.remotes[0].type) : undefined);
+  if (pkg) {
+    const runner = RUNNERS[pkg.registryType as string]!;
+    const declared = [runner.command, ...argumentsOf(pkg.runtimeArguments), runner.spec(String(pkg.identifier), String(pkg.version)), ...argumentsOf(pkg.packageArguments)];
+    const started = fields.argv !== undefined ? entry[fields.argv] : Array.isArray(entry[fields.command]) ? entry[fields.command] :
+      [entry[fields.command], ...(Array.isArray(entry[fields.args]) ? entry[fields.args] as Json[] : entry[fields.args] === undefined ? [] : [entry[fields.args]!])];
+    return JSON.stringify(started) === JSON.stringify(declared) ? undefined : mismatch('command or arguments');
+  }
+  const remote = (Array.isArray(server.remotes) ? server.remotes : [])[0];
+  if (!plain(remote) || typeof remote.url !== 'string') return undefined;
+  return entry[fields.url] === remote.url ? undefined : mismatch('URL');
+}
+/** The MCP entry field names the profile of the step's CLI gives (`mcpFile`), or the common ones. */
+function mcpFieldNames(context: StepContext, step: PlanStep & Record<string, Json>, remoteType: string | undefined): { command: string; args: string; argv?: string; url: string } {
+  const served = Array.isArray(step.clis) ? step.clis : [];
+  const named = (context.request.profiles as unknown as { id?: unknown; mcpFile?: Json }[])
+    .filter(profile => !served.length || served.includes(profile.id as Json)).map(profile => profile.mcpFile).find(plain);
+  const stdio = named && plain(named.stdio) ? named.stdio : {};
+  const forms = named && plain(named.remote) ? named.remote : {};
+  const remote = remoteType !== undefined && plain(forms[remoteType]) ? forms[remoteType] : Object.values(forms).find(plain);
+  return { command: typeof stdio.command === 'string' ? stdio.command : 'command', args: typeof stdio.args === 'string' ? stdio.args : 'args',
+    ...(typeof stdio.argv === 'string' ? { argv: stdio.argv } : {}), url: remote && typeof remote.url === 'string' ? remote.url : 'url' };
+}
+
 /** A Markdown block's text from its `render` (through the caller's Catalog) or its copied `from` file, UTF-8 only. */
 async function blockText(step: PlanStep & Record<string, Json>, context: StepContext, path: string, owners: string[]):
     Promise<{ text: string } | Exclude<StepOutcome, { lowered: unknown }>> {
@@ -105,6 +163,7 @@ export const merge: StepHandler = {
     const { index } = context;
     const owner = owners(step, index); if ('problem' in owner) return owner;
     const placed = target(step, index, 'file'); if (!('root' in placed)) return placed;
+    const reserved = aiSetupReserved(placed.root, placed.path, index); if (reserved) return reserved;
     const served = clis(step, index); if (!('clis' in served)) return served;
     const { format, key } = step;
     let entry = step.entry;
@@ -130,6 +189,7 @@ export const merge: StepHandler = {
       segments = pointerSegments(key);
       if (!segments) return problem(index, 'key', 'key', 'A JSON merge `key` is a JSON Pointer below the document root.');
       if (entry === undefined) return problem(index, 'entry', 'entry', 'A merge step names its `entry`.');
+      const unbound = serverMismatch(step, context, owner.ids, entry as Json); if (unbound) return unbound;
       const rooted = rootPathsFilled(step, index, entry as Json); if (!('entry' in rooted)) return rooted;
       entry = rooted.entry;
       const failed = fill(); if (failed) return failed;
@@ -138,6 +198,7 @@ export const merge: StepHandler = {
       if (segments.length > 16 || !segments.every(segment => TOML_KEY.test(segment)))
         return problem(index, 'key', 'key', 'A TOML merge `key` is one table of bare keys, such as `mcp_servers.github`.');
       if (!plain(entry)) return problem(index, 'entry', 'entry', 'A TOML merge `entry` is a non-empty table of scalar or scalar-array values.');
+      const unbound = serverMismatch(step, context, owner.ids, entry as Json); if (unbound) return unbound;
       const rooted = rootPathsFilled(step, index, entry as Json); if (!('entry' in rooted)) return rooted;
       entry = rooted.entry;
       const failed = fill(); if (failed) return failed;

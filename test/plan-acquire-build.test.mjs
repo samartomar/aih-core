@@ -63,7 +63,7 @@ test('a wheel with no obtainable qualified bytes is built offline from its pinne
   assert.deepEqual(shown.build.source, { role: 'build-source', file: setup.build.sourceFile, sha256: setup.qualification.observed.closure.at(-1).build.source.sha256,
     source: { kind: 'url', url: server.url(`/build/${setup.build.sourceFile}`) } });
   assert.deepEqual(shown.build.dependencies.map(entry => [entry.name, entry.version, entry.source.kind]), [['backend', '1.0', 'index']]);
-  assert.deepEqual(prepared.review.steps[0].interpreter.switchesOn, ['outside-range', 'wheel-install-failed', 'readback-failed', 'build-failed']);
+  assert.deepEqual(prepared.review.steps[0].interpreter.switchesOn, ['none-found', 'outside-range', 'wheel-install-failed', 'readback-failed', 'build-failed']);
   assert.match(prepared.review.steps[0].sentence, /\(one wheel may be built from pinned source\)$/);
   assert.match(prepared.review.steps[0].cantPromise, /One closure wheel may be built here from pinned source .*; a built wheel is never byte-qualified\.$/);
 
@@ -82,11 +82,13 @@ test('a wheel with no obtainable qualified bytes is built offline from its pinne
   assert.ok(recorded.some(entry => entry.role === 'build-dependency' && entry.origin === 'downloaded'), JSON.stringify(recorded));
 });
 
-test('a build runs with its home and temp inside the build folder and without the host compiler or setuptools settings', async () => {
-  installedPython({ version: '3.13.1' });
+test('a build runs with its home and temp inside the build folder, offline, and with none of the host build flags, package settings or proxies', async () => {
   const record = join(scratch, 'build-env.json');
+  installedPython({ version: '3.13.1', buildRecord: record });
   const host = { CC: 'host-cc', CXX: 'host-cxx', CFLAGS: '-O0', CPPFLAGS: '-I/host', LDFLAGS: '-L/host', SETUPTOOLS_USE_DISTUTILS: 'stdlib',
-    DISTUTILS_DEBUG: '1', AIH_FAKE_BUILD_RECORD: record };
+    DISTUTILS_DEBUG: '1', CL: '/FIinjected.h', _CL_: '/link', INCLUDE: 'C:\host\include', LIB: 'C:\host\lib', RUSTFLAGS: '-C link-arg=x',
+    CARGO_HOME: join(scratch, 'host-cargo'), CARGO_NET_OFFLINE: 'false', HTTPS_PROXY: 'http://proxy.invalid:1', ALL_PROXY: 'http://proxy.invalid:1',
+    MAKEFLAGS: '-j99', PIP_INDEX_URL: 'https://index.invalid/simple', PYTHONPATH: join(scratch, 'host-site') };
   const saved = Object.fromEntries(Object.keys(host).map(key => [key, process.env[key]]));
   Object.assign(process.env, host);
   try {
@@ -98,7 +100,9 @@ test('a build runs with its home and temp inside the build folder and without th
     const work = join(home, ...setup.folder.split('/'), 'build');
     for (const key of ['HOME', 'USERPROFILE', 'TMP', 'TEMP', ...(process.platform === 'win32' ? ['APPDATA'] : [])])
       assert.ok(lower[key]?.startsWith(work), `${key}=${lower[key]}`);
-    assert.deepEqual(Object.keys(lower).filter(key => /^(CC|CXX|CFLAGS|CPPFLAGS|LDFLAGS|SETUPTOOLS_.*|DISTUTILS_.*)$/.test(key)), []);
+    assert.deepEqual(Object.keys(lower).filter(key => /^(CC|CXX|CFLAGS|CPPFLAGS|LDFLAGS|SETUPTOOLS_.*|DISTUTILS_.*|CL|_CL_|INCLUDE|LIB|RUSTFLAGS|HTTPS?_PROXY|ALL_PROXY|MAKEFLAGS|PIP_INDEX_URL|PYTHONPATH)$/.test(key)), []);
+    // Package tools stay offline: what Core sets, never the host's.
+    assert.deepEqual([lower.CARGO_NET_OFFLINE, lower.PIP_NO_INDEX, lower.CARGO_HOME], ['true', '1', undefined]);
   } finally { for (const [key, value] of Object.entries(saved)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; } }
 });
 
@@ -215,13 +219,13 @@ test('a first acquisition whose build fails on both branches leaves no folders b
 });
 
 test('a C compiler named in the build record is the one the build uses: CC, CXX beside it and LDSHARED on Linux, recorded with the built wheel', async () => {
-  installedPython({ version: '3.13.1' });
+  const record = join(scratch, 'build-compiler.json');
+  installedPython({ version: '3.13.1', buildRecord: record });
   // Fixture compilers on PATH: copies of this Node executable named like a compiler (they only answer `--version`).
   const exe = process.platform === 'win32' ? '.exe' : '';
   for (const name of ['gcc', 'g++']) copyFileSync(process.execPath, join(bin, `${name}${exe}`));
-  const record = join(scratch, 'build-compiler.json');
-  const saved = { CC: process.env.CC, AIH_FAKE_BUILD_RECORD: process.env.AIH_FAKE_BUILD_RECORD };
-  Object.assign(process.env, { CC: 'host-clang', AIH_FAKE_BUILD_RECORD: record });
+  const saved = { CC: process.env.CC };
+  Object.assign(process.env, { CC: 'host-clang' });
   try {
     const target = project();
     const setup = buildSetup('b-compiler', { build: { tools: [{ name: 'gcc', version: 'gcc (fixture) 13.3.0', sha256: 'c'.repeat(64) },
@@ -245,12 +249,14 @@ test('a C compiler named in the build record is the one the build uses: CC, CXX 
 });
 
 test('a failed build names the wheel, the phase, the branch and the end of its redacted log; no build folder is left', async () => {
-  installedPython({ version: '3.13.1', failBuild: true });
+  // The build prints the value of a host variable named like a secret (the sidecar's `token`, as a real build might).
+  const token = 'fixture-secret-value-0123456789';
+  installedPython({ version: '3.13.1', failBuild: true, token });
   const saved = process.env.AIH_FIXTURE_TOKEN;
-  process.env.AIH_FIXTURE_TOKEN = 'fixture-secret-value-0123456789';
+  process.env.AIH_FIXTURE_TOKEN = token;
   const events = [];
   try {
-    const setup = buildSetup('b-diagnosed', { setup: { fallbackBytes: fallbackArchive(base, { version: '3.14.5', failBuild: true }),
+    const setup = buildSetup('b-diagnosed', { setup: { fallbackBytes: fallbackArchive(base, { version: '3.14.5', failBuild: true, token }),
       fallbackFile: 'cpython-3.14.5+diagnosed-install_only.tar.gz' } });
     const prepared = await prepare(setupRequest(project(), [setup]), { onProgress: event => events.push(event) });
     const run = conforms(await apply(prepared.handle, approve(prepared.review)));

@@ -24,6 +24,14 @@ export type Verifications = Map<number, { status: string; reason: string }>;
 const COMMAND_DEADLINE = 30 * 60_000;
 const OUTPUT_BYTES = 1_048_576;
 
+/** Names that mark a value as a secret: a readback argument naming one, or a host variable so named. */
+const SECRET_NAME = /TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|API_?KEY|ACCESS_?KEY|PRIVATE_?KEY|AUTH/i;
+/** Whether a prior value may be a secret by Core's name rules: the readback names a secret, or it holds a host secret's value. */
+export function secretShaped(readback: readonly string[], value: string): boolean {
+  if (readback.some(arg => SECRET_NAME.test(arg))) return true;
+  return Object.entries(process.env).some(([name, held]) => SECRET_NAME.test(name) && !!held && held.length >= 6 && value.includes(held));
+}
+
 /** Whether the command's output shows the expected value: one output line, trimmed, equals it. */
 export function readbackMatches(stdout: Buffer | undefined, expected: string): boolean {
   if (!stdout) return false;
@@ -56,8 +64,10 @@ export function cloneEffect(clone: NonNullable<LoweredProgram['clone']>, root: s
       if (existsSync(folder) && !existsSync(join(folder, SETUP_MARKER))) return { status: 'failed', reason: 'target-occupied', effectsUncertain: false };
       mkdirSync(dirname(folder), { recursive: true });
       const staging = join(dirname(folder), `.${basename(folder)}.aih-clone-${randomUUID()}`);
+      // No inherited `GIT_*` override (a calling hook's `GIT_DIR`, `GIT_WORK_TREE`, `GIT_CONFIG_PARAMETERS`) reaches git:
+      // only what Core sets. The user's own git configuration files still apply.
       const env = { GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '', GCM_INTERACTIVE: 'never' };
-      const git$ = (args: string[], capture = false) => runApprovedProcess({ executable: git, args, cwd: dirname(folder), env,
+      const git$ = (args: string[], capture = false) => runApprovedProcess({ executable: git, args, cwd: dirname(folder), env, clearInherited: ['GIT_'],
         timeoutMs: COMMAND_DEADLINE, maxOutputBytes: OUTPUT_BYTES, acceptedExitCodes: [0], capture, ...(signal ? { signal } : {}) });
       const clear = () => { try { rmSync(staging, { recursive: true, force: true, maxRetries: 3 }); } catch { /* left beside the folder */ } };
       for (const args of [['-c', 'core.hooksPath=', 'clone', '--quiet', '--no-checkout', '--template=', '--', clone.repository, staging],
@@ -110,6 +120,12 @@ export function commandEffect(lowered: LoweredProgram, root: string, pinned: Res
           verifications.set(step, { status: 'failed', reason: prior.reason });
           return { status: 'failed', reason: prior.reason, effectsUncertain: false };
         }
+        // A value that would read as an option is never passed back, unless the restore ends options first (`--`).
+        const at = lowered.restore.argv.indexOf(PRIOR);
+        if (prior.value.startsWith('-') && !lowered.restore.argv.slice(0, at).includes('--')) {
+          verifications.set(step, { status: 'failed', reason: 'prior-unrestorable' });
+          return { status: 'failed', reason: 'prior-unrestorable', effectsUncertain: false };
+        }
         const filled = lowered.restore.argv.map(arg => arg === PRIOR ? prior.value : arg);
         // A restore the program could never be given (a command shim refuses `"`, `%`): nothing runs, so nothing is
         // left that removal can't undo.
@@ -117,9 +133,10 @@ export function commandEffect(lowered: LoweredProgram, root: string, pinned: Res
           verifications.set(step, { status: 'failed', reason: 'prior-unrestorable' });
           return { status: 'failed', reason: 'prior-unrestorable', effectsUncertain: false };
         }
-        // A prior value holding a secret value bound anywhere in the plan is never recorded (`withheld`); then removal
-        // can't restore it, and says so.
-        const secret = secrets.some(value => value !== '' && prior.value.includes(value));
+        // A prior value that may be a secret is never recorded (`withheld`): one holding a secret value bound anywhere in
+        // the plan or the value of a host variable named like a secret, or one a readback named like a secret reads
+        // (`config get apiKey`). Then removal can't restore it, and says so.
+        const secret = secrets.some(value => value !== '' && prior.value.includes(value)) || secretShaped(lowered.readback.argv, prior.value);
         hooks?.recordProgram(step, secret ? { undo: null, prior: 'withheld' } :
           { undo: { argv: filled, readback: { argv: [...lowered.readback.argv], expected: prior.value } }, prior: 'read' });
       }

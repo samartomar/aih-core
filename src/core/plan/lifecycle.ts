@@ -20,11 +20,11 @@ import { claimIdentity } from '../internal/recipe-lifecycle.js';
 import { prepareSwitchOff, switchOffClaims, switchOffId } from './switch-off.js';
 import { switchOffRoute } from '../../harness/cli-facts.mjs';
 import { prepare as prepareEngine } from '../recipe-engine.js';
-import { resolveProgram } from '../internal/approved-process.js';
+import { argumentsRunnable, resolveProgram } from '../internal/approved-process.js';
 import { operationKey } from '../internal/operation-key.js';
 import type { PreparedHandle } from '../host-types.js';
 import type { ExecutionPolicy, Recipe } from '../types.js';
-import { FAILURE_RULE, digestOf, engineControls, planControls, problemsOf } from './prepare.js';
+import { FAILURE_RULE, digestOf, engineControls, launcherReview, pinnedCommand, planControls, problemsOf, shimRefusal } from './prepare.js';
 import { enterpriseContext } from '../enterprise/plan.js';
 import { admitRemovals, obligations } from '../enterprise/admission.js';
 import { denialReason, organizationReview, placeClaims, projected } from '../enterprise/host.js';
@@ -34,7 +34,7 @@ import { join } from 'node:path';
 import { managementIdOf, sameProject } from './claims.js';
 import { linkRecordPath, linkState } from './links.js';
 import type { Json } from '../types.js';
-import { INVENTORY, REMOVAL_CHOICES, REVIEW, type RemovalResolution, type Inventory, type PlanControls, type Refusal, type InventoryEntry, type InventoryMember, type ListResult, type Problem, type RemovalEntry, type RemovalResult,
+import { INVENTORY, REMOVAL_CHOICES, REVIEW, type ReviewCommand, type RemovalResolution, type Inventory, type PlanControls, type Refusal, type InventoryEntry, type InventoryMember, type ListResult, type Problem, type RemovalEntry, type RemovalResult,
   type Review, type ReviewStep } from './types.js';
 
 const invalid = (path: string, reason: string, message: string): { status: 'invalid'; problems: Problem[] } =>
@@ -479,27 +479,44 @@ async function prepareProgramRemoval(plugins: { managementId: string; plugin: Pl
       schema: 'urn:aihq:core:recipe:1.0.0', id: 'plugin-removal', description: 'Removes a native plugin', inputs: {}, materials: [],
       targets: [scope], prerequisites: [], operations: ops, checks: [] } } });
   });
-  // A tool-command's restore runs the acquired program it was installed with, from home, before the AI setup folder goes.
+  // A tool-command's restore runs the acquired program it was installed with, in the folder and with the environment the
+  // install ran it with (a secret given again, C64), before the AI setup folder goes.
   const home = projectRoot(homedir());
   const offset = plugins.length;
-  commands.forEach(({ managementId, program }, at) => {
+  const enginePrivate: Record<string, Record<string, string>> = {};
+  const environments = new Map<number, Record<string, string>>();
+  for (const [at, { managementId, program }] of commands.entries()) {
     const index = offset + at;
-    if (!program.undo || !program.executable) { unremovable.push({ step: index, managementId, command: true }); return; }
+    if (!program.undo || !program.executable) { unremovable.push({ step: index, managementId, command: true }); continue; }
     const selectionId = `c${index}`;
+    const env: Record<string, { literal: string } | { input: string }> = {}; const values: Record<string, string> = {}; const actual: Record<string, string> = {};
+    for (const entry of program.env ?? []) {
+      if ('value' in entry) { env[entry.name] = { literal: entry.value }; actual[entry.name] = entry.value; continue; }
+      const value = privateInputValue(controls.privateInputs, entry.input.item, entry.input.input);
+      if (value === undefined) return { status: 'refused', code: 'input-missing', item: entry.input.item, input: entry.input.input,
+        reason: `Removing \`${managementId}\` runs its restore with the secret \`${entry.input.input}\` it was installed with; Core never kept it. ` +
+          'Pass it in `controls.privateInputs` (`--private-input`).' };
+      const id = `secret-${Object.keys(values).length}`;
+      values[id] = value; env[entry.name] = { input: id }; actual[entry.name] = value;
+    }
+    if (Object.keys(values).length) enginePrivate[selectionId] = values;
+    environments.set(index, actual);
     operations.set(operationKey(selectionId, 'restore'), { step: index, managementId, command: true });
     // Its own engine management id: running the restore must not rewrite the AI setup's claim before its release.
     selections.push({ id: selectionId, managementId: `aih-restore-${index}`, scope: 'user', configuration: {}, requires: [], recipe: { inline: {
-      schema: 'urn:aihq:core:recipe:1.0.0', id: 'command-restore', description: 'Restores the value a tool command changed', inputs: {}, materials: [],
+      schema: 'urn:aihq:core:recipe:1.0.0', id: 'command-restore', description: 'Restores the value a tool command changed',
+      inputs: Object.fromEntries(Object.keys(values).map(id => [id, { type: 'string' as const, required: false, sensitive: true }])), materials: [],
       targets: ['user'], prerequisites: [], checks: [], operations: [{ id: 'restore', purpose: `Runs \`${program.undo.argv.join(' ')}\``, kind: 'process.run',
         scope: 'user', executable: { name: join(home, ...program.executable.split('/')) }, args: program.undo.argv.map(literal => ({ literal })),
-        cwd: { root: 'userHome', segments: [] }, env: {}, acceptedExitCodes: [0], effects: ['The tool\'s own command, given the value read before install; Core can\'t show its effects'],
+        cwd: { root: 'userHome', segments: (program.cwd ?? '').split('/').filter(Boolean).map(literal => ({ literal })) }, env, acceptedExitCodes: [0],
+        effects: ['The tool\'s own command, given the value read before install; Core can\'t show its effects'],
         requires: [], checks: [] }] } } });
-  });
+  }
   const steps: ReviewStep[] = [];
   let engine: Awaited<ReturnType<typeof prepareEngine>> | undefined;
   if (selections.length) {
     engine = await prepareEngine({ useCase: 'policy', policy: { schema: 'urn:aihq:core:execution-policy:1.0.0', mode: 'vibe', selections },
-      target: { project: anchor } }, engineControls(controls), undefined, undefined, undefined, undefined, undefined, undefined, { commandShims: true });
+      target: { project: anchor } }, { ...engineControls(controls), ...(Object.keys(enginePrivate).length ? { privateInputs: enginePrivate } : {}) }, undefined, undefined, undefined, undefined, undefined, undefined, { commandShims: true });
     if (engine.status === 'cancelled') return { status: 'refused', code: 'cancelled', reason: 'Removal preparation was cancelled.' };
     if (!engine.review || !engine.prepared) return { status: 'invalid', problems: problemsOf(engine) };
   }
@@ -518,12 +535,16 @@ async function prepareProgramRemoval(plugins: { managementId: string; plugin: Pl
       const executable = resolveProgram(plugin.presenceCheck.argv[0]!);
       if (!executable) return { status: 'refused', code: 'program-unavailable',
         reason: `The presence check of \`${managementId}\` runs \`${plugin.presenceCheck.argv[0]}\`, which this host cannot run.` };
-      presence = { ...plugin.presenceCheck, executable: executable.launchPath, executableSha256: executable.sha256 };
+      if (!argumentsRunnable(executable, plugin.presenceCheck.argv.slice(1))) return shimRefusal(index, plugin.presenceCheck.argv);
+      presence = { ...plugin.presenceCheck, executable: executable.launchPath, executableSha256: executable.sha256,
+        ...(executable.launcher ? { launcher: launcherReview(executable.launcher) } : {}) };
       programs.set(index, { executable, argv: plugin.presenceCheck.argv, expect: plugin.presenceCheck.expect, cwd: anchor });
     }
-    const commands = (plugin.undo ?? []).map((argv, at) => ({ argv, ...pinned.get(index)![at]! }));
+    const commands = (plugin.undo ?? []).map((argv, at) => pinnedCommand(argv, pinned.get(index)![at]!));
+    const unrunnable = commands.findIndex(command => command === undefined);
+    if (unrunnable >= 0) return shimRefusal(index, plugin.undo![unrunnable]!);
     steps.push({ step: index, op: 'plugin', managementId, framework: managementId, cli: plugin.cli, clis: [plugin.cli], plugin: plugin.plugin,
-      commit: plugin.commit, contains: [...plugin.contains], effect: plugin.undo ? 'run-program' : 'unchanged', commands, undo: plugin.undo,
+      commit: plugin.commit, contains: [...plugin.contains], effect: plugin.undo ? 'run-program' : 'unchanged', commands: commands as ReviewCommand[], undo: plugin.undo,
       presenceCheck: presence,
       sentence: plugin.undo ? `Runs \`${plugin.undo.map(argv => argv.join(' ')).join('`, then `')}\`` :
         `Releases the receipt of \`${plugin.plugin}\`; Core has no removal command for it`,
@@ -535,8 +556,10 @@ async function prepareProgramRemoval(plugins: { managementId: string; plugin: Pl
     const index = offset + at;
     const pinned = pinnedRestore(engine, index, operations);
     const reversible = !!(program.undo && program.executable && pinned);
+    // The folder the command ran in, as its receipt records it (the home for an earlier receipt that records none).
+    const cwd = join(program.root === 'project' ? anchor : home, ...(program.cwd ?? '').split('/').filter(Boolean));
     if (reversible) programs.set(index, { executable: pinned!.resolved, argv: [pinned!.resolved.launchPath, ...program.undo!.readback.argv],
-      expect: program.undo!.readback.expected, cwd: home, readback: true });
+      expect: program.undo!.readback.expected, cwd, readback: true, env: environments.get(index) ?? {} });
     const command = program.argv.join(' ');
     steps.push({ step: index, op: program.op, managementId, item: managementId, effect: reversible ? 'run-program' : 'unchanged',
       sentence: reversible ? `Runs \`${program.undo!.argv.join(' ')}\`, then checks that \`${program.undo!.readback.argv.join(' ')}\` reads \`${program.undo!.readback.expected}\`` :
@@ -547,7 +570,8 @@ async function prepareProgramRemoval(plugins: { managementId: string; plugin: Pl
         `Core removes only its clone; it can't remove what \`${command}\` wrote elsewhere.`,
       program: { kind: program.op, argv: reversible ? program.undo!.argv : program.argv,
         executable: reversible ? pinned!.resolved.launchPath : program.executable ? join(home, ...program.executable.split('/')) : program.argv[0]!,
-        executableSha256: reversible ? pinned!.resolved.sha256 : null, from: program.executable ? 'acquired' : 'path', cwd: home, env: [], managed: program.managed,
+        executableSha256: reversible ? pinned!.resolved.sha256 : null, from: program.executable ? 'acquired' : 'path', cwd,
+        env: (program.env ?? []).map(entry => ({ name: entry.name, value: 'value' in entry ? entry.value : '[REDACTED]' })), managed: program.managed,
         readback: reversible ? program.undo!.readback : null, undo: program.undo, cantRemove: reversible ? 'Nothing else the command changed is rolled back.' :
           program.op === 'upstream-setup' ? 'What the setup command wrote outside its clone stays.' : 'What the command changed stays.' } });
   }
