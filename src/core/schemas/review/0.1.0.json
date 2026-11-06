@@ -162,7 +162,8 @@
           "type": "object", "additionalProperties": false, "required": ["label", "kind", "launches"],
           "properties": {
             "label": { "const": "executable-configuration" },
-            "kind": { "enum": ["mcp-server", "hook", "settings-command", "executable-file", "unparsed", "unparsed-yaml"] },
+            "kind": { "enum": ["mcp-server", "hook", "settings-command", "executable-file", "unparsed", "unparsed-yaml", "mcp-enable"] },
+            "connects": { "description": "The remote URLs an MCP server entry connects to.", "type": "array", "items": { "type": "string" } },
             "launches": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["command", "args"],
               "properties": { "command": { "type": "string" }, "args": { "type": "array", "items": { "type": "string" } } } } },
             "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },

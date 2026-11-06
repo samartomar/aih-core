@@ -14,16 +14,50 @@ const strings = (value: Json | undefined): value is string[] => Array.isArray(va
 const COMMAND_KEYS = new Set(['apikeyhelper', 'awsauthrefresh', 'awscredentialexport', 'otelheadershelper', 'notify', 'statuscommand',
   // Copilot's hooks run a `bash` or `powershell` command; Gemini CLI runs its tools' discovery and call commands.
   'bash', 'powershell', 'discoverycommand', 'callcommand']);
-/** Whether a parsed settings value sets a loader or search variable in an environment (`env`, `environment`) at any depth. */
-function setsLoader(value: Json | undefined, depth = 0): boolean {
+/**
+ * Environment names a client itself acts on to run a program, beyond the loader list: Claude Code wraps every Bash
+ * command in `CLAUDE_CODE_SHELL_PREFIX` and sources `CLAUDE_ENV_FILE` before it. Setting one is executable configuration.
+ */
+const CLIENT_EXEC_ENV = new Set(['CLAUDE_CODE_SHELL_PREFIX', 'CLAUDE_ENV_FILE', 'CLAUDE_CODE_GIT_BASH_PATH']);
+const runsCode = (name: string): boolean => isLoaderVariable(name) || CLIENT_EXEC_ENV.has(name.toUpperCase());
+/**
+ * Whether a parsed settings value sets, in an environment at any depth, a loader or search variable or a name a client
+ * runs a program by. Environments are `env`, `environment`, and Codex's `shell_environment_policy.set`.
+ */
+function setsLoader(value: Json | undefined, depth = 0, parent = ''): boolean {
   if (depth > 32) return false;
-  if (Array.isArray(value)) return value.some(item => setsLoader(item, depth + 1));
+  if (Array.isArray(value)) return value.some(item => setsLoader(item, depth + 1, parent));
   if (!plain(value)) return false;
-  return Object.entries(value).some(([key, child]) => /^(env|environment)$/i.test(key) && plain(child) && Object.keys(child).some(isLoaderVariable) ||
-    setsLoader(child, depth + 1));
+  return Object.entries(value).some(([key, child]) =>
+    (/^(env|environment)$/i.test(key) || key === 'set' && parent === 'shell_environment_policy') && plain(child) && Object.keys(child).some(runsCode) ||
+    setsLoader(child, depth + 1, key));
 }
-/** Whether TOML or YAML text assigns an upper-case loader or search variable name anywhere (`NODE_OPTIONS = …`, `LD_PRELOAD: …`). */
-const assignsLoader = (text: string): boolean => [...text.matchAll(/^\s*-?\s*["']?([A-Z_][A-Z0-9_]*)["']?\s*[:=]/gm)].some(match => isLoaderVariable(match[1]!));
+/**
+ * Whether TOML or YAML text assigns an upper-case loader name, or one a client runs a program by, anywhere: at a line's
+ * start, in an inline table (`{ NODE_OPTIONS = … }`) or as a dotted key's last part (`shell_environment_policy.set.NODE_OPTIONS = …`).
+ */
+const assignsLoader = (text: string): boolean =>
+  [...text.matchAll(/(?:^|[\s{,.])["']?([A-Z_][A-Z0-9_]*)["']?\s*[:=]/gm)].some(match => runsCode(match[1]!));
+/** Claude Code's settings that switch on a project's MCP servers without its own approval prompt. */
+const MCP_ENABLE = new Set(['enableallprojectmcpservers', 'enabledmcpjsonservers']);
+function enablesMcp(value: Json | undefined, depth = 0): boolean {
+  if (depth > 32) return false;
+  if (Array.isArray(value)) return value.some(item => enablesMcp(item, depth + 1));
+  return plain(value) && Object.entries(value).some(([key, child]) => MCP_ENABLE.has(key.toLowerCase()) || enablesMcp(child, depth + 1));
+}
+/** The remote URLs a value's MCP server entries connect to, under any client's name for the URL. */
+const URL_KEYS = new Set(['url', 'serverurl', 'httpurl']);
+function remotesIn(value: Json | undefined, depth = 0, found: string[] = []): string[] {
+  if (depth > 32) return found;
+  if (Array.isArray(value)) for (const item of value) remotesIn(item, depth + 1, found);
+  else if (plain(value)) for (const [key, child] of Object.entries(value)) {
+    if (URL_KEYS.has(key.toLowerCase()) && typeof child === 'string' && /^[a-z][a-z0-9+.-]*:\/\//i.test(child)) found.push(child);
+    else remotesIn(child, depth + 1, found);
+  }
+  return found;
+}
+/** A merge entry as it lands: re-nested at its whole key, so a value written at a command key is seen under that key. */
+const nested = (segments: string[], entry: Json): Json => segments.reduceRight<Json>((inner, segment) => ({ [segment]: inner }), entry);
 
 /** Every program a JSON value configures: each `command` (with its `args`, or an argv list) and each command-running key. */
 export function launchesIn(value: Json | undefined): Launch[] {
@@ -49,18 +83,22 @@ const mentionsHooks = (segments: string[], value: Json | undefined): boolean =>
   segments.some(segment => segment.toLowerCase() === 'hooks') || plain(value) && Object.keys(value).some(key => key.toLowerCase() === 'hooks');
 
 /**
- * A JSON or TOML merge entry's label: an MCP server it starts, a hook (also one whose command Core doesn't find), or a
- * settings command (also an environment that sets a loader variable); `undefined` when it configures none.
+ * A JSON or TOML merge entry's label, classified as it lands (the entry re-nested at its whole key, the same classifier
+ * as for a written file): an MCP server it starts or connects to, a hook (also one whose command Core doesn't find), the
+ * switch that enables project MCP servers, or a settings command (also an environment that sets a loader variable or
+ * a name a client runs a program by); `undefined` when it configures none.
  */
 export function mergeConfiguration(segments: string[], entry: Json, hide: (text: string) => string = text => text): ExecutableConfiguration | undefined {
-  const launches = shown(launchesIn(entry), hide);
-  const envAt = segments.findIndex(segment => /^(env|environment)$/i.test(segment));
-  const loader = setsLoader(entry) || envAt >= 0 && (envAt === segments.length - 1 ? plain(entry) && Object.keys(entry).some(isLoaderVariable) :
-    isLoaderVariable(segments[envAt + 1]!));
-  if (!launches.length && !mentionsHooks(segments, entry) && !loader) return undefined;
+  const whole = nested(segments, entry);
+  const launches = shown(launchesIn(whole), hide);
+  const hooks = mentionsHooks(segments, entry) || mentionsHooks([], whole);
+  const loader = setsLoader(whole);
+  const enabling = enablesMcp(whole);
   const mcp = segments.some(segment => /^(mcpservers|mcp_servers|mcp|servers|context_servers)$/i.test(segment));
-  const kind = mentionsHooks(segments, entry) ? 'hook' : mcp ? 'mcp-server' : 'settings-command';
-  return { label: 'executable-configuration', kind, launches };
+  const connects = mcp ? remotesIn(whole).map(hide) : [];
+  if (!launches.length && !hooks && !loader && !enabling && !connects.length) return undefined;
+  const kind = hooks ? 'hook' : mcp ? 'mcp-server' : enabling ? 'mcp-enable' : 'settings-command';
+  return { label: 'executable-configuration', kind, launches, ...(connects.length ? { connects } : {}) };
 }
 const quoted = (value: string): string[] => [...value.matchAll(/"((?:[^"\\]|\\.)*)"|'([^']*)'/g)].map(match => match[1] !== undefined ? match[1].replace(/\\(.)/g, '$1') : match[2]!);
 const commandKey = (key: string): boolean => key.toLowerCase() === 'command' || COMMAND_KEYS.has(key.toLowerCase());
@@ -119,7 +157,7 @@ const COMPLEX_YAML = /[{}]|^\s*\?\s|<<\s*:|(?:^|\s)[&*!][^\s]|:\s*[|>][-+]?\s*$|
  * YAML; when it uses a form those scans don't read, or a value they can't resolve, it is `unparsed`: it is labelled all the
  * same, never left out. Markdown is read only in its front matter.
  */
-function textLaunches(path: string, bytes: Buffer): { launches: Launch[]; hooks: boolean; loader?: boolean; unparsed?: 'unparsed' | 'unparsed-yaml' } {
+function textLaunches(path: string, bytes: Buffer): { launches: Launch[]; hooks: boolean; loader?: boolean; enabling?: boolean; connects?: string[]; unparsed?: 'unparsed' | 'unparsed-yaml' } {
   const none = { launches: [], hooks: false };
   let text: string;
   // UTF-8, or UTF-16 with its byte order mark (a client may refuse it, but the review still reads it).
@@ -127,7 +165,7 @@ function textLaunches(path: string, bytes: Buffer): { launches: Launch[]; hooks:
   try { text = new TextDecoder(encoding, { fatal: true }).decode(bytes).replace(/^\uFEFF/, ''); } catch { return none; }
   const errors: ParseError[] = [];
   const parsed = parseJsonc(text, errors, { allowTrailingComma: true, disallowComments: false }) as Json;
-  if (!errors.length && parsed !== null && typeof parsed === 'object') return { launches: launchesIn(parsed), hooks: mentionsHooks([], parsed), loader: setsLoader(parsed) };
+  if (!errors.length && parsed !== null && typeof parsed === 'object') return { launches: launchesIn(parsed), hooks: mentionsHooks([], parsed), loader: setsLoader(parsed), enabling: enablesMcp(parsed), connects: remotesIn(parsed) };
   if (/\.(md|mdc|markdown)$/i.test(path)) {
     const front = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text);
     if (!front) return none;
@@ -150,7 +188,8 @@ function textLaunches(path: string, bytes: Buffer): { launches: Launch[]; hooks:
 export function writeConfiguration(path: string, bytes: Buffer, executable: boolean, hide: (text: string) => string = text => text): ExecutableConfiguration | undefined {
   const read = textLaunches(path, bytes);
   const launches = shown(read.launches, hide); const hooks = read.hooks;
-  if (!executable && !launches.length && !read.unparsed && !hooks && !read.loader) return undefined;
-  return { label: 'executable-configuration', kind: executable ? 'executable-file' : read.unparsed ?? (hooks ? 'hook' : 'settings-command'), launches,
-    sha256: createHash('sha256').update(bytes).digest('hex'), executable };
+  const connects = (read.connects ?? []).map(hide);
+  if (!executable && !launches.length && !read.unparsed && !hooks && !read.loader && !read.enabling && !connects.length) return undefined;
+  return { label: 'executable-configuration', kind: executable ? 'executable-file' : read.unparsed ?? (hooks ? 'hook' : read.enabling ? 'mcp-enable' : 'settings-command'),
+    launches, ...(connects.length ? { connects } : {}), sha256: createHash('sha256').update(bytes).digest('hex'), executable };
 }
