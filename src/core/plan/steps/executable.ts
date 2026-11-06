@@ -2,6 +2,7 @@
 // settings key that runs a command, or a file written executable. The review marks each one with a fixed label and shows
 // the programs and arguments it configures, or the written bytes' sha256 and whether the file is made executable.
 import { createHash } from 'node:crypto';
+import { parse as parseJsonc, type ParseError } from 'jsonc-parser';
 import type { Json } from '../../types.js';
 import type { ExecutableConfiguration } from '../types.js';
 
@@ -42,12 +43,62 @@ export function mergeConfiguration(segments: string[], entry: Json, hide: (text:
   const kind = mentionsHooks(segments, entry) ? 'hook' : mcp ? 'mcp-server' : 'settings-command';
   return { label: 'executable-configuration', kind, launches };
 }
-/** A written file's label: made executable, or JSON settings that run commands; with the bytes' sha256 either way. */
-export function writeConfiguration(path: string, bytes: Buffer, executable: boolean, hide: (text: string) => string = text => text): ExecutableConfiguration | undefined {
-  let launches: Launch[] = []; let hooks = false;
-  if (/\.json$/i.test(path) && bytes.length <= 1_048_576) {
-    try { const parsed = JSON.parse(bytes.toString('utf8')) as Json; launches = shown(launchesIn(parsed), hide); hooks = mentionsHooks([], parsed); } catch { /* not JSON settings */ }
+const quoted = (value: string): string[] => [...value.matchAll(/"((?:[^"\\]|\\.)*)"|'([^']*)'/g)].map(match => match[1] !== undefined ? match[1].replace(/\\(.)/g, '$1') : match[2]!);
+const commandKey = (key: string): boolean => key.toLowerCase() === 'command' || COMMAND_KEYS.has(key.toLowerCase());
+/** TOML settings, read line by line: each table's `command` with its `args`, and every command-running key. */
+function tomlLaunches(text: string): { launches: Launch[]; hooks: boolean } {
+  const launches: Launch[] = []; let hooks = false; let current: Launch | undefined;
+  for (const line of text.split(/\r?\n/)) {
+    const header = /^\s*\[\[?\s*([^\]]+?)\s*\]\]?\s*(#.*)?$/.exec(line);
+    if (header) { current = undefined; if (header[1]!.split('.').some(part => part.replace(/["']/g, '').toLowerCase() === 'hooks')) hooks = true; continue; }
+    const assignment = /^\s*([A-Za-z0-9_."'-]+)\s*=\s*(.+)$/.exec(line);
+    if (!assignment) continue;
+    const key = assignment[1]!.split('.').at(-1)!.replace(/["']/g, '');
+    const values = quoted(assignment[2]!);
+    if (key.toLowerCase() === 'hooks') hooks = true;
+    if (key === 'args' && current) current.args = values;
+    else if (commandKey(key) && values.length) {
+      current = { command: values[0]!, args: assignment[2]!.trim().startsWith('[') ? values.slice(1) : [] };
+      launches.push(current);
+    }
   }
+  return { launches, hooks };
+}
+/** YAML settings, read line by line: every `command` and command-running key, with a flow-list `args` beside it. */
+function yamlLaunches(text: string): { launches: Launch[]; hooks: boolean } {
+  const launches: Launch[] = []; let hooks = false; let current: Launch | undefined;
+  for (const line of text.split(/\r?\n/)) {
+    const pair = /^\s*(?:-\s+)?([A-Za-z0-9_-]+)\s*:\s*(.*)$/.exec(line);
+    if (!pair) continue;
+    const [, key, raw] = pair as unknown as [string, string, string];
+    const value = raw.replace(/\s+#.*$/, '').trim();
+    if (key.toLowerCase() === 'hooks') hooks = true;
+    if (key === 'args' && current) { current.args = value.startsWith('[') ? value.slice(1, -1).split(',').map(part => part.trim().replace(/^["']|["']$/g, '')).filter(Boolean) : []; continue; }
+    if (!commandKey(key) || !value) continue;
+    const list = value.startsWith('[') ? value.slice(1, -1).split(',').map(part => part.trim().replace(/^["']|["']$/g, '')).filter(Boolean) : [value.replace(/^["']|["']$/g, '')];
+    if (!list.length) continue;
+    current = { command: list[0]!, args: list.slice(1) };
+    launches.push(current);
+  }
+  return { launches, hooks };
+}
+/** The programs a written text configures, read by its content: JSON (comments, a BOM, trailing commas allowed), else TOML, else YAML. */
+function textLaunches(bytes: Buffer): { launches: Launch[]; hooks: boolean } {
+  if (bytes.length > 1_048_576) return { launches: [], hooks: false };
+  let text: string;
+  try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes).replace(/^﻿/, ''); } catch { return { launches: [], hooks: false }; }
+  const errors: ParseError[] = [];
+  const parsed = parseJsonc(text, errors, { allowTrailingComma: true, disallowComments: false }) as Json;
+  if (!errors.length && parsed !== null && typeof parsed === 'object') return { launches: launchesIn(parsed), hooks: mentionsHooks([], parsed) };
+  const toml = tomlLaunches(text);
+  if (toml.launches.length) return toml;
+  const yaml = yamlLaunches(text);
+  return yaml.launches.length ? yaml : { launches: [], hooks: false };
+}
+/** A written file's label: made executable, or settings (in any format) that run commands; with the bytes' sha256 either way. */
+export function writeConfiguration(path: string, bytes: Buffer, executable: boolean, hide: (text: string) => string = text => text): ExecutableConfiguration | undefined {
+  const read = textLaunches(bytes);
+  const launches = shown(read.launches, hide); const hooks = read.hooks;
   if (!executable && !launches.length) return undefined;
   return { label: 'executable-configuration', kind: executable ? 'executable-file' : hooks ? 'hook' : 'settings-command', launches,
     sha256: createHash('sha256').update(bytes).digest('hex'), executable };
