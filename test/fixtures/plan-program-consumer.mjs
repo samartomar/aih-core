@@ -36,8 +36,11 @@ if (process.argv[2] === 'child') {
     out = { review: prepared.review, run: conforms(await apply(prepared.handle, approve(prepared.review))),
       list: conforms(await list({ target: { project }, scope: 'both' })) };
   } else {
-    const removal = await prepareRemoval({ target: { project }, scope, removals: [{ managementId: file }] });
-    out = { review: removal.review && conforms(removal.review), removed: conforms(await apply(removal.handle, approve(removal.review))) };
+    // A secret the command ran with is passed again for its restore (`PACKED_PRIVATE_INPUTS`, JSON), as `--private-input` would.
+    const controls = process.env.PACKED_PRIVATE_INPUTS ? { privateInputs: JSON.parse(process.env.PACKED_PRIVATE_INPUTS) } : undefined;
+    const removal = await prepareRemoval({ target: { project }, scope, removals: [{ managementId: file }] }, controls);
+    if (!removal.review) { console.log(JSON.stringify({ removal })); process.exit(0); }
+    out = { review: conforms(removal.review), removed: conforms(await apply(removal.handle, approve(removal.review), controls)) };
   }
   console.log(JSON.stringify(out));
   process.exit(0);
@@ -103,8 +106,13 @@ try {
   await check('removal-runs-restore-with-prior-and-readback', async () => {
     const mcp = await child(['remove', journey.mcpItem, project, 'project'], environment());
     assert.equal(mcp.removed.completion, 'complete', JSON.stringify(mcp));
-    const out = await child(['remove', journey.id, project, 'user'], environment());
+    // The restore runs with the environment the command ran with: its secret is asked for again, never kept.
+    const asked = await child(['remove', journey.id, project, 'user'], environment());
+    assert.deepEqual([asked.removal?.status, asked.removal?.code, asked.removal?.input], ['refused', 'input-missing', 'TOOL_TOKEN'], JSON.stringify(asked));
+    const out = await child(['remove', journey.id, project, 'user'],
+      environment('', { PACKED_PRIVATE_INPUTS: JSON.stringify({ [journey.id]: { TOOL_TOKEN: secret } }) }));
     assert.equal(out.removed.completion, 'complete', JSON.stringify(out));
+    assert.equal(fakeState(state, 'fake-tool').calls.at(-2).tokenSha256, createHash('sha256').update(secret).digest('hex'), 'the restore had the secret');
     assert.deepEqual(out.review.steps.find(entry => entry.op === 'tool-command').program.argv, ['config', 'set', 'auto_index', 'unset']);
     assert.ok(out.removed.steps.some(entry => entry.verification.reason === 'readback-matched'));
     assert.equal(existsSync(join(home, ...journey.folder.split('/'))), false);
@@ -134,7 +142,9 @@ try {
     const removed = await child(['remove', 'gstack', project, 'user'], environment());
     assert.equal(removed.removed.completion, 'complete', JSON.stringify(removed));
     assert.equal(existsSync(join(home, '.claude', 'skills', 'gstack')), false);
-    const unmanaged = await child(['remove', installer.id, project, 'user'], environment());
+    // A project-scope plan's installer keeps its receipt in that project.
+    const unmanaged = await child(['remove', installer.id, project, 'project'], environment());
+    assert.ok(unmanaged.review, JSON.stringify(unmanaged));
     assert.match(unmanaged.review.steps.find(entry => entry.op === 'upstream-installer').cantPromise, /can't remove/);
     assert.ok(existsSync(join(home, '.fake-installed')), 'what the installer wrote stays');
   });
