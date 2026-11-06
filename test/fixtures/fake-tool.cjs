@@ -14,7 +14,10 @@ const fs = require('node:fs');
 const { createHash } = require('node:crypto');
 
 const executableName = basename(process.execPath).toLowerCase().replace(/\.exe$/, '');
-const name = process.env.FAKE_TOOL_NAME && require.main === module ? process.env.FAKE_TOOL_NAME :
+// Elsewhere the shell script runs this file as the main script; when `NODE_OPTIONS` also preloads it, the preload is the
+// one run (Node then serves the main script from its module cache), so the main script is recognised by its path too.
+const isMain = require.main === module || (!!process.argv[1] && require('node:path').resolve(process.argv[1]) === __filename);
+const name = process.env.FAKE_TOOL_NAME && isMain ? process.env.FAKE_TOOL_NAME :
   /^fake-(tool|setup|installer)$/.test(executableName) ? executableName : undefined;
 
 if (name) {

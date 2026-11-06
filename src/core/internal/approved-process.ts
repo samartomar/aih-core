@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { accessSync, constants, existsSync, lstatSync, readlinkSync, realpathSync } from 'node:fs';
 import { delimiter, dirname, isAbsolute, join, parse, relative, resolve } from 'node:path';
 import { sha256 } from './host-files.js';
@@ -41,11 +41,30 @@ export function childEnvironment(base: Record<string, string | undefined>, extra
   env.NoDefaultCurrentDirectoryInExePath = '1';
   return env;
 }
-/** Spawn options that let `stopTree` reach every process a child starts: its own process group on POSIX. */
-export const treeSpawnOptions = (): { detached?: true } => process.platform === 'win32' ? {} : { detached: true };
 /**
- * Stops a child and everything it started: `taskkill /T /F` on Windows (by absolute path), the child's process group on
- * POSIX (`SIGTERM`, then `SIGKILL` with `force`). The child itself is killed directly too.
+ * Spawn options for a child `stopTree` can stop: none. A child stays in its parent's process group, so a terminal's
+ * Ctrl-C still reaches it; `stopTree` finds its descendants instead.
+ */
+export const treeSpawnOptions = (): Record<string, never> => ({});
+/** Every live descendant of `pid` on POSIX, from `ps` by absolute path; empty when it can't be read. */
+function descendants(pid: number): number[] {
+  const ps = ['/bin/ps', '/usr/bin/ps'].find(path => existsSync(path));
+  if (!ps) return [];
+  const listed = spawnSync(ps, ['-A', '-o', 'pid=,ppid='], { encoding: 'utf8', timeout: 5_000, maxBuffer: 4 * 1_048_576, env: { PATH: '/usr/bin:/bin' } });
+  if (listed.status !== 0 || typeof listed.stdout !== 'string') return [];
+  const children = new Map<number, number[]>();
+  for (const line of listed.stdout.split('\n')) {
+    const [child, parent] = line.trim().split(/\s+/).map(Number);
+    if (!Number.isSafeInteger(child) || !Number.isSafeInteger(parent)) continue;
+    children.set(parent!, [...children.get(parent!) ?? [], child!]);
+  }
+  const found: number[] = []; const queue = [pid];
+  while (queue.length && found.length < 4096) for (const next of children.get(queue.shift()!) ?? []) { found.push(next); queue.push(next); }
+  return found;
+}
+/**
+ * Stops a child and everything it started: `taskkill /T /F` on Windows (by absolute path); on POSIX the child's
+ * descendants, found before any is signalled (`SIGTERM`, then `SIGKILL` with `force`). The child itself is killed too.
  */
 export function stopTree(child: ChildProcess, force = false): void {
   const direct = () => { try { child.kill(force ? 'SIGKILL' : 'SIGTERM'); } catch { /* Close or the cleanup deadline determines uncertainty. */ } };
@@ -61,7 +80,7 @@ export function stopTree(child: ChildProcess, force = false): void {
     killer.once('error', done); killer.once('close', done);
     return;
   }
-  try { process.kill(-pid, force ? 'SIGKILL' : 'SIGTERM'); } catch { /* not a group leader, or already gone */ }
+  for (const descendant of descendants(pid)) try { process.kill(descendant, force ? 'SIGKILL' : 'SIGTERM'); } catch { /* already gone */ }
   direct();
 }
 

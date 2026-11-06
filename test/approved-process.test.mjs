@@ -116,3 +116,30 @@ test('a cancelled program is stopped with everything it started', async () => {
     rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   }
 });
+
+test('a terminal Ctrl-C (SIGINT to the foreground process group) still stops a running approved program', { skip: windows }, async () => {
+  const root = mkdtempSync(join(tmpdir(), 'aih-sigint-'));
+  try {
+    const pidFile = join(root, 'child.pid');
+    const child = join(root, 'child.js');
+    writeFileSync(child, `require('fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setTimeout(() => {}, 30000);\n`);
+    const host = join(root, 'host.mjs');
+    const module = new URL('../dist/core/internal/approved-process.js', import.meta.url).href;
+    writeFileSync(host, `const { resolveExecutable, runApprovedProcess } = await import(${JSON.stringify(module)});\n` +
+      `await runApprovedProcess({ executable: resolveExecutable(process.execPath), args: [${JSON.stringify(child)}], cwd: ${JSON.stringify(root)}, env: {},` +
+      ` timeoutMs: 60000, maxOutputBytes: 100000, acceptedExitCodes: [0] });\n`);
+    const { spawn } = await import('node:child_process');
+    // The host runs in its own process group, as a shell's foreground job does; the terminal sends SIGINT to that group.
+    const parent = spawn(process.execPath, [host], { detached: true, stdio: 'ignore' });
+    for (let waited = 0; !existsSync(pidFile) && waited < 100; waited++) await sleep(100);
+    const pid = Number(readFileSync(pidFile, 'utf8'));
+    process.kill(-parent.pid, 'SIGINT');
+    await sleep(1500);
+    const alive = () => { try { process.kill(pid, 0); return true; } catch { return false; } };
+    const survived = alive();
+    if (survived) process.kill(pid, 'SIGKILL');
+    assert.equal(survived, false, 'the approved program stopped with its host');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
