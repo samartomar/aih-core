@@ -5,6 +5,8 @@ import { aiSetupReserved, clis, owners, problem, refusal, target } from './commo
 import { renderWrite } from './render.js';
 import { bindText, parseBindings, unfilledPlaceholder, type BoundInputs } from '../inputs.js';
 import type { Json } from '../../types.js';
+import { parse as parseJsonc, type ParseError } from 'jsonc-parser';
+import { MCP_FACTS } from '../mcp-facts.js';
 import type { PlanStep } from '../types.js';
 import type { StepContext, StepHandler, StepOutcome } from './types.js';
 
@@ -45,16 +47,26 @@ export const write: StepHandler = {
     return aiSetupReserved(lowered.root, lowered.path, context.index, true) ?? outcome;
   }
 };
-/** Whether a written file is an MCP configuration file: a served profile's MCP place, or JSON holding an MCP container. */
+/**
+ * Whether a written file is an MCP configuration file: any known client's MCP place (Core's facts and the request's
+ * profiles), or text holding an MCP container in any format: JSON or JSONC (comments, a BOM, trailing commas), a TOML
+ * `[mcp_servers…]` table or `mcp_servers` key, or a YAML `mcpServers:` key.
+ */
 function mcpConfigFile(context: StepContext, path: string, bytes: Buffer): boolean {
-  const places = (context.request.profiles as unknown as { places?: { mcp?: Record<string, { file?: unknown }> } }[])
-    .flatMap(profile => Object.values(profile.places?.mcp ?? {}).map(place => place?.file));
-  if (places.includes(path)) return true;
-  try {
-    const holds = (value: unknown, depth = 0): boolean => depth < 32 && !!value && typeof value === 'object' &&
-      Object.entries(value).some(([key, child]) => /^(mcpservers|mcp_servers|servers|mcp|context_servers)$/i.test(key) || holds(child, depth + 1));
-    return holds(JSON.parse(bytes.toString('utf8').replace(/^﻿/, '')));
-  } catch { return false; }
+  const fold = (value: unknown) => typeof value === 'string' ? value.toLowerCase() : value;
+  const places = [...Object.values(MCP_FACTS).flatMap(facts => Object.values(facts.places)),
+    ...(context.request.profiles as unknown as { places?: { mcp?: Record<string, Json> } }[]).flatMap(profile => Object.values(profile.places?.mcp ?? {}))]
+    .map(place => place && typeof place === 'object' && !Array.isArray(place) ? fold((place as Record<string, Json>).file) : undefined);
+  if (places.includes(fold(path))) return true;
+  let text: string;
+  try { text = new TextDecoder(bytes[0] === 0xff && bytes[1] === 0xfe ? 'utf-16le' : 'utf-8', { fatal: true }).decode(bytes).replace(/^﻿/, ''); }
+  catch { return false; }
+  const holds = (value: unknown, depth = 0): boolean => depth < 32 && !!value && typeof value === 'object' &&
+    Object.entries(value).some(([key, child]) => /^(mcpservers|mcp_servers|servers|mcp|context_servers)$/i.test(key) || holds(child, depth + 1));
+  const errors: ParseError[] = [];
+  const parsed = parseJsonc(text, errors, { allowTrailingComma: true, disallowComments: false });
+  if (!errors.length && parsed && typeof parsed === 'object') return holds(parsed);
+  return /^\s*\[\[?\s*["']?(mcp_servers|context_servers)["']?\s*[.\]]/im.test(text) || /^\s*["']?(mcp_servers|mcpServers|context_servers)["']?\s*[=:]/im.test(text);
 }
 async function lowerWrite(step: Parameters<StepHandler['prepare']>[0], context: StepContext): Promise<StepOutcome> {
   {
