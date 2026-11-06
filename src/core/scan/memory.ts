@@ -95,8 +95,8 @@ export function rememberEntries(entries: Map<string, MemoryEntry>, held: Readonl
 }
 
 /**
- * Writes the memory back within its bound. Entries from signers no request trusted go first, and may take at most
- * `UNTRUSTED_MEMORY_BYTES`. Then, when full, the oldest entries for keys no receipt holds go first; if only held keys
+ * Writes the memory back within its bound. Entries from signers no request trusted may take at most
+ * `UNTRUSTED_MEMORY_BYTES`; beyond that their oldest go first, in the order below. Then, when full, the oldest entries for keys no receipt holds go first; if only held keys
  * remain, the oldest of those goes too and the result says so (`heldEvicted`). Entries this request just advanced
  * (`fresh`) go last. Returns `written: false` when the state could not be written; nothing is refused. Call it under
  * the memory lock (`rememberEntries`).
@@ -107,18 +107,20 @@ export function writeMemory(entries: Map<string, MemoryEntry>, held: ReadonlySet
   const rows = [...entries.entries()].map(([key, entry]) => ({ key, entry, text: JSON.stringify(entry) }));
   let size = Buffer.byteLength(head) + Buffer.byteLength(tail) + rows.reduce((total, row, index) => total + Buffer.byteLength(row.text) + (index ? 1 : 0), 0);
   const rank = (row: typeof rows[number]) => fresh.has(row.key) ? 2 : held.has(row.entry.scanKey) ? 1 : 0;
-  const trusted = (row: typeof rows[number]) => row.entry.trusted === true ? 1 : 0;
-  const order = [...rows].sort((a, b) => trusted(a) - trusted(b) || rank(a) - rank(b) || a.entry.seen - b.entry.seen);
+  const trusted = (row: typeof rows[number]) => row.entry.trusted === true;
+  const order = [...rows].sort((a, b) => rank(a) - rank(b) || a.entry.seen - b.entry.seen);
   let untrusted = rows.reduce((total, row) => total + (trusted(row) ? 0 : Buffer.byteLength(row.text) + 1), 0);
   const dropped = new Set<string>();
   let heldEvicted = false;
-  for (const row of order) {
-    if (size <= SCAN_MEMORY_BYTES && (trusted(row) || untrusted <= UNTRUSTED_MEMORY_BYTES)) break;
+  const drop = (row: typeof rows[number]) => {
     const bytes = Buffer.byteLength(row.text) + 1;
     dropped.add(row.key); size -= bytes;
     if (!trusted(row)) untrusted -= bytes;
     if (rank(row) > 0) heldEvicted = true;
-  }
+  };
+  // Entries from signers no request trusted keep within their own share, in the same order.
+  for (const row of order) { if (untrusted <= UNTRUSTED_MEMORY_BYTES) break; if (!trusted(row)) drop(row); }
+  for (const row of order) { if (size <= SCAN_MEMORY_BYTES) break; if (!dropped.has(row.key)) drop(row); }
   const kept = rows.filter(row => !dropped.has(row.key)).sort((a, b) => a.entry.seen - b.entry.seen ||
     (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
   const bytes = Buffer.from(`${head}${kept.map(row => row.text).join(',')}${tail}`);
