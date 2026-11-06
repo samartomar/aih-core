@@ -361,3 +361,20 @@ test('another plan\'s shared step with the same source facts shares the member a
   assert.deepEqual(listed.entries.map(entry => entry.managementId).sort(),
     ['local-notices.skill.v', 'local-notices.skill.w', 'local-notices.skill.y', 'local-notices.skill.z']);
 });
+
+test('a link you removed is placed again by a reinstall of the same plan', async () => {
+  const target = project();
+  const request = linkRequest(target, ['claude-code', 'codex'], { version: 'a1b2c3d4e5f6' });
+  await install(request);
+  const place = join(home, '.claude', 'skills', 'ecc-plan');
+  assert.equal(isLink(place), true);
+  // Only the link goes, never the folder it points to.
+  const fs = await import('node:fs');
+  if (process.platform === 'win32') fs.rmdirSync(place); else fs.unlinkSync(place);
+  assert.equal(isLink(place), false);
+  const { prepared } = await install(request);
+  assert.equal(isLink(place), true, 'the reinstall placed the link again');
+  assert.match(readFileSync(join(place, 'SKILL.md'), 'utf8'), /Plan the work/);
+  assert.ok(prepared.review.steps.some(step => step.op === 'link'));
+  await remove(target, [{ managementId: 'ecc.skill.plan' }]).catch(() => {});
+});

@@ -183,7 +183,7 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
   const verifications: Verifications = new Map();
   const acquired = new Map<number, AcquireFacts>();
   const buildFailures = new Map<number, BuildFailureRecord[]>();
-  const effects = new Map<OperationKey, { run(signal?: AbortSignal): Promise<{ status: 'passed' | 'failed' | 'cancelled'; reason: string; effectsUncertain: boolean; facts?: Json }> }>();
+  const effects = new Map<OperationKey, { run(signal?: AbortSignal): Promise<{ status: 'passed' | 'failed' | 'cancelled'; reason: string; effectsUncertain: boolean; facts?: Json }>; always?: boolean }>();
   // Acquisition progress goes to the Apply call's `onProgress` (C38), which Apply sets here.
   const sink: { onProgress?: (event: Json) => void } = {};
   const progress = (event: Json) => { try { sink.onProgress?.(event); } catch { /* a caller's progress handler never stops the run */ } };
@@ -363,7 +363,8 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
         if (lowered.linkType !== 'copy') {
           // The link is placed just before its record is written; each claim's record lives in Core's private state (contract 5).
           const from = relinks.get(step.index);
-          effects.set(operationKey(group.selectionId, id), { async run() { return placeLink(home, planned.facts, from, planned.planned); } });
+          // A link the person removed while its record stayed is placed again: the effect runs although the record is in place.
+          effects.set(operationKey(group.selectionId, id), { always: planned.place === 'absent', async run() { return placeLink(home, planned.facts, from, planned.planned); } });
           return [write(linkRecordPath(lowered.path), linkRecordBytes(lowered.path, lowered.to, lowered.linkType), false, id, requires, 'userState')];
         }
         operations.delete(operationKey(group.selectionId, id));
@@ -518,7 +519,9 @@ export async function preparePlan(input: unknown, rawControls?: unknown, update?
     // Identical bytes Core didn't write are still yours until you choose to adopt them.
     const unresolvedAdopt = operation.effects === 'already-satisfied' && !!hint?.availableChoices.includes('adopt') && !chosen.has(operation.id);
     const conflict = operation.effects === 'conflict' || operation.effects === 'unavailable' || unresolvedAdopt;
-    const effect: ReviewStep['effect'] = conflict ? 'conflict' :
+    // A link whose record is in place but that is gone is placed again: the review says so.
+    const relinked = !conflict && lowered.kind === 'link' && operation.effects === 'already-satisfied' && linkPlans.get(ref.step as number)?.place === 'absent';
+    const effect: ReviewStep['effect'] = conflict ? 'conflict' : relinked ? 'create-file' :
       ['create-file', 'replace-file', 'already-satisfied'].includes(operation.effects) ? operation.effects as ReviewStep['effect'] : 'unchanged';
     const replacing = !conflict && chosen.get(operation.id) === 'replace' && effect === 'replace-file';
     // A reviewed replace of a value other plans hold displaces them (C61): named in the conflict and in the step.

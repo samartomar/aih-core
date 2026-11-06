@@ -6,7 +6,7 @@
 // Secret-bound slots are presented redacted in a conflict.
 import { guidanceLimit } from '../../../harness/cli-facts.mjs';
 import { basename } from 'node:path/posix';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { homedir } from 'node:os';
 import { projectRoot } from '../../internal/host-files.js';
 import { readOwnership } from '../../internal/state.js';
@@ -82,10 +82,23 @@ const RUNNERS: Record<string, { command: string; spec: (identifier: string, vers
 };
 const argumentsOf = (entries: Json | undefined): string[] => (Array.isArray(entries) ? entries : []).flatMap(entry => !plain(entry) ? [] :
   entry.type === 'named' ? [String(entry.name), ...(typeof entry.value === 'string' ? [entry.value] : [])] : typeof entry.value === 'string' ? [entry.value] : []);
-/** The keys a client's MCP container goes by: a merge inside one writes MCP servers. */
+/** The keys a client's MCP container goes by, Core's own fixed set: a merge inside one writes MCP servers. */
 const CONTAINERS = /^(mcpservers|mcp_servers|servers|mcp|context_servers)$/i;
-type McpProfile = { stdio: Record<string, Json>; remote: Record<string, Record<string, Json>>; tools: Record<string, Json>; place?: string[] };
-/** The MCP file descriptions (`mcpFile`) and MCP places (`places.mcp`) of the profiles a step serves. */
+/** Core's fixed MCP entry keys by concept. A profile may only rename these concepts; it never adds a key. */
+const FIXED = { command: 'command', args: 'args', env: 'env', type: 'type', url: 'url', headers: 'headers' } as const;
+/** Names no profile may give an MCP entry key, whatever concept it claims they stand for. */
+const NEVER = /^(cwd|trust|set|envfile|env_file|workingdirectory|working_directory|autoapprove|alwaysallow)$/i;
+/** A profile's names for the fixed concepts, narrowed to plain names; `set` is the fixed `type` value only. */
+type McpProfile = {
+  stdio: { command?: string; args?: string; argv?: string; env?: string; type?: string };
+  remote: Record<string, { url?: string; headers?: string; type?: string }>;
+  tools: string[]; place?: string[];
+};
+const fieldName = (value: Json | undefined): string | undefined =>
+  typeof value === 'string' && /^[A-Za-z_][A-Za-z0-9_-]{0,63}$/.test(value) && !NEVER.test(value) ? value : undefined;
+const fixedType = (set: Json | undefined): string | undefined =>
+  plain(set) && Object.keys(set).length === 1 && typeof set.type === 'string' && set.type.length <= 64 ? set.type : undefined;
+/** The MCP file descriptions (`mcpFile`) and MCP places (`places.mcp`) of the profiles a step serves, narrowed to Core's concepts. */
 function mcpProfiles(context: StepContext, step: PlanStep & Record<string, Json>, file: string, format: string): McpProfile[] {
   const served = Array.isArray(step.clis) ? step.clis : [];
   return (context.request.profiles as unknown as Record<string, Json>[]).filter(profile => !served.length || served.includes(profile.id as Json))
@@ -94,10 +107,19 @@ function mcpProfiles(context: StepContext, step: PlanStep & Record<string, Json>
       const places = plain(profile.places) && plain(profile.places.mcp) ? Object.values(profile.places.mcp).filter(plain) : [];
       const place = places.find(entry => entry.file === file && typeof entry.key === 'string');
       if (!mcpFile && !place) return [];
+      const stdio = mcpFile && plain(mcpFile.stdio) ? mcpFile.stdio : {};
+      const remote = mcpFile && plain(mcpFile.remote) ? mcpFile.remote : {};
+      const tools = mcpFile && plain(mcpFile.tools) ? mcpFile.tools : {};
       const key = place ? String(place.key) : undefined;
-      return [{ stdio: mcpFile && plain(mcpFile.stdio) ? mcpFile.stdio : {}, tools: mcpFile && plain(mcpFile.tools) ? mcpFile.tools : {},
-        remote: mcpFile && plain(mcpFile.remote) ? Object.fromEntries(Object.entries(mcpFile.remote).filter(([, form]) => plain(form))) as Record<string, Record<string, Json>> : {},
-        ...(key ? { place: (format === 'toml' ? key.split('.') : pointerSegments(key) ?? []).slice(0, -1) } : {}) }];
+      const container = key ? (format === 'toml' ? key.split('.') : pointerSegments(key) ?? []).slice(0, -1) : undefined;
+      const narrowed = (entries: Record<string, string | undefined>) => Object.fromEntries(Object.entries(entries).filter(([, value]) => value !== undefined));
+      return [{
+        stdio: narrowed({ command: fieldName(stdio.command), args: fieldName(stdio.args), argv: fieldName(stdio.argv), env: fieldName(stdio.env), type: fixedType(stdio.set) }),
+        remote: Object.fromEntries(Object.entries(remote).filter(([, form]) => plain(form)).map(([kind, form]) =>
+          [kind, narrowed({ url: fieldName((form as Record<string, Json>).url), headers: fieldName((form as Record<string, Json>).headers), type: fixedType((form as Record<string, Json>).set) })])),
+        tools: [tools.enabled, tools.disabled].map(fieldName).filter((name): name is string => name !== undefined),
+        // A profile's MCP place narrows where the container is; it never names a container Core doesn't know.
+        ...(container && container.length && CONTAINERS.test(container.at(-1)!) ? { place: container } : {}) }];
     });
 }
 /**
@@ -108,13 +130,19 @@ function mcpProfiles(context: StepContext, step: PlanStep & Record<string, Json>
 function mcpPlace(segments: string[], profiles: McpProfile[]): { name: string } | 'shape' | undefined {
   const fold = (value: string) => value.toLowerCase();
   for (const container of profiles.flatMap(profile => profile.place ? [profile.place] : [])) {
-    if (!container.length || segments.length < container.length || !container.every((part, at) => fold(part) === fold(segments[at]!))) continue;
+    if (segments.length < container.length || !container.every((part, at) => fold(part) === fold(segments[at]!))) continue;
     return segments.length === container.length + 1 ? { name: segments.at(-1)! } : 'shape';
   }
   let at = -1;
   segments.forEach((segment, index) => { if (CONTAINERS.test(segment)) at = index; });
   if (at < 0) return undefined;
   return segments.length === at + 2 ? { name: segments[at + 1]! } : 'shape';
+}
+/** Whether a value holds an MCP container key at any depth (a write above the container). */
+function holdsContainer(value: Json, depth = 0): boolean {
+  if (depth > 32) return false;
+  if (Array.isArray(value)) return value.some(item => holdsContainer(item, depth + 1));
+  return plain(value) && Object.entries(value).some(([key, child]) => CONTAINERS.test(key) || holdsContainer(child, depth + 1));
 }
 /** Every environment object in an entry, at any depth: the keys a client sets for the program it starts. */
 function environments(value: Json, names: Set<string>, found: Record<string, Json>[] = [], depth = 0): Record<string, Json>[] {
@@ -129,29 +157,39 @@ function environments(value: Json, names: Set<string>, found: Record<string, Jso
 const sameJson = (a: Json | undefined, b: Json | undefined): boolean => JSON.stringify(a) === JSON.stringify(b);
 const stringList = (value: Json | undefined): value is string[] => Array.isArray(value) && value.every(item => typeof item === 'string');
 
+/** What a bound MCP entry may still change once its input bindings are filled, from its canonical entry. */
+export interface McpSlots { env: string; headers: string; declaredEnv: Set<string>; declaredHeaders: Set<string>; allowed: Set<string>; command: string; argv?: string;
+  /** A note for the review when Core can't check part of the entry. */
+  note?: string }
+
 /**
- * Binds a merge that writes in a client's MCP container to one MCP item, whole (contract 8.1). The write must be exactly
- * one server entry (`mcp-entry-shape` otherwise), named by exactly one MCP item of the step's own framework, with keys
- * only from the fixed allowlist (`command`, `args`, `env`, `type`, `url`, `headers` and the profile's names for them and
- * its tool lists), and no environment, at any depth, that sets a loader or search variable. The entry must then equal the
- * one derived for that item, with only its declared input slots differing:
- * - an AI setup's own MCP item, while that setup is acquired in this plan or on a receipt: the acquired program (a
- *   `rootPaths` path inside that setup's folder) and the setup's launch arguments;
- * - otherwise from the item's scanned `server.json` (required whenever its content document lists one): the package Core
- *   can start (its registry's runner, flags, exact package and arguments, with the profile's fixed fields) or the remote
- *   (its URL, the profile's fixed fields and declared headers). A remote entry never starts a program, and a package entry
- *   never names a URL.
- * An MCP item whose content gives no `server.json` at all has nothing to derive from: its entry is checked for shape,
- * keys and environment only, and the review labels the program it starts.
+ * Binds a merge that writes in a client's MCP container to one MCP item, whole (contract 8.1). Content decides only the
+ * values; the shape, the keys and the containers are Core's own fixed sets, which a request's profile may only narrow by
+ * naming its own fields for the same concepts. The write must be exactly one server entry, at its item's own server name
+ * (`mcp-entry-shape` otherwise, and for an entry holding an MCP container at any depth), with keys only from the fixed
+ * allowlist and no environment, at any depth, that sets a loader or search variable. The entry must then equal the one
+ * derived for that item, with only its declared input slots differing:
+ * - an AI setup's own MCP item, while that setup is acquired in this plan or on a receipt: its command is the `rootPaths`
+ *   binding of the acquired program (an absolute path under the user-scope setup folder), with the setup's launch
+ *   arguments (when the setup declares none, the review says Core can't check them);
+ * - otherwise from the item's scanned `server.json` (required whenever its content document lists one) and the item's own
+ *   content-level `env`: the package Core can start (its registry's runner, flags, exact package and arguments) or the
+ *   remote (its URL and declared headers), with the profile's fixed `type`. A remote entry never starts a program, and a
+ *   package entry never names a URL.
+ * An MCP item whose content gives no `server.json` has nothing to derive from: its entry is checked for shape, keys and
+ * environment only, and the review labels what it starts.
+ * Returns a refusal, the slots the input bindings may still fill (checked again once they are, `boundMcpEntry`), or
+ * `undefined` for a key outside any MCP container.
  */
 function bindMcpEntry(step: PlanStep & Record<string, Json>, context: StepContext, owners: string[], entry: Json, segments: string[], file: string,
-    format: string): Exclude<StepOutcome, { lowered: unknown }> | undefined {
+    format: string): Exclude<StepOutcome, { lowered: unknown }> | McpSlots | undefined {
   const profiles = mcpProfiles(context, step, file, format);
   const place = mcpPlace(segments, profiles);
-  if (place === undefined) return undefined;
   const { index } = context;
   const shape = (message: string) => refusal('mcp-entry-shape', `Step ${index} ${message}`, index);
+  if (place === undefined) return holdsContainer(entry) ? shape('writes an MCP container inside its entry, above one whole server entry.') : undefined;
   if (place === 'shape' || !plain(entry)) return shape('writes in an MCP container other than one whole server entry (`/mcpServers/<name>`, `mcp_servers.<name>`).');
+  if (holdsContainer(entry)) return shape('writes an MCP container inside a server entry.');
   const documents = context.request.contents as unknown as { framework?: { id?: unknown }; items?: Record<string, Json>[] }[];
   const items = documents.flatMap(content => Array.isArray(content.items) ? content.items.map(item => ({ item, framework: String(content.framework?.id) })) : []);
   // The step's own framework: the one its owners belong to (a framework id, or the content document of an owning item).
@@ -163,52 +201,77 @@ function bindMcpEntry(step: PlanStep & Record<string, Json>, context: StepContex
   if (named.length !== 1) return refusal('source-mismatch', `Step ${index} writes the MCP server \`${place.name}\`, which is not exactly one MCP item of its own content.`, index);
   const [{ item, framework }] = named as [{ item: Record<string, Json>; framework: string }];
   const id = String(item.id);
-  // The allowlisted keys: the fixed names and each served profile's names for the same fields and its tool lists.
-  const fields = (form: 'stdio' | 'remote') => new Set([...(form === 'stdio' ? ['command', 'args', 'env', 'type'] : ['url', 'headers', 'type']),
-    ...profiles.flatMap(profile => form === 'stdio' ? Object.entries(profile.stdio).filter(([key]) => key !== 'set').map(([, name]) => String(name)) :
-      Object.values(profile.remote).flatMap(remote => Object.entries(remote).filter(([key]) => key !== 'set').map(([, name]) => String(name)))),
-    ...profiles.flatMap(profile => Object.values(form === 'stdio' ? { set: profile.stdio.set } : {}).flatMap(set => plain(set) ? Object.keys(set) : [])),
-    ...profiles.flatMap(profile => form === 'remote' ? Object.values(profile.remote).flatMap(remote => plain(remote.set) ? Object.keys(remote.set) : []) : []),
-    ...profiles.flatMap(profile => Object.values(profile.tools).map(String))]);
-  const stdioKeys = fields('stdio'), remoteKeys = fields('remote');
-  const unknown = Object.keys(entry).find(key => !stdioKeys.has(key) && !remoteKeys.has(key));
+  if (item.name !== place.name) return shape(`writes \`${id}\` under the server name \`${place.name}\`, not its own \`${String(item.name)}\`.`);
+  // Core's fixed keys under the names the served profiles give the same concepts, and their tool lists.
+  const stdio = profiles.find(profile => Object.keys(profile.stdio).length)?.stdio ?? {};
+  const names = { command: stdio.command ?? FIXED.command, args: stdio.args ?? FIXED.args, argv: stdio.argv, env: stdio.env ?? FIXED.env };
+  const stdioKeys = new Set<string>([FIXED.command, FIXED.args, FIXED.env, FIXED.type, ...profiles.flatMap(profile =>
+    [profile.stdio.command, profile.stdio.args, profile.stdio.argv, profile.stdio.env].filter((name): name is string => name !== undefined))]);
+  const remoteKeys = new Set<string>([FIXED.url, FIXED.headers, FIXED.type, ...profiles.flatMap(profile => Object.values(profile.remote)
+    .flatMap(form => [form.url, form.headers].filter((name): name is string => name !== undefined)))]);
+  const toolKeys = new Set(profiles.flatMap(profile => profile.tools));
+  const allowed = new Set([...stdioKeys, ...remoteKeys, ...toolKeys]);
+  const unknown = Object.keys(entry).find(key => !allowed.has(key) || NEVER.test(key));
   if (unknown !== undefined) return shape(`writes the MCP entry key \`${unknown}\`, which no client's MCP entry takes from a plan.`);
-  const envNames = new Set(['env', 'environment', ...profiles.map(profile => profile.stdio.env).filter((name): name is string => typeof name === 'string').map(name => name.toLowerCase())]);
+  for (const key of toolKeys) if (entry[key] !== undefined && !stringList(entry[key])) return shape(`writes \`${key}\` as something other than a list of tool names.`);
+  const envNames = new Set([FIXED.env, 'environment', ...profiles.map(profile => profile.stdio.env).filter((name): name is string => name !== undefined)].map(name => name.toLowerCase()));
   for (const env of environments(entry, envNames)) {
     const loader = Object.keys(env).find(isLoaderVariable);
     if (loader !== undefined) return problem(index, 'entry', 'loader-variable', `An MCP entry's environment never sets \`${loader}\`: it changes which program or code runs.`);
   }
-  const stdio = profiles.find(profile => Object.keys(profile.stdio).length)?.stdio ?? {};
-  const names = { command: typeof stdio.command === 'string' ? stdio.command : 'command', args: typeof stdio.args === 'string' ? stdio.args : 'args',
-    argv: typeof stdio.argv === 'string' ? stdio.argv : undefined, env: typeof stdio.env === 'string' ? stdio.env : 'env' };
   const started = (): Json[] | undefined => {
     const argv = names.argv !== undefined ? entry[names.argv] : Array.isArray(entry[names.command]) ? entry[names.command] : undefined;
     if (argv !== undefined) return Array.isArray(argv) ? argv : undefined;
     if (entry[names.command] === undefined) return undefined;
     return [entry[names.command]!, ...(entry[names.args] === undefined ? [] : Array.isArray(entry[names.args]) ? entry[names.args] as Json[] : [entry[names.args]!])];
   };
+  const commandPointer = names.argv !== undefined ? `/${names.argv}/0` : Array.isArray(entry[names.command]) ? `/${names.command}/0` : `/${names.command}`;
   const mismatch = (what: string, source = 'its MCP item') => refusal('source-mismatch', `Step ${index}'s MCP entry ${what} differs from what ${source} declares.`, index);
-  const fixedFieldsHold = (set: Json | undefined) => !plain(set) || Object.entries(set).every(([key, value]) => entry[key] === undefined || sameJson(entry[key], value));
+  const typeHolds = (fixed: string | undefined, form: 'stdio' | 'remote') => entry[FIXED.type] === undefined ? true :
+    fixed !== undefined ? entry[FIXED.type] === fixed : form === 'stdio' ? entry[FIXED.type] === 'stdio' : entry[FIXED.type] !== 'stdio';
+  // The item's own content-level settings, which Catalog writes into the entry: declared literals (values must match).
+  const contentEnv = plain(item.env) ? item.env : {};
+  const contentEnvHolds = (env: Json | undefined, declared: Set<string>) => env === undefined || plain(env) && Object.entries(env).every(([key, value]) =>
+    declared.has(key) || Object.hasOwn(contentEnv, key) && sameJson(value, contentEnv[key]));
+  const base = { env: names.env, command: names.command, ...(names.argv !== undefined ? { argv: names.argv } : {}), allowed };
   // An AI setup's own MCP item: its entry starts the acquired program with the setup's launch arguments.
   const setups = items.filter(other => other.framework === framework && other.item.kind === 'ai-setup' && plain(other.item.aiSetup) && other.item.aiSetup.mcpItem === id);
   const setup = setups.find(other => acquiredSetup(context, String(other.item.id)));
+  const serverObject = plain(item.server) ? item.server : undefined;
+  const envOf = (server: Record<string, Json> | undefined) => new Set((Array.isArray(server?.packages) ? server.packages : []).filter(plain)
+    .flatMap(pkg => (Array.isArray(pkg.environmentVariables) ? pkg.environmentVariables : []).flatMap(variable => plain(variable) && typeof variable.name === 'string' ? [variable.name] : [])));
   if (setup) {
     const argv = started();
+    const setupId = String(setup.item.id);
+    const source = `AI setup \`${setupId}\``;
     const rootPaths = (Array.isArray(step.rootPaths) ? step.rootPaths : []).filter(plain);
-    const acquire = context.request.plan.plan.find(other => other.op === 'acquire' && other.aiSetup === setup.item.id);
-    const inside = (path: string) => acquire && typeof acquire.into === 'string' ? path.startsWith(acquire.into.replace(/\/$/, '') + '/') : acquiredByCore(path, String(setup.item.id));
-    if (!argv || typeof argv[0] !== 'string' || !rootPaths.some(rootPath => rootPath.path === argv[0] && inside(String(rootPath.path))))
-      return mismatch('program (not the acquired program of its AI setup)', `AI setup \`${setup.item.id}\``);
+    const acquire = context.request.plan.plan.find(other => other.op === 'acquire' && other.aiSetup === setupId);
+    const inside = (path: string) => acquire && typeof acquire.into === 'string' ? path.startsWith(acquire.into.replace(/\/$/, '') + '/') : acquiredByCore(path, setupId);
+    // The command is the binding to the acquired program itself: its `rootPaths` pointer is the command's.
+    const binding = rootPaths.find(rootPath => rootPath.pointer === commandPointer);
+    if (!argv || typeof argv[0] !== 'string' || !binding || binding.path !== argv[0] || binding.root !== 'user' || !inside(String(binding.path)))
+      return mismatch('program (not the acquired program of its AI setup)', source);
     const launch = plain(setup.item.aiSetup) && plain(setup.item.aiSetup.launch) ? setup.item.aiSetup.launch : undefined;
     const cli = Array.isArray(step.clis) && typeof step.clis[0] === 'string' ? step.clis[0] : undefined;
     const declared = launch ? (cli !== undefined && plain(launch.clis) && stringList(launch.clis[cli]) ? launch.clis[cli] : stringList(launch.args) ? launch.args : undefined) : undefined;
-    if (declared !== undefined && !sameJson(argv.slice(1), declared)) return mismatch('arguments', `AI setup \`${setup.item.id}\``);
-    if ([...remoteKeys].some(key => !stdioKeys.has(key) && entry[key] !== undefined)) return mismatch('(a remote field beside its program)', `AI setup \`${setup.item.id}\``);
-    return undefined;
+    if (declared !== undefined && !sameJson(argv.slice(1), declared)) return mismatch('arguments', source);
+    if ([...remoteKeys].some(key => !stdioKeys.has(key) && entry[key] !== undefined)) return mismatch('(a remote field beside its program)', source);
+    const declaredEnv = envOf(serverObject);
+    if (!contentEnvHolds(entry[names.env], declaredEnv)) return mismatch('environment', source);
+    return { ...base, headers: FIXED.headers, declaredEnv, declaredHeaders: new Set(),
+      ...(declared === undefined ? { note: `${source} declares no launch arguments, so Core can't check the arguments this entry gives its program.` } : {}) };
   }
   const listed = (Array.isArray(item.files) ? item.files : []).find(entry => plain(entry) && typeof entry.sourcePath === 'string' &&
     entry.sourcePath.split('/').at(-1)!.toLowerCase() === 'server.json') as Record<string, Json> | undefined;
-  if (!listed) return undefined;
+  if (!listed) {
+    // Nothing to derive from: the step's own bindings of its item's declared inputs name the environment and header slots.
+    const bound = (Array.isArray(step.inputs) ? step.inputs : []).filter(plain).flatMap(binding => !plain(binding.at) ? [] :
+      typeof binding.at.env === 'string' ? [[names.env, binding.at.env]] : typeof binding.at.pointer === 'string' ? [pointerSegments(binding.at.pointer) ?? []] : [])
+      .filter(path => path.length === 2) as [string, string][];
+    return { ...base, headers: FIXED.headers,
+      declaredEnv: new Set([...envOf(serverObject), ...Object.keys(contentEnv), ...bound.filter(([field]) => field === names.env).map(([, name]) => name)]),
+      declaredHeaders: new Set(bound.filter(([field]) => field === FIXED.headers).map(([, name]) => name)) };
+  }
   const sourcePath = listed.sourcePath as string;
   const facts = context.itemFile(id, sourcePath, { ...(typeof listed.sourceId === 'string' ? { sourceId: listed.sourceId } : {}),
     ...(typeof listed.sha256 === 'string' ? { sha256: listed.sha256 } : {}) });
@@ -228,27 +291,69 @@ function bindMcpEntry(step: PlanStep & Record<string, Json>, context: StepContex
   if (argv !== undefined) {
     if (!pkg) return mismatch('(a program, where it declares no package Core can start)', declares);
     if ([...remoteKeys].some(key => !stdioKeys.has(key) && entry[key] !== undefined)) return mismatch('(a remote field beside the package)', declares);
-    if (!fixedFieldsHold(stdio.set)) return mismatch('fixed fields', declares);
-    if (entry.type !== undefined && !plain(stdio.set) && entry.type !== 'stdio') return mismatch('type', declares);
+    if (!typeHolds(stdio.type, 'stdio')) return mismatch('type', declares);
     const runner = RUNNERS[pkg.registryType as string]!;
     const expected = [runner.command, ...argumentsOf(pkg.runtimeArguments), runner.spec(String(pkg.identifier), String(pkg.version)), ...argumentsOf(pkg.packageArguments)];
     if (!sameJson(argv, expected)) return mismatch('command or arguments', declares);
-    const allowed = new Set((Array.isArray(pkg.environmentVariables) ? pkg.environmentVariables : []).flatMap(variable => plain(variable) && typeof variable.name === 'string' ? [variable.name] : []));
-    const env = entry[names.env];
-    if (env !== undefined && !(plain(env) && Object.keys(env).every(key => allowed.has(key)))) return mismatch('environment', declares);
-    return undefined;
+    const declaredEnv = new Set((Array.isArray(pkg.environmentVariables) ? pkg.environmentVariables : []).flatMap(variable => plain(variable) && typeof variable.name === 'string' ? [variable.name] : []));
+    if (!contentEnvHolds(entry[names.env], declaredEnv)) return mismatch('environment', declares);
+    return { ...base, headers: FIXED.headers, declaredEnv, declaredHeaders: new Set() };
   }
   if (!remote || typeof remote.url !== 'string') return mismatch('(a remote, where it declares none)', declares);
   if ([...stdioKeys].some(key => !remoteKeys.has(key) && entry[key] !== undefined)) return mismatch('(a program beside the remote)', declares);
-  const form = profiles.map(profile => profile.remote[String(remote.type)]).find(plain);
-  const urlKey = form && typeof form.url === 'string' ? form.url : 'url';
-  const headersKey = form && typeof form.headers === 'string' ? form.headers : 'headers';
+  const form = profiles.map(profile => profile.remote[String(remote.type)]).find(Boolean);
+  const urlKey = form?.url ?? FIXED.url;
+  const headersKey = form?.headers ?? FIXED.headers;
   if (entry[urlKey] !== remote.url) return mismatch('URL', declares);
-  if (form && !fixedFieldsHold(form.set)) return mismatch('fixed fields', declares);
-  if (entry.type !== undefined && !form && entry.type === 'stdio') return mismatch('type', declares);
+  if (!typeHolds(form?.type, 'remote')) return mismatch('type', declares);
   const declaredHeaders = new Set((Array.isArray(remote.headers) ? remote.headers : []).flatMap(header => plain(header) && typeof header.name === 'string' ? [header.name] : []));
   const headers = entry[headersKey];
   if (headers !== undefined && !(plain(headers) && Object.keys(headers).every(key => declaredHeaders.has(key)))) return mismatch('headers', declares);
+  return { ...base, headers: headersKey, declaredEnv: new Set(), declaredHeaders };
+}
+/**
+ * Once input bindings are filled, an MCP entry still equals what was checked: a binding filled a slot the entry already
+ * held (a value with its input marker), or added a declared environment name or header; it never added any other key
+ * or changed any other value. The keys are checked against the allowlist again, the environment against the loader list,
+ * and a command never names a relative path into an AI setup folder (a client would resolve it in its working folder).
+ */
+function boundMcpEntry(before: Json, after: Json, slots: McpSlots, index: number): Exclude<StepOutcome, { lowered: unknown }> | undefined {
+  const refused = (what: string) => refusal('source-mismatch', `Step ${index}'s input bindings ${what} in its MCP entry, beyond the slots its MCP item declares.`, index);
+  if (!plain(after) || !plain(before)) return refused('change the entry');
+  const unknown = Object.keys(after).find(key => !slots.allowed.has(key) || NEVER.test(key));
+  if (unknown !== undefined) return refused(`add \`${unknown}\``);
+  const walk = (was: Json | undefined, now: Json, path: string[]): string | undefined => {
+    if (was === undefined) {
+      const [first, name] = path;
+      // A slot's object itself, when the entry held none: each of its keys a declared slot.
+      if (path.length === 1 && plain(now) && (first === slots.env || first === slots.headers))
+        return Object.entries(now).map(([key, value]) => walk(undefined, value, [first!, key])).find(Boolean);
+      const declared = path.length === 2 && (first === slots.env && slots.declaredEnv.has(name!) || first === slots.headers && slots.declaredHeaders.has(name!));
+      return declared && typeof now === 'string' ? undefined : `add \`/${path.join('/')}\``;
+    }
+    if (typeof was === 'string') return typeof now === 'string' && (was === now || /\{[A-Za-z_][A-Za-z0-9_-]*\}/.test(was)) ? undefined : `change \`/${path.join('/')}\``;
+    if (Array.isArray(was)) {
+      if (!Array.isArray(now) || now.length > was.length) return `change \`/${path.join('/')}\``;
+      for (const [at, value] of now.entries()) { const problem = walk(was[at], value, [...path, String(at)]); if (problem) return problem; }
+      return undefined;
+    }
+    if (plain(was)) {
+      if (!plain(now)) return `change \`/${path.join('/')}\``;
+      for (const [key, value] of Object.entries(now)) { const problem = walk(was[key], value, [...path, key]); if (problem) return problem; }
+      return undefined;
+    }
+    return sameJson(was, now) ? undefined : `change \`/${path.join('/')}\``;
+  };
+  const wrong = walk(before, after, []);
+  if (wrong) return refused(wrong);
+  for (const env of environments(after, new Set([slots.env.toLowerCase(), 'env', 'environment']))) {
+    const loader = Object.keys(env).find(isLoaderVariable);
+    if (loader !== undefined) return problem(index, 'entry', 'loader-variable', `An MCP entry's environment never sets \`${loader}\`: it changes which program or code runs.`);
+  }
+  const command = slots.argv !== undefined ? (Array.isArray(after[slots.argv]) ? (after[slots.argv] as Json[])[0] : undefined) :
+    Array.isArray(after[slots.command]) ? (after[slots.command] as Json[])[0] : after[slots.command];
+  if (typeof command === 'string' && /(^|[\\/])\.aihq[\\/]ai-setup([\\/]|$)/i.test(command) && !isAbsolute(command))
+    return refusal('source-mismatch', `Step ${index}'s MCP entry starts \`${command}\`, a relative path into an AI setup folder; only the acquired program's absolute path is started.`, index);
   return undefined;
 }
 /** Whether an AI setup is acquired by this plan (an acquire step names it) or recorded on a user-scope receipt. */
@@ -306,6 +411,8 @@ export const merge: StepHandler = {
     let secrets: string[][] = [], redact: string[][] = [];
     let slots: SlotTemplate[] = [];
     let bound: BoundInputs | undefined;
+    // What the review says Core can't check about an MCP entry.
+    let note: string | undefined;
     const fill = () => {
       if (!parsed.bindings.length) return undefined;
       const done = bindEntry(entry as Json, segments!, parsed.bindings, inputs, placed.path);
@@ -317,19 +424,21 @@ export const merge: StepHandler = {
       segments = pointerSegments(key);
       if (!segments) return problem(index, 'key', 'key', 'A JSON merge `key` is a JSON Pointer below the document root.');
       if (entry === undefined) return problem(index, 'entry', 'entry', 'A merge step names its `entry`.');
-      const unbound = bindMcpEntry(step, context, owner.ids, entry as Json, segments!, placed.path, format); if (unbound) return unbound;
+      const mcpSlots = bindMcpEntry(step, context, owner.ids, entry as Json, segments!, placed.path, format); if (mcpSlots && !('allowed' in mcpSlots)) return mcpSlots;
       const rooted = rootPathsFilled(step, index, entry as Json); if (!('entry' in rooted)) return rooted;
       entry = rooted.entry;
       const failed = fill(); if (failed) return failed;
+      if (mcpSlots) { const after = boundMcpEntry(rooted.entry, entry as Json, mcpSlots, index); if (after) return after; note = mcpSlots.note; }
     } else if (format === 'toml') {
       segments = key.split('.');
       if (segments.length > 16 || !segments.every(segment => TOML_KEY.test(segment)))
         return problem(index, 'key', 'key', 'A TOML merge `key` is one table of bare keys, such as `mcp_servers.github`.');
       if (!plain(entry)) return problem(index, 'entry', 'entry', 'A TOML merge `entry` is a non-empty table of scalar or scalar-array values.');
-      const unbound = bindMcpEntry(step, context, owner.ids, entry as Json, segments!, placed.path, format); if (unbound) return unbound;
+      const mcpSlots = bindMcpEntry(step, context, owner.ids, entry as Json, segments!, placed.path, format); if (mcpSlots && !('allowed' in mcpSlots)) return mcpSlots;
       const rooted = rootPathsFilled(step, index, entry as Json); if (!('entry' in rooted)) return rooted;
       entry = rooted.entry;
       const failed = fill(); if (failed) return failed;
+      if (mcpSlots) { const after = boundMcpEntry(rooted.entry, entry as Json, mcpSlots, index); if (after) return after; note = mcpSlots.note; }
       tableLeaves = plain(entry) ? leaves(entry) : undefined;
       if (!tableLeaves || !tableLeaves.length)
         return problem(index, 'entry', 'entry', 'A TOML merge `entry` is a non-empty table of scalar or scalar-array values.');
@@ -362,6 +471,6 @@ export const merge: StepHandler = {
     const sentence = format === 'markdown' ? `Adds the \`${key}\` block to \`${placed.path}\`` : `Adds \`${key}\` to \`${placed.path}\``;
     return { lowered: { kind: 'merge', managementIds: owner.ids, root: placed.root, path: placed.path, format, key, segments,
       entry: entry as Json, ...(tableLeaves ? { leaves: tableLeaves } : {}), secrets, redact, ...(slots.length ? { slots } : {}), ...(bound ? { bound } : {}), ...(guidance ? { guidance: { label: guidance.label, maxBytes: guidance.maxBytes } } : {}), sentence,
-      cantPromise: null, review: { ...owner.review, clis: served.clis, format, key, ...(bound ? { inputs: bound.review } : {}) } } };
+      cantPromise: note ?? null, review: { ...owner.review, clis: served.clis, format, key, ...(bound ? { inputs: bound.review } : {}) } } };
   }
 };

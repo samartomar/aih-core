@@ -215,7 +215,9 @@ export interface EngineExtension {
    * entry for that plan step and written to the pending receipt at once.
    */
   effects?: ReadonlyMap<OperationKey, { run(signal?: AbortSignal, hooks?: { recordProgram(step: number, facts: Record<string, Json>): void }):
-    Promise<{ status: 'passed' | 'failed' | 'cancelled'; reason: string; effectsUncertain: boolean; facts?: Json }> }>;
+    Promise<{ status: 'passed' | 'failed' | 'cancelled'; reason: string; effectsUncertain: boolean; facts?: Json }>;
+    /** Run even when the operation's own write is already satisfied (a link whose record is in place but that is gone). */
+    always?: boolean }>;
   // A `process.run` operation with an effect is carried out by that effect instead of its own executable (plan programs).
   /**
    * Plan requests (contract 8.1, D92): each operation's place in the plan, by `<selection>/<operation>`. Operations run in
@@ -1958,8 +1960,8 @@ export async function apply(prepared: PreparedHandle, authorization: Authorizati
         assertStep(step);
         if (receiptDigest(step.root!) !== state.ownership.get(step.root!)?.digest) throw stale('ownership');
       }
-      const effect = step.review.effects === 'already-satisfied' || !step.authored ? undefined :
-        state.effects?.get(operationKey(step.authored.selectionId, step.authored.operationId));
+      const planned = step.authored ? state.effects?.get(operationKey(step.authored.selectionId, step.authored.operationId)) : undefined;
+      const effect = step.review.effects === 'already-satisfied' && !planned?.always ? undefined : planned;
       if (effect && step.root && step.path) {
         await preEffectCheck?.();
         if (controls.signal?.aborted) throw new Error('cancelled');

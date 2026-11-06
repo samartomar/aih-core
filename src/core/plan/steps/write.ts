@@ -34,10 +34,28 @@ export const write: StepHandler = {
   // An executable file is never placed in an AI setup's folder, not even its settings folder.
   async prepare(step, context) {
     const outcome = await lowerWrite(step, context);
-    if (!('lowered' in outcome) || outcome.lowered.kind !== 'write' || !outcome.lowered.executable) return outcome;
-    return aiSetupReserved(outcome.lowered.root, outcome.lowered.path, context.index, true) ?? outcome;
+    if (!('lowered' in outcome) || outcome.lowered.kind !== 'write') return outcome;
+    const lowered = outcome.lowered;
+    // A whole MCP config file is never an MCP item's write: its entries go through the merge that binds them to the
+    // item. Any other writer's is labelled with the programs it starts.
+    const items = (context.request.contents as unknown as { items?: { id?: unknown; kind?: unknown }[] }[]).flatMap(content => content.items ?? []);
+    if (lowered.managementIds.some(id => items.some(item => item.id === id && item.kind === 'mcp')) && mcpConfigFile(context, lowered.path, lowered.bytes))
+      return refusal('mcp-entry-shape', `Step ${context.index} writes \`${lowered.path}\`, a whole MCP configuration file, for an MCP item; its entry is a merge.`, context.index);
+    if (!lowered.executable) return outcome;
+    return aiSetupReserved(lowered.root, lowered.path, context.index, true) ?? outcome;
   }
 };
+/** Whether a written file is an MCP configuration file: a served profile's MCP place, or JSON holding an MCP container. */
+function mcpConfigFile(context: StepContext, path: string, bytes: Buffer): boolean {
+  const places = (context.request.profiles as unknown as { places?: { mcp?: Record<string, { file?: unknown }> } }[])
+    .flatMap(profile => Object.values(profile.places?.mcp ?? {}).map(place => place?.file));
+  if (places.includes(path)) return true;
+  try {
+    const holds = (value: unknown, depth = 0): boolean => depth < 32 && !!value && typeof value === 'object' &&
+      Object.entries(value).some(([key, child]) => /^(mcpservers|mcp_servers|servers|mcp|context_servers)$/i.test(key) || holds(child, depth + 1));
+    return holds(JSON.parse(bytes.toString('utf8').replace(/^﻿/, '')));
+  } catch { return false; }
+}
 async function lowerWrite(step: Parameters<StepHandler['prepare']>[0], context: StepContext): Promise<StepOutcome> {
   {
     const { index } = context;

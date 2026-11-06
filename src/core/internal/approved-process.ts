@@ -93,6 +93,11 @@ export function stopTree(child: ChildProcess, force = false): void {
   stopped.add(child);
   const direct = () => { try { child.kill(force ? 'SIGKILL' : 'SIGTERM'); } catch { /* Close or the cleanup deadline determines uncertainty. */ } };
   const pid = child.pid;
+  // A leader that already exited may leave members of its group holding the pipes: the group is still signalled.
+  if (pid !== undefined && process.platform !== 'win32' && groups.has(pid) && (child.exitCode !== null || child.signalCode !== null)) {
+    try { process.kill(-pid, force ? 'SIGKILL' : 'SIGTERM'); } catch { /* the group is gone */ }
+    return;
+  }
   if (pid === undefined || child.exitCode !== null || child.signalCode !== null) { direct(); return; }
   if (process.platform === 'win32') {
     // The tree is found from the live child, so the child itself is killed only once taskkill is done.
