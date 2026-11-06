@@ -51,3 +51,13 @@ test('the review names the real folder an existing path resolves to', async () =
   const run = await apply(prepared.handle, { approved: true, origin: 'automation', reviewDigest: prepared.review.reviewDigest });
   assert.equal(run.completion, 'complete', JSON.stringify(run));
 });
+
+test('a user-scope change can never create Core\'s state folder under another letter case', async () => {
+  const userWrite = { ...writeTo([]), targets: ['user'], operations: [{ ...writeTo([]).operations[0], scope: 'user',
+    target: { root: 'user', segments: ['.AIH', 'Core', 'ownership', 'x.json'].map(literal => ({ literal })) } }] };
+  const prepared = await prepare(changeRequest([{ managementId: 'note', change: userWrite }], { scope: 'user' }));
+  if (process.platform === 'linux') { assert.equal(prepared.handle === undefined, prepared.status !== 'ready'); return; }
+  assert.notEqual(prepared.status, 'ready', JSON.stringify(prepared));
+  assert.equal(prepared.handle, undefined);
+  assert.equal(existsSync(join(process.env.HOME, '.AIH', 'Core', 'ownership', 'x.json')), false);
+});

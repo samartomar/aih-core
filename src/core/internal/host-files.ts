@@ -100,11 +100,19 @@ export function projectRoot(project: string): string {
   return realpathSync.native(project);
 }
 export const userHomeRoot = (): string => projectRoot(homedir());
+/**
+ * Whether `target` is Core's state or inside it. The comparison folds case on macOS as on Windows: their default volumes
+ * are case-insensitive, so `.AIH/Core` would become the state folder once it exists.
+ */
+export function reservedState(stateRoot: string, target: string): boolean {
+  if (containedPath(stateRoot, target)) return true;
+  return process.platform === 'darwin' && containedPath(stateRoot.toLowerCase(), target.toLowerCase());
+}
 export function fileTransaction(root: string, stateRoot: string, directoryCreated?: (path: string) => void): OwnedFileTransaction {
   const assertPath = (parts: readonly string[]) => {
     if (parts.some(part => !validSegment(part))) throw new Error('invalid-path');
     if (parts.some(part => !portableSegment(part))) throw new Error('path-escape');
-    if (containedPath(stateRoot, resolve(root, ...parts))) throw new Error('reserved-state');
+    if (reservedState(stateRoot, resolve(root, ...parts))) throw new Error('reserved-state');
   };
   return new OwnedFileTransaction(root, {
     label: 'Core file', maxFileBytes: 16 * 1024 * 1024, contentDirectoryMode: 0o700,
