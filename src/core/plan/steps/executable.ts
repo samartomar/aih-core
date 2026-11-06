@@ -5,12 +5,25 @@ import { createHash } from 'node:crypto';
 import { parse as parseJsonc, type ParseError } from 'jsonc-parser';
 import type { Json } from '../../types.js';
 import type { ExecutableConfiguration } from '../types.js';
+import { isLoaderVariable } from '../inputs.js';
 
 type Launch = ExecutableConfiguration['launches'][number];
 const plain = (value: Json | undefined): value is { [key: string]: Json } => !!value && typeof value === 'object' && !Array.isArray(value);
 const strings = (value: Json | undefined): value is string[] => Array.isArray(value) && value.every(item => typeof item === 'string');
 /** Settings keys a client runs as a command (beside `command` itself). */
-const COMMAND_KEYS = new Set(['apikeyhelper', 'awsauthrefresh', 'awscredentialexport', 'otelheadershelper', 'notify', 'statuscommand']);
+const COMMAND_KEYS = new Set(['apikeyhelper', 'awsauthrefresh', 'awscredentialexport', 'otelheadershelper', 'notify', 'statuscommand',
+  // Copilot's hooks run a `bash` or `powershell` command; Gemini CLI runs its tools' discovery and call commands.
+  'bash', 'powershell', 'discoverycommand', 'callcommand']);
+/** Whether a parsed settings value sets a loader or search variable in an environment (`env`, `environment`) at any depth. */
+function setsLoader(value: Json | undefined, depth = 0): boolean {
+  if (depth > 32) return false;
+  if (Array.isArray(value)) return value.some(item => setsLoader(item, depth + 1));
+  if (!plain(value)) return false;
+  return Object.entries(value).some(([key, child]) => /^(env|environment)$/i.test(key) && plain(child) && Object.keys(child).some(isLoaderVariable) ||
+    setsLoader(child, depth + 1));
+}
+/** Whether TOML or YAML text assigns an upper-case loader or search variable name anywhere (`NODE_OPTIONS = …`, `LD_PRELOAD: …`). */
+const assignsLoader = (text: string): boolean => [...text.matchAll(/^\s*-?\s*["']?([A-Z_][A-Z0-9_]*)["']?\s*[:=]/gm)].some(match => isLoaderVariable(match[1]!));
 
 /** Every program a JSON value configures: each `command` (with its `args`, or an argv list) and each command-running key. */
 export function launchesIn(value: Json | undefined): Launch[] {
@@ -35,10 +48,16 @@ const shown = (launches: Launch[], hide: (text: string) => string): Launch[] => 
 const mentionsHooks = (segments: string[], value: Json | undefined): boolean =>
   segments.some(segment => segment.toLowerCase() === 'hooks') || plain(value) && Object.keys(value).some(key => key.toLowerCase() === 'hooks');
 
-/** A JSON or TOML merge entry's label: an MCP server it starts, a hook, or a settings command; `undefined` when it starts none. */
+/**
+ * A JSON or TOML merge entry's label: an MCP server it starts, a hook (also one whose command Core doesn't find), or a
+ * settings command (also an environment that sets a loader variable); `undefined` when it configures none.
+ */
 export function mergeConfiguration(segments: string[], entry: Json, hide: (text: string) => string = text => text): ExecutableConfiguration | undefined {
   const launches = shown(launchesIn(entry), hide);
-  if (!launches.length) return undefined;
+  const envAt = segments.findIndex(segment => /^(env|environment)$/i.test(segment));
+  const loader = setsLoader(entry) || envAt >= 0 && (envAt === segments.length - 1 ? plain(entry) && Object.keys(entry).some(isLoaderVariable) :
+    isLoaderVariable(segments[envAt + 1]!));
+  if (!launches.length && !mentionsHooks(segments, entry) && !loader) return undefined;
   const mcp = segments.some(segment => /^(mcpservers|mcp_servers|mcp|servers|context_servers)$/i.test(segment));
   const kind = mentionsHooks(segments, entry) ? 'hook' : mcp ? 'mcp-server' : 'settings-command';
   return { label: 'executable-configuration', kind, launches };
@@ -100,7 +119,7 @@ const COMPLEX_YAML = /[{}]|^\s*\?\s|<<\s*:|(?:^|\s)[&*!][^\s]|:\s*[|>][-+]?\s*$|
  * YAML; when it uses a form those scans don't read, or a value they can't resolve, it is `unparsed`: it is labelled all the
  * same, never left out. Markdown is read only in its front matter.
  */
-function textLaunches(path: string, bytes: Buffer): { launches: Launch[]; hooks: boolean; unparsed?: 'unparsed' | 'unparsed-yaml' } {
+function textLaunches(path: string, bytes: Buffer): { launches: Launch[]; hooks: boolean; loader?: boolean; unparsed?: 'unparsed' | 'unparsed-yaml' } {
   const none = { launches: [], hooks: false };
   let text: string;
   // UTF-8, or UTF-16 with its byte order mark (a client may refuse it, but the review still reads it).
@@ -108,27 +127,30 @@ function textLaunches(path: string, bytes: Buffer): { launches: Launch[]; hooks:
   try { text = new TextDecoder(encoding, { fatal: true }).decode(bytes).replace(/^\uFEFF/, ''); } catch { return none; }
   const errors: ParseError[] = [];
   const parsed = parseJsonc(text, errors, { allowTrailingComma: true, disallowComments: false }) as Json;
-  if (!errors.length && parsed !== null && typeof parsed === 'object') return { launches: launchesIn(parsed), hooks: mentionsHooks([], parsed) };
+  if (!errors.length && parsed !== null && typeof parsed === 'object') return { launches: launchesIn(parsed), hooks: mentionsHooks([], parsed), loader: setsLoader(parsed) };
   if (/\.(md|mdc|markdown)$/i.test(path)) {
     const front = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text);
     if (!front) return none;
     text = front[1]!;
   }
   if (bytes.length > 1_048_576) return { ...none, unparsed: 'unparsed' };
-  if (!COMMAND_WORDS.test(unescaped(text))) return none;
+  // Every YAML file is labelled: Core has no full YAML parser, so none is proved to start nothing.
+  const yamlFile = /\.ya?ml$/i.test(path);
+  const loader = assignsLoader(text);
+  if (!yamlFile && !COMMAND_WORDS.test(unescaped(text))) return loader ? { ...none, loader } : none;
   const toml = /\.toml$/i.test(path) || /^\s*\[[^\]\n]+\]\s*(#.*)?$/m.test(text) || /^\s*[A-Za-z0-9_."'-]+\s*=/m.test(text) && !/^\s*[A-Za-z0-9_"'-]+\s*:\s/m.test(text);
   if (toml) {
     const read = tomlLaunches(text);
-    return COMPLEX_TOML.test(text) || !read.launches.length || !read.launches.every(resolved) ? { launches: [], hooks: read.hooks, unparsed: 'unparsed' } : read;
+    return COMPLEX_TOML.test(text) || !read.launches.length || !read.launches.every(resolved) ? { launches: [], hooks: read.hooks, loader, unparsed: 'unparsed' } : { ...read, loader };
   }
   const read = yamlLaunches(text);
-  return COMPLEX_YAML.test(text) || !read.launches.length || !read.launches.every(resolved) ? { launches: [], hooks: read.hooks, unparsed: 'unparsed-yaml' } : read;
+  return COMPLEX_YAML.test(text) || /\\/.test(text) || !read.launches.length || !read.launches.every(resolved) ? { launches: [], hooks: read.hooks, loader, unparsed: 'unparsed-yaml' } : { ...read, loader };
 }
 /** A written file's label: made executable, or settings (in any format) that run commands; with the bytes' sha256 either way. */
 export function writeConfiguration(path: string, bytes: Buffer, executable: boolean, hide: (text: string) => string = text => text): ExecutableConfiguration | undefined {
   const read = textLaunches(path, bytes);
   const launches = shown(read.launches, hide); const hooks = read.hooks;
-  if (!executable && !launches.length && !read.unparsed) return undefined;
+  if (!executable && !launches.length && !read.unparsed && !hooks && !read.loader) return undefined;
   return { label: 'executable-configuration', kind: executable ? 'executable-file' : read.unparsed ?? (hooks ? 'hook' : 'settings-command'), launches,
     sha256: createHash('sha256').update(bytes).digest('hex'), executable };
 }
