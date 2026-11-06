@@ -1,5 +1,5 @@
 // Checks every placement step shares: what it belongs to, where it lands, and which CLIs it serves.
-import { lstatSync } from 'node:fs';
+import { lstatSync, readdirSync, readlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { projectRoot, sha256 } from '../../internal/host-files.js';
@@ -94,8 +94,34 @@ export function acquiredProgram(path: string, aiSetup: string): { status: 'ok'; 
     const parent = relative.split('/').slice(0, -1).join('/');
     if (!entry || parent && !realFolders(join(home, ...found.folder.split('/')), parent)) return { status: 'changed' };
     const program = readRegularFile(join(home, ...path.split('/')), { maxBytes: 4 * 1024 * 1_048_576 });
-    return program && sha256(program) === entry.sha256 ? { status: 'ok', sha256: entry.sha256 as string, tree: found.tree } : { status: 'changed' };
+    if (!program || sha256(program) !== entry.sha256) return { status: 'changed' };
+    // The program runs with the rest of its folder (a wheel's code, a DLL beside an executable): every file the
+    // manifest records must hold its bytes, and nothing it doesn't record may be there (compiled caches aside).
+    return treeMatches(join(home, ...found.folder.split('/')), entries) ? { status: 'ok', sha256: entry.sha256 as string, tree: found.tree } : { status: 'changed' };
   } catch { return { status: 'changed' }; }
+}
+/** Whether a folder holds exactly what its tree manifest records, read without following links; bounded by the manifest's entries. */
+function treeMatches(folder: string, entries: { path?: unknown; sha256?: unknown; link?: unknown }[]): boolean {
+  const recorded = new Map(entries.filter(entry => typeof entry.path === 'string').map(entry => [entry.path as string, entry]));
+  let seen = 0;
+  const stack = [''];
+  while (stack.length) {
+    const relative = stack.pop()!;
+    for (const name of readdirSync(relative ? join(folder, ...relative.split('/')) : folder)) {
+      const path = relative ? `${relative}/${name}` : name;
+      if (!relative && (name === MANIFEST || name === TREE_MANIFEST)) continue;
+      const absolute = join(folder, ...path.split('/'));
+      const stats = lstatSync(absolute);
+      if (stats.isDirectory()) { if (name !== '__pycache__') stack.push(path); continue; }
+      const entry = recorded.get(path);
+      if (!entry || ++seen > recorded.size) return false;
+      if (stats.isSymbolicLink()) { if (entry.link === undefined || readlinkSync(absolute) !== entry.link) return false; continue; }
+      if (!stats.isFile() || typeof entry.sha256 !== 'string') return false;
+      const bytes = readRegularFile(absolute, { maxBytes: 4 * 1024 * 1_048_576 });
+      if (!bytes || sha256(bytes) !== entry.sha256) return false;
+    }
+  }
+  return seen === recorded.size;
 }
 /**
  * Only an acquire step places anything in an AI setup's folders (`.aihq/ai-setup/<name>/…`): a write, merge or link there
@@ -111,7 +137,8 @@ export function aiSetupReserved(root: 'project' | 'user', path: string, index: n
   if (segments.at(-1) === fold(MANIFEST) || segments.at(-1) === fold(ACQUIRING))
     return refusal('path-escape', `Step ${index} places \`${path}\`, named like Core's acquisition marker.`, index);
   const under = `${segments[0]}/${segments[1]}` === AI_SETUP_ROOT;
-  if (root !== 'user' || !under || segments.length === 5 && segments[3] === 'settings' && !executable &&
+  // In a project too: a client resolves a relative command against its working folder, the project.
+  if (!under || root === 'user' && segments.length === 5 && segments[3] === 'settings' && !executable &&
     // A file Windows or a shell runs by its name is a program, whatever its executable flag.
     !/\.(cmd|bat|ps1|exe|com|sh)$/i.test(segments[4]!)) return undefined;
   return refusal('path-escape', `Step ${index} places \`${path}\` inside an AI setup folder, which only an acquire step fills.`, index);
