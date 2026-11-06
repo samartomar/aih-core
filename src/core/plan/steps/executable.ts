@@ -13,7 +13,9 @@ const strings = (value: Json | undefined): value is string[] => Array.isArray(va
 /** Settings keys a client runs as a command (beside `command` itself). */
 const COMMAND_KEYS = new Set(['apikeyhelper', 'awsauthrefresh', 'awscredentialexport', 'otelheadershelper', 'notify', 'statuscommand',
   // Copilot's hooks run a `bash` or `powershell` command; Gemini CLI runs its tools' discovery and call commands.
-  'bash', 'powershell', 'discoverycommand', 'callcommand']);
+  'bash', 'powershell', 'discoverycommand', 'callcommand',
+  // An MCP entry's headers helper runs a command for every request.
+  'headershelper']);
 /**
  * Environment names a client itself acts on to run a program, beyond the loader list: Claude Code wraps every Bash
  * command in `CLAUDE_CODE_SHELL_PREFIX` and sources `CLAUDE_ENV_FILE` before it. Setting one is executable configuration.
@@ -37,7 +39,9 @@ function setsLoader(value: Json | undefined, depth = 0, parent = ''): boolean {
  * start, in an inline table (`{ NODE_OPTIONS = … }`) or as a dotted key's last part (`shell_environment_policy.set.NODE_OPTIONS = …`).
  */
 const assignsLoader = (text: string): boolean =>
-  [...text.matchAll(/(?:^|[\s{,.])["']?([A-Z_][A-Z0-9_]*)["']?\s*[:=]/gm)].some(match => runsCode(match[1]!));
+  // Upper case, or any case with an underscore (Windows reads environment names without case; `path` alone is a common key).
+  [...text.matchAll(/(?:^|[\s{,.])["']?([A-Za-z_][A-Za-z0-9_]*)["']?\s*[:=]/gm)]
+    .some(match => (match[1] === match[1]!.toUpperCase() || match[1]!.includes('_')) && runsCode(match[1]!));
 /** Claude Code's settings that switch on a project's MCP servers without its own approval prompt. */
 const MCP_ENABLE = new Set(['enableallprojectmcpservers', 'enabledmcpjsonservers']);
 function enablesMcp(value: Json | undefined, depth = 0): boolean {
