@@ -85,7 +85,9 @@ await check('an older revision is flagged per key and signer, and the memory out
 await check('an organization adds or replaces the allowed signers: trust follows the authenticated issuer and subject, never a label', async () => {
   const request = () => enterprise(scannedRequest(project('org'), ['notes'], [scanEntry('notes-r1-a'), scanEntry('notes-r1-b')], { clis: ['codex'] }));
   const added = shown(await prepare(request(), { organization: organizationFile({ add: [A] }) }));
-  assert.deepEqual(added.map(row => [row.signer.subject, row.signer.trusted, row.signer.identity]), [[A.subject, true, A.identity], [B.subject, false, B.subject]]);
+  // A signer the organization added is labelled so, whatever identity it claims.
+  assert.deepEqual(added.map(row => [row.signer.subject, row.signer.trusted, row.signer.identity]), [[A.subject, true, `organization-added: ${A.identity}`], [B.subject, false, B.subject]]);
+  assert.ok(added[0].sentence.includes(`signed by organization-added: ${A.identity}`), added[0].sentence);
   const replaced = shown(await prepare(request(), { organization: organizationFile({ replace: [B] }) }));
   assert.deepEqual(replaced.map(row => [row.signer.subject, row.signer.trusted]), [[A.subject, false], [B.subject, true]]);
   // A label naming signer A but another subject trusts nobody.
