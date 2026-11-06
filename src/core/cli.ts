@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // The `aih` command (contract 22): one module per command in src/core/cli/<command>.ts.
 import { distribution } from '../distribution.mjs';
+import { killTrees } from './internal/approved-process.js';
 
 const USAGE = [
   'aih install <plan-request.json> [--project <path>] [--source <sourceId>=<folder>]... [--apply [--yes] [--allow-partial]] [--json]',
@@ -39,7 +40,14 @@ const commands: Record<string, () => Promise<{ run(args: string[], signal: Abort
 // Commands whose module prints no usage of its own; the others answer `<command> --help` themselves.
 const OWN_HELP_ABSENT = ['repair', 'export-ca', 'report', 'validate'];
 const controller = new AbortController();
-process.once('SIGINT', () => controller.abort());
+// The first Ctrl-C cancels the run through its signal: Core stops what it started and the result says `cancelled`. A
+// second one ends at once, after killing every program Core started.
+let interrupts = 0;
+process.on('SIGINT', () => {
+  if (interrupts++ === 0) { controller.abort(); return; }
+  killTrees();
+  process.exit(130);
+});
 const [command, ...args] = process.argv.slice(2);
 const json = args.includes('--json');
 if (command === '--version' || command === '-V') {

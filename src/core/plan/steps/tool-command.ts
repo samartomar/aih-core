@@ -4,7 +4,7 @@
 // `restore: { argv }` names `<prior>` once: Apply runs the readback first and keeps its output as the prior value, and the
 // receipt's undo is the restore with that value, read back as it (C30, C54). Without a restore Core can't undo it.
 import { hexOf } from './acquire.js';
-import { acquiredByCore, refusal, target } from './common.js';
+import { acquiredProgram, refusal, target } from './common.js';
 import { bindCommand, isArgv, launchable, readbackOf, shapeProblem } from './program.js';
 import type { Json } from '../../types.js';
 import type { StepHandler } from './types.js';
@@ -51,11 +51,17 @@ export const toolCommand: StepHandler = {
     if (qualified && !qualification) return refusal('qualification-missing', `Step ${index} names qualification \`sha256:${sha}\`, which was not supplied.`, index);
     if (qualification && (!object(qualification.subject) || qualification.subject.aiSetup !== aiSetup))
       return refusal('qualification-mismatch', `Step ${index}'s AI setup differs from qualification \`sha256:${named}\`.`, index);
-    // Without an acquire step of this plan, the program must be in a folder Core acquired: never one a plan supplied.
-    if (!acquire && !acquiredByCore(placed.path))
-      return { problem: { path: `/plan/plan/${index}/executable`, reason: 'root-path-unplaced',
+    // Without an acquire step of this plan, the program must be one an acquisition of this AI setup recorded placing, with
+    // the bytes it placed (its folder's tree manifest, by the sha256 on the receipt): never one a plan or anyone else put there.
+    let sha256: string | null = null; let tree: string | undefined;
+    if (!acquire) {
+      const earlier = acquiredProgram(placed.path, aiSetup);
+      if (earlier.status === 'unplaced') return { problem: { path: `/plan/plan/${index}/executable`, reason: 'root-path-unplaced',
         message: `Step ${index} runs \`~/${placed.path}\`, which no acquire step of this plan places and no AI setup Core acquired holds; replan for a qualified AI setup.` } };
-    let sha256: string | null = null;
+      if (earlier.status !== 'ok') return refusal('artifact-changed',
+        `Step ${index} runs \`~/${placed.path}\`, which differs from what its acquisition placed. Acquire the AI setup again.`, index);
+      sha256 = earlier.sha256; tree = earlier.tree;
+    }
     if (acquire && typeof acquire.into === 'string') {
       const into = acquire.into.replace(/\/$/, '') + '/';
       if (!placed.path.startsWith(into)) return refusal('path-escape', `Step ${index} runs \`${placed.path}\`, outside its AI setup's folder \`${into}\`.`, index);
@@ -69,7 +75,7 @@ export const toolCommand: StepHandler = {
     const command = `${placed.path} ${bound.shown.join(' ')}`;
     const check = `checks that \`${readback.argv.join(' ')}\` reads \`${readback.expected}\``;
     return { lowered: { kind: 'program', op: 'tool-command', managementIds: [aiSetup], root: 'user', argv: bound.argv, shown: bound.shown,
-      env: bound.env, shownEnv: bound.shownEnv, executable: { from: 'acquired', path: placed.path, sha256 }, cwd: '', readback, undo: null, managed: true,
+      env: bound.env, shownEnv: bound.shownEnv, executable: { from: 'acquired', path: placed.path, sha256, ...(tree ? { tree } : {}) }, cwd: '', readback, undo: null, managed: true,
       ...(restore ? { restore } : {}),
       cantRemove: restore ? `Removal runs \`${restore.argv.join(' ')}\` with \`${PRIOR}\` as the value \`${readback.argv.join(' ')}\` showed before the ` +
         'command, then checks that the readback shows it again; nothing else is rolled back.' :

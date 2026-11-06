@@ -329,3 +329,43 @@ test('every MCP entry for an item with a scanned server.json is bound to it, wha
   const refused = await prepare(loader);
   assert.deepEqual([refused.status, refused.problems?.[0]?.reason], ['invalid', 'loader-variable']);
 });
+
+test('an MCP merge writes one whole server entry that equals its MCP item\'s, with only allowlisted keys', async () => {
+  const npm = { name: 'search', packages: [{ registryType: 'npm', identifier: 'search-mcp', version: '1.2.3', runtimeHint: 'npx',
+    runtimeArguments: [{ type: 'positional', value: '-y' }], transport: { type: 'stdio' } }] };
+  const remote = { name: 'search', remotes: [{ type: 'streamable-http', url: 'https://mcp.example.test/search' }] };
+  const item = 'local-my-setup.mcp.search';
+  const good = { type: 'stdio', command: 'npx', args: ['-y', 'search-mcp@1.2.3'] };
+  const attempt = async ({ key = '/mcpServers/search', entry = good, server = npm, format = 'json', shape } = {}) => {
+    const request = mergeRequest(project(), [{ item, file: format === 'toml' ? '.codex/config.toml' : '.mcp.json', format, key, entry,
+      ...(format === 'toml' ? { clis: ['codex'] } : {}) }]);
+    const bytes = Buffer.from(JSON.stringify(server));
+    const file = { sourceId: 'local-my-setup', sourcePath: 'mcp/search/server.json', sha256: sha256(bytes), bytes: bytes.length, executable: false, role: 'content' };
+    request.contents[0].items[0].files = [file];
+    request.files = [{ sourceId: file.sourceId, sourcePath: file.sourcePath, sha256: file.sha256, bytes }];
+    shape?.(request);
+    const result = await prepare(request);
+    return [result.status, result.code ?? result.problems?.[0]?.reason];
+  };
+  assert.deepEqual(await attempt(), ['ready', undefined]);
+  // Not one whole server: a field of it, its environment, the container itself.
+  assert.deepEqual(await attempt({ key: '/mcpServers/search/command', entry: 'evil' }), ['refused', 'mcp-entry-shape']);
+  assert.deepEqual(await attempt({ key: '/mcpServers/search/env', entry: { NODE_OPTIONS: '--require=x' },
+    shape: request => { delete request.plan.plan[0].item; request.plan.plan[0].framework = 'local-my-setup'; } }), ['refused', 'mcp-entry-shape']);
+  assert.deepEqual(await attempt({ key: 'mcp_servers.search.env', entry: { X: '1' }, format: 'toml' }), ['refused', 'mcp-entry-shape']);
+  assert.deepEqual(await attempt({ key: '/mcpServers', entry: { search: good },
+    shape: request => { delete request.plan.plan[0].item; request.plan.plan[0].framework = 'local-my-setup'; } }), ['refused', 'mcp-entry-shape']);
+  // A server name no MCP item of the step's content has, or one written by another framework.
+  assert.deepEqual(await attempt({ key: '/mcpServers/srch', entry: { command: 'evil' },
+    shape: request => { delete request.plan.plan[0].item; request.plan.plan[0].framework = 'local-my-setup'; } }), ['refused', 'source-mismatch']);
+  assert.deepEqual(await attempt({ entry: { command: 'evil' }, shape: request => {
+    request.contents.push({ ...request.contents[0], framework: { id: 'other-setup', name: 'Other' }, sources: [{ id: 'other-setup', kind: 'local', notices: [] }],
+      items: [{ id: 'other-setup.skill.x', kind: 'skill', name: 'x', description: 'x', files: [] }] });
+    request.plan.plan[0].item = 'other-setup.skill.x'; } }), ['refused', 'source-mismatch']);
+  // Keys no client's MCP entry takes from a plan, and fields of the other form.
+  for (const extra of [{ cwd: '/tmp/planted' }, { envFile: '.env' }, { autoApprove: ['x'] }])
+    assert.deepEqual(await attempt({ entry: { ...good, ...extra } }), ['refused', 'mcp-entry-shape'], JSON.stringify(extra));
+  assert.deepEqual(await attempt({ entry: { ...good, type: 'http', url: 'https://evil.example.test/' } }), ['refused', 'source-mismatch']);
+  assert.deepEqual(await attempt({ server: remote, entry: { url: 'https://mcp.example.test/search', command: 'evil' } }), ['refused', 'source-mismatch']);
+  assert.deepEqual(await attempt({ server: remote, entry: { type: 'http', url: 'https://mcp.example.test/search' } }), ['ready', undefined]);
+});

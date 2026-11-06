@@ -1011,8 +1011,11 @@ the undo, and `cantRemove`, which says what Core can't remove around it.
   program Core starts gets `NoDefaultCurrentDirectoryInExePath=1`, so a program a shim or tool names is never found in
   its working folder; cancel and deadline stop it with everything it started (`taskkill /T` on Windows, its process
   group on POSIX). On POSIX each program runs in its own process group: while one runs, a `SIGINT`, `SIGTERM` or `SIGHUP`
-  Core receives is passed on to its group (then Core ends on it as before, unless its host handles the signal), and
-  Core's exit kills the group. Windows system programs (`cmd.exe`, `taskkill.exe`) are started only from the folder the
+  Core receives is passed on to its group. A host that handles the signal decides what follows: the `aih` CLI cancels
+  the run on the first Ctrl-C (the result is `cancelled`, exit 130) and, on a second, kills every group and exits.
+  Without such a host Core escalates (SIGTERM to every group, about 2 s, then SIGKILL) and then ends on the signal.
+  Cancel and deadline escalate the same way, and Core's exit kills every group, so a program that handles signals, and
+  its children, never outlive Core. A SIGKILL to Core itself leaves its groups running; nothing can answer it. Windows system programs (`cmd.exe`, `taskkill.exe`) are started only from the folder the
   kernel's `\SystemRoot` names; when it can't be read, nothing is started. A plugin name that starts with `-` or holds `"`, `%` or a control character is invalid.
 - **Environment bindings** never set a variable that changes which program or code runs or where programs find their
   configuration (`NODE_OPTIONS`, `PATH`, `PATHEXT`, `LD_*`, `DYLD_*`, `PYTHON*`, `GIT_*`, `HOME` and the like, compared
@@ -1021,20 +1024,34 @@ the undo, and `cantRemove`, which says what Core can't remove around it.
   `path-escape`, except a non-executable file directly in a setup's own `settings/` folder. A file named like Core's
   acquisition marker is refused anywhere. A `tool-command`, like an MCP entry's `rootPaths`, runs a program there only
   when an acquire step of the plan places it, or a user-scope receipt records that acquisition and its marker still has
-  the recorded bytes (`root-path-unplaced` otherwise); a marker file alone proves nothing.
+  the recorded bytes (`root-path-unplaced` otherwise); a marker file alone proves nothing. An acquisition records its
+  folder's tree manifest (`.aih-tree.json`) by sha256 on the receipt (`aiSetup.tree`). A tool-command with no acquire
+  step in its plan runs a program only while that manifest and the program's bytes are what the acquisition placed,
+  reached through real folders only; the review shows the program's sha256 and `treeSha256`, and anything else is
+  `artifact-changed`. A run with no acquire step keeps the acquisition recorded.
 - **Executable configuration.** The review marks each merge or write that makes a client start a program later with
   `executableConfiguration: { label: "executable-configuration", kind, launches }`: `mcp-server` (an MCP entry with a
   `command`), `hook`, `settings-command` (`apiKeyHelper` and similar keys) or `executable-file`, with each program and
   its arguments, and for a write the bytes' `sha256` and `executable` flag. A write is read by its content, whatever
-  its name: JSON (with comments, a BOM or trailing commas), else TOML, else YAML.
-- **MCP entries and `server.json`.** Every merge entry for an MCP item whose content document lists a `server.json`
-  (the step's `item` or `items`, or for an MCP server entry the MCP item of that name in the step's framework) needs
-  that file's bytes (`source-missing`) and must start exactly what it declares (the registry's runner `npx` or `uvx`,
-  its flags, `identifier@version` or `identifier==version`, the package's arguments) with no environment key it doesn't
-  declare, or name its remote's URL. Anything else, a registry Core can't start, or a file not named exactly
-  `server.json`, is `source-mismatch`. Only an AI setup's own MCP item is exempt, when that setup is acquired in the plan
-  or on a receipt: its entry starts the acquired program. An MCP entry's own environment never sets a loader or search
-  variable (`loader-variable`).
+  its name: JSON (with comments, a BOM, trailing commas, or UTF-16) is parsed. Any other text that names a command-like
+  key in any form (escapes decoded) is read as TOML or YAML when it uses only forms Core reads, and is otherwise
+  labelled all the same, with kind `unparsed` (TOML) or `unparsed-yaml` and no launches. Markdown is read in its front
+  matter. The review errs on the side of labelling.
+- **MCP entries.** A merge whose key is in a client's MCP container (`/mcpServers`, `mcp_servers`, `servers`, `/mcp`
+  or the profile's MCP place) writes exactly one whole server entry, `<container>/<name>`; the container itself, a field
+  of a server or anything deeper is `mcp-entry-shape`, and so is any key outside the allowlist (`command`, `args`,
+  `env`, `type`, `url`, `headers`, the profile's names for them and its tool lists): `cwd`, `envFile` or `autoApprove`
+  never come from a plan. The entry is for the step's MCP item, or else the MCP item of the server's name in the step's
+  own content, exactly one (`source-mismatch` otherwise), and must equal what that item derives, with only declared input
+  slots differing. An AI setup's own MCP item, while the setup is acquired in the plan or on a receipt, starts the
+  acquired program (a `rootPaths` path inside the setup's folder) with the setup's launch arguments. Otherwise the item's
+  `server.json`, whose bytes the plan must carry when its content lists one (`source-missing`), gives the package Core
+  can start (the registry's runner `npx` or `uvx`, its flags, `identifier@version` or `identifier==version`, the
+  package's arguments, the profile's fixed fields and declared environment names) or the remote (its URL, fixed fields and
+  declared headers). A remote entry never starts a program and a package entry never names a URL; anything else is
+  `source-mismatch`. An MCP entry's environment, at any depth, never sets a loader or search variable
+  (`loader-variable`). An item whose content gives no `server.json` has nothing to derive from: its entry is checked for
+  shape, keys and environment, and the review labels what it starts.
 - **Order and outcomes (D92, C60).** Apply runs every step of the plan in the plan's order across all items: the fixed
   phases (fetch and acquire, write, link, merge, plugin, upstream setup and installer, tool-command), then root and
   path. A failed step makes the not-yet-run steps of its item and of every item that depends on it `not-attempted`

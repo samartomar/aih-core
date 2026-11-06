@@ -61,7 +61,7 @@ export interface PlanItemFacts {
   steps: number[];
   /** For an AI setup (`acquire`): the interpreter branch that ran and whether the fallback did (C46); absent otherwise. */
   aiSetup?: { branch: 'installed' | 'fallback' | null; interpreter: { path: string; version: string } | null; fallback: boolean; fallbackReason: string | null;
-    downloads?: import('../plan/acquire/types.js').DownloadRecord[]; executable?: import('../plan/types.js').PlacedExecutable };
+    downloads?: import('../plan/acquire/types.js').DownloadRecord[]; executable?: import('../plan/types.js').PlacedExecutable; tree?: string };
   /**
    * Native plugin installs (`plugin` steps), with the undo facts copied from the profile at install (C54): the exact
    * removal commands and the presence check, so removal never needs the old profile. Absent when there are none.
@@ -308,7 +308,8 @@ function validDownloadRecord(value: unknown): boolean {
     built.dependencies.every(hex) && Array.isArray(built.tools) && built.tools.length <= 64 && built.tools.every(validToolRecord);
 }
 function validAiSetupFacts(value: unknown): boolean {
-  if (!exact(value, ['branch', 'interpreter', 'fallback', 'fallbackReason'], ['downloads', 'executable'])) return false;
+  if (!exact(value, ['branch', 'interpreter', 'fallback', 'fallbackReason'], ['downloads', 'executable', 'tree'])) return false;
+  if (value.tree !== undefined && !(typeof value.tree === 'string' && /^[a-f0-9]{64}$/.test(value.tree))) return false;
   if (value.executable !== undefined && !(exact(value.executable, ['path', 'placed']) && text(value.executable.path, 4096) &&
       ['member', 'environment', 'symlink', 'hardlink', 'launcher'].includes(value.executable.placed as string))) return false;
   if (value.downloads !== undefined && !(Array.isArray(value.downloads) && value.downloads.length <= 8192 && value.downloads.every(validDownloadRecord))) return false;

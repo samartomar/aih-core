@@ -200,6 +200,8 @@ export interface ReviewProgram {
   needs?: string[];
   /** A PATH program that is an npm command shim: the pinned node and JS entry Core starts for it. */
   launcher?: ReviewLauncher;
+  /** A program an earlier acquisition placed: the sha256 of its folder's tree manifest, as the receipt records it. */
+  treeSha256?: string;
 }
 /** An npm command shim's pinned `node` and JS entry: what Core starts for the shim, each by its sha256 (never through `cmd.exe`). */
 export interface ReviewLauncher { node: string; nodeSha256: string; script: string; scriptSha256: string }
@@ -211,7 +213,8 @@ export interface ReviewCommand { argv: string[]; executable: string; executableS
  */
 export interface ExecutableConfiguration {
   label: 'executable-configuration';
-  kind: 'mcp-server' | 'hook' | 'settings-command' | 'executable-file';
+  /** `unparsed` (TOML) and `unparsed-yaml`: settings that name a command-like key in a form Core doesn't read; `launches` is then empty. */
+  kind: 'mcp-server' | 'hook' | 'settings-command' | 'executable-file' | 'unparsed' | 'unparsed-yaml';
   launches: { command: string; args: string[] }[];
   sha256?: string; executable?: boolean;
 }

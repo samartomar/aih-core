@@ -76,6 +76,9 @@ const entries: RefusalCode[] = [
   // Enterprise admission (samartomar/aih-core#179).
   { status: 'blocked', code: 'AUTHORITY_DENIED', fix: 'None from Core: the organization entry or source rule the result names decides; ask its owner.' },
   { status: 'refused', code: 'organization-unavailable', fix: 'Make the organization source readable (path, repository, ref or credential), then Prepare again.' },
+  // Security hardening (samartomar/aih-core#183).
+  { status: 'refused', code: 'artifact-changed', fix: 'Acquire the AI setup again; its folder no longer holds what the acquisition placed.' },
+  { status: 'refused', code: 'mcp-entry-shape', fix: 'Replan: an MCP merge writes one whole server entry with only the keys its client takes.' },
 ];
 
 export const refusalCodes: readonly Readonly<RefusalCode>[] = Object.freeze(entries.map(entry => Object.freeze({ ...entry })));

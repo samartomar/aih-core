@@ -1,4 +1,5 @@
 // Checks every placement step shares: what it belongs to, where it lands, and which CLIs it serves.
+import { lstatSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { projectRoot, sha256 } from '../../internal/host-files.js';
@@ -7,6 +8,7 @@ import { readOwnership } from '../../internal/state.js';
 import { stateLocation } from '../../state-location.js';
 import { knownCli } from '../tools.js';
 import { ACQUIRED_MARKER_PREFIX, ACQUIRING, AI_SETUP_ROOT, MANIFEST } from '../acquire/types.js';
+import { TREE_MANIFEST } from '../acquire/effect.js';
 import type { PlanStep, Problem, Refusal } from '../types.js';
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
@@ -39,24 +41,61 @@ export function owners(step: PlanStep, index: number): { ids: string[]; review: 
 }
 
 const foldName = (value: string) => process.platform === 'win32' || process.platform === 'darwin' ? value.toLowerCase() : value;
+/** No segment of `relative` under `root` is a link or junction (or anything but a folder, for all but the last). */
+function realFolders(root: string, relative: string): boolean {
+  let current = root;
+  for (const segment of relative.split('/')) {
+    current = join(current, segment);
+    try { if (!lstatSync(current).isDirectory()) return false; } catch { return false; }
+  }
+  return true;
+}
 /**
- * Whether a user-root path lies inside an AI setup folder (`.aihq/ai-setup/<name>/<version>/<cell>/`) Core acquired: a
- * receipt in the user state records that acquisition (an AI setup install holding the folder's marker file), and the
- * marker there now is a regular file (no link is followed) with the bytes that receipt recorded. A marker file alone,
- * which any writer could make, is never proof.
+ * The receipt record of the acquisition of the AI setup folder (`.aihq/ai-setup/<name>/<version>/<cell>/`) a user-root
+ * path lies in: a user-scope plan receipt that holds the folder's marker file as a member (for `aiSetup`, a receipt of
+ * that AI setup), with the marker there now a regular file, reached through real folders only, holding the recorded
+ * bytes. A marker file alone, which any writer could make, is never proof. A later run of the same claim with no acquire
+ * step keeps the record (the member stays on the receipt).
  */
-export function acquiredByCore(path: string): boolean {
+function acquisitionOf(path: string, aiSetup?: string): { folder: string; tree: string | undefined } | undefined {
   const folder = /^(\.aihq\/ai-setup\/[^/]+\/[^/]+\/[^/]+)\//.exec(path)?.[1];
-  if (!folder) return false;
+  if (!folder) return undefined;
   try {
     const home = projectRoot(homedir());
+    if (!realFolders(home, folder)) return undefined;
     const markerPath = `${folder}/${MANIFEST}`;
-    const recorded = Object.values(readOwnership(home).value.items ?? {}).filter(item => item.scope === 'user' && item.plan?.aiSetup)
-      .flatMap(item => item.members).flatMap(member => member.kind === 'file' && foldName(member.path) === foldName(markerPath) ? [member.sha256] : []);
-    if (!recorded.length) return false;
     const bytes = readRegularFile(join(home, ...markerPath.split('/')), { maxBytes: 64 * 1024 });
-    return !!bytes && bytes.toString('utf8').startsWith(ACQUIRED_MARKER_PREFIX) && recorded.includes(sha256(bytes));
-  } catch { return false; }
+    if (!bytes || !bytes.toString('utf8').startsWith(ACQUIRED_MARKER_PREFIX)) return undefined;
+    const digest = sha256(bytes);
+    const holder = Object.values(readOwnership(home).value.items ?? {}).find(item => item.scope === 'user' && !!item.plan &&
+      (aiSetup === undefined || (item.plan.managementId ?? item.managementId) === aiSetup) &&
+      item.members.some(member => member.kind === 'file' && foldName(member.path) === foldName(markerPath) && member.sha256 === digest));
+    return holder ? { folder, tree: holder.plan?.aiSetup?.tree } : undefined;
+  } catch { return undefined; }
+}
+/** Whether a user-root path lies inside an AI setup folder Core acquired (see `acquisitionOf`). */
+export const acquiredByCore = (path: string, aiSetup?: string): boolean => acquisitionOf(path, aiSetup) !== undefined;
+/**
+ * A program an earlier acquisition placed, checked before a tool-command runs it: its folder's tree manifest
+ * (`.aih-tree.json`) must have the sha256 the receipt recorded, and the program the bytes that manifest records.
+ * `unplaced` when no acquisition of `aiSetup` holds the folder, `changed` when the manifest or the program differs.
+ */
+export function acquiredProgram(path: string, aiSetup: string): { status: 'ok'; sha256: string; tree: string } | { status: 'unplaced' | 'changed' } {
+  const found = acquisitionOf(path, aiSetup);
+  if (!found) return { status: 'unplaced' };
+  if (!found.tree) return { status: 'changed' };
+  try {
+    const home = projectRoot(homedir());
+    const manifest = readRegularFile(join(home, ...found.folder.split('/'), TREE_MANIFEST), { maxBytes: 64 * 1_048_576 });
+    if (!manifest || sha256(manifest) !== found.tree) return { status: 'changed' };
+    const entries = (JSON.parse(manifest.toString('utf8')) as { entries?: { path?: unknown; sha256?: unknown }[] }).entries ?? [];
+    const relative = path.slice(found.folder.length + 1);
+    const entry = entries.find(candidate => candidate.path === relative && typeof candidate.sha256 === 'string');
+    const parent = relative.split('/').slice(0, -1).join('/');
+    if (!entry || parent && !realFolders(join(home, ...found.folder.split('/')), parent)) return { status: 'changed' };
+    const program = readRegularFile(join(home, ...path.split('/')), { maxBytes: 4 * 1024 * 1_048_576 });
+    return program && sha256(program) === entry.sha256 ? { status: 'ok', sha256: entry.sha256 as string, tree: found.tree } : { status: 'changed' };
+  } catch { return { status: 'changed' }; }
 }
 /**
  * Only an acquire step places anything in an AI setup's folders (`.aihq/ai-setup/<name>/…`): a write, merge or link there
@@ -72,7 +111,9 @@ export function aiSetupReserved(root: 'project' | 'user', path: string, index: n
   if (segments.at(-1) === fold(MANIFEST) || segments.at(-1) === fold(ACQUIRING))
     return refusal('path-escape', `Step ${index} places \`${path}\`, named like Core's acquisition marker.`, index);
   const under = `${segments[0]}/${segments[1]}` === AI_SETUP_ROOT;
-  if (root !== 'user' || !under || segments.length === 5 && segments[3] === 'settings' && !executable) return undefined;
+  if (root !== 'user' || !under || segments.length === 5 && segments[3] === 'settings' && !executable &&
+    // A file Windows or a shell runs by its name is a program, whatever its executable flag.
+    !/\.(cmd|bat|ps1|exe|com|sh)$/i.test(segments[4]!)) return undefined;
   return refusal('path-escape', `Step ${index} places \`${path}\` inside an AI setup folder, which only an acquire step fills.`, index);
 }
 

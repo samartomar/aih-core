@@ -416,7 +416,8 @@ export function acquisition(spec: AcquireSpec, home: string, installed: Installe
         const facts: AcquireFacts = { ...(spec.kind === 'pypi-wheel' ? await python(signal) : await native(signal)), downloads: [...records.values()] };
         rmSync(join(folder, ACQUIRING), { force: true });
         // What the acquisition placed, so its removal deletes exactly that (contract 14).
-        recordTree(folder, join(folder, TREE_MANIFEST));
+        // Its sha256 goes on the receipt, so a program later run from the folder is checked against what was placed.
+        if (recordTree(folder, join(folder, TREE_MANIFEST))) facts.tree = sha256(readFileSync(join(folder, TREE_MANIFEST)));
         report('finish', { status: 'passed' });
         return { status: 'passed', reason: 'acquired', effectsUncertain: false, facts: facts as unknown as Json, ...(failures.length ? { buildFailures: failures } : {}) };
       } catch (error) {
