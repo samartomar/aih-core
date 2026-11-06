@@ -143,7 +143,8 @@ export function nativeSetup(server, { name = 'memory-mcp', version = '0.12.1', m
     result: { status: 'qualified', run: `sha256:${sha256('fixture run')}`, date: '2026-11-03' } };
   const step = { op: 'acquire', aiSetup: id, version, cell,
     distribution: { kind: 'native-archive', file, url: server.url(`/${file}`), sha256: sha256(archive), bytes: archive.length },
-    qualification: `sha256:${documentSha(qualification)}`, scanned: false, into: `.aihq/ai-setup/${name}/${version}/${cell}/` };
+    qualification: `sha256:${documentSha(qualification)}`, scanned: false, into: `.aihq/ai-setup/${name}/${version}/${cell}/`,
+    executable: `.aihq/ai-setup/${name}/${version}/${cell}/${Object.keys(members)[0]}` };
   const item = { id, kind: 'ai-setup', name, files: [], aiSetup: { version } };
   return { id, step, qualification, item, archive, folder: `.aihq/ai-setup/${name}/${version}/${cell}`, members };
 }
