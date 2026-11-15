@@ -34,7 +34,9 @@ imported by a package specifier.
 Bins: `aih`, and `aih-linux-facility`, the fixed Linux x64 process observer native client verification launches
 clients under (an observer, not a sandbox).
 
-No function throws on bad input, a refused step or a broken machine. Every result has a `status`: `ok`; `refused` with
+Operation APIs report bad input, refused steps and host failures as structured results. Utility-specific exceptions,
+such as an invalid home for [state-location resolution](#published-state-location), are documented separately.
+Results have a `status`: `ok`; `refused` with
 `code` and `reason`; `invalid` with `problems`; or `unsupported-version` with `encountered` and `supported`. Prepare's
 status can also be `ready`, `partial` or `blocked`; an Apply run carries `completion` (`complete`, `incomplete`,
 `cancelled` or `rejected`). Every refusal code is listed once in `refusalCodes`.
@@ -217,7 +219,7 @@ succeeded.
 ## Inspect a tool host
 
 `inspectToolHost({ tool, project, items }, controls?)` from
-`@aihq/core/harness/runtime` extends [inspection](#inspect-existing-tools) to one
+`@aihq/core/harness/runtime` extends [inspection](#inspect-compare-files-and-report) to one
 observed tool and a set of items on this computer. It observes with bounded
 reads and **runs nothing**: no tool, hook, MCP server or item content is started,
 not even for `--version`. It never writes, removes or edits anything it finds.
@@ -643,7 +645,7 @@ const removal = await prepareRemoval({ target: { project: '/work/app' }, scope: 
   update or removal overwrites it (`keep-changed`); undo your edit yourself to take Core's version.
 - **Apply** binds the exact `reviewDigest`, consumes the handle, and re-checks the request (document and bytes), the
   target bytes, the receipts and the home folder; a change is `rejected` `REVIEW_STALE` naming `changed`. The pending
-  receipt and interrupted-install rules are those of [Interrupted installs](#interrupted-installs).
+  receipt and interrupted-install rules are those of [State and recovery](#state-and-recovery).
 - **Removal** keeps your later edits (`keep-changed`), unregisters missing members and never removes unowned files.
   `removals: [{ managementId, clis }]` releases only those CLIs' claims (see below).
 
@@ -1156,10 +1158,10 @@ const prepared = await prepare({ ...planRequest, scans: [{ summary: summaryText,
 A change (`urn:aihq:core:change:0.1.0`) is a hand-written, reviewed edit that is not Catalog content: a settings key, an
 array member, a team file, a marked text block, an owned hook group or an exact approved command. It has today's
 authoring shape and rules, under one version: the operation kinds `file.write`, `file.remove`, `config.entries`
-(JSON, JSONC, TOML, INI, YAML subset, properties), `config.member`, `text.block`, `hook.group` and `process.run`; the
-bounded editors of [One complete authoring example](#one-complete-authoring-example); inputs, private inputs, prerequisites
-and checks of [Inputs and outcomes](#inputs-and-outcomes); one-server approval of [Allow one MCP server](#allow-one-mcp-server);
-and [owned hook groups](#owned-hook-groups). Two names differ from the recipe form: a target `root` is `project` or `user`
+(JSON, JSONC, TOML, INI, YAML subset, properties), `config.member`, `text.block`, `hook.group` and `process.run`.
+The change schema and fixtures in `@aihq/core/contracts` define the required fields; use `validateChange` before
+preparation. The example below shows ordinary authoring, and the following bullets describe inputs, materials and
+lifecycle behavior. A target `root` is `project` or `user`
 (your home folder), and `config.entries` sets keys with `set: [{ path, value }]` (or `{ path, input }` for a declared input)
 and removes them with `remove: [{ path }]`. Recipe documents are not changes: `validateChange` answers
 `unsupported-version` for any other format id. The formats are not marked ready.
@@ -1194,8 +1196,8 @@ await prepareRemoval({ target: {}, scope: 'user', removals: [{ managementId: 'co
   redacted. A command's effects are opaque (`effect: 'opaque-process'`), with the line that Core can't show or undo them;
   a failed or cancelled command is reported `effectsUncertain` and never claims a rollback.
 - **Materials** are inline, or a change acquired by `reference` instead of `change`: a pinned local folder named by
-  `controls.materialRoots: { id: absolutePath }`, an HTTPS archive, or one exact GitHub commit archive, each checked by
-  length and sha256 exactly as in [Install from an exact git commit](#install-from-an-exact-git-commit). The referenced
+  `controls.materialRoots: { id: absolutePath }`, an HTTPS archive, or one exact GitHub commit archive, each checked against
+  its declared byte length and sha256. The referenced
   member is itself a change document.
 - **Inputs.** Ordinary values sit in `changes[].inputs`. Secret values go in `controls.privateInputs`, keyed by management
   id; they never appear in the review, history or receipts, and a changed value rejects Apply (`REVIEW_STALE` `input`).
@@ -1210,7 +1212,7 @@ await prepareRemoval({ target: {}, scope: 'user', removals: [{ managementId: 'co
   keeps your original and removal writes it back; `skip` leaves that operation out, with every operation of the change
   that waits for it, and makes the review `partial` (Apply then needs `allowPartial: true`).
 - **Enterprise.** With `mode: 'enterprise'` and `controls.organization`, each change is admitted by its identity, inputs
-  and lifecycle permissions (see [Enterprise admission](#enterprise-admission-010-in-development)).
+  and lifecycle permissions (see [Enterprise admission](#enterprise-admission)).
 
 ```sh
 aih change change-request.json [--project <path>] [--material-root <id>=<folder>]... [--private-input <managementId>.<input>=<ENV>]...
@@ -1505,11 +1507,11 @@ report yourself before sharing it — nothing shares it for you.
 
 ## State and recovery
 
-Core uses the current account's `~/.aih/core` for protected ownership records, recovery manifests, private original-file snapshots and redacted run history. Required state protection or persistence failure prevents/marks incomplete the affected mutation. A history-write failure is returned as `record.status: failed` separately from target outcomes. One history record holds the redacted run result and is at most 1 MiB (1,048,576 bytes), the bound of every file in Core's state except an ownership record; a larger result is not recorded and reports `record-limit`. An ownership record is at most 2 MiB (2,097,152 bytes) as stored. It holds a member for each file of each tool's copy of each selection, so it grows with tools × items × files, and it is stored without what it can derive from itself: a file member's descriptor (its key, or just its path where that differs from the key in case, as on Windows), a claim's management ID and sets and requires when they are its owner's and its selection record's, each item's typed members, and Catalog facts shared by the tool copies of one item (stored once). A Prepare whose record would exceed the bound, or the record's 8,192 members, 4,096 selection records or 4,096 items, is `blocked` with `SOURCE_LIMIT` reason `custody-record-limit` before any effect. A policy Prepare's record names a required selection once: an operation that requires every operation of another selection lists that selection in `requiresSelections` (every operation of the record's review with that `selectionId`) and keeps its other required ids in `requires`, so the two together are exactly the reviewed requirements. The record also leaves out `operationSelections` when each entry is the review operation at its position, with that operation's `selectionId` and the rest of its `id`. Set `controls.logging: 'off'` to suppress routine history; required ownership and recovery records are still written.
+Core uses the current account's `~/.aih/core` for protected ownership records, recovery manifests, private original-file snapshots and redacted run history. Required state protection or persistence failure prevents/marks incomplete the affected mutation. The public run reports history persistence separately as `history.status`: `recorded`, `disabled` or `not-recorded`; a size refusal also names `limit: "history-bytes"`. One history record holds the redacted run result and is at most 1 MiB (1,048,576 bytes), the bound of every file in Core's state except an ownership record; a larger result reports `history.status: "not-recorded"` with `limit: "history-bytes"`. An ownership record is at most 2 MiB (2,097,152 bytes) as stored. It holds a member for each file of each tool's copy of each selection, so it grows with tools × items × files, and it is stored without what it can derive from itself: a file member's descriptor (its key, or just its path where that differs from the key in case, as on Windows), a claim's management ID and sets and requires when they are its owner's and its selection record's, each item's typed members, and Catalog facts shared by the tool copies of one item (stored once). A Prepare whose record would exceed the bound, or the record's 8,192 members, 4,096 selection records or 4,096 items, is `blocked` with `SOURCE_LIMIT` reason `custody-record-limit` before any effect. A policy Prepare's record names a required selection once: an operation that requires every operation of another selection lists that selection in `requiresSelections` (every operation of the record's review with that `selectionId`) and keeps its other required ids in `requires`, so the two together are exactly the reviewed requirements. The record also leaves out `operationSelections` when each entry is the review operation at its position, with that operation's `selectionId` and the rest of its `id`. Set `controls.logging: 'off'` to suppress routine history; required ownership and recovery records are still written.
 
 New files use reviewed mode 0600 by default and newly needed parent directories use 0700 on POSIX; Windows files inherit the selected directory's ACL. Core's private state has restricted ownership/ACLs. A recovery manifest points to private original-file snapshots for manual inspection; it is never a resumable plan.
 
-A removal run deletes its own recovery folder and drops `recovery` from its result only when all of these hold: the result is run result 1.4 or 1.5, the run is `complete`, at least one cleanup member was checked and every checked member is `absent` or `present-matching`, and nothing was kept (no kept, conflicting or unavailable cleanup step, and no claim still held). If the deletion fails, the result keeps `recovery` and `diagnostics` reports `recovery-cleanup`. Install runs and every other removal keep their recovery data, including removals under run results 1.0 to 1.3. There is no automatic expiry or cleanup of run history or of kept recovery data.
+Core removes a removal run's recovery folder only after a complete, verified cleanup: at least one cleanup member was checked, every checked member is `absent` or `present-matching`, and no content or claim was kept. Failed, partial or kept removals retain recovery data; an unsuccessful recovery-folder cleanup retains it too. There is no automatic expiry of retained recovery data or run history. The public `urn:aihq:core:run:0.1.0` result exposes `steps`, `members` and `history`, not the internal engine's historical `recovery`, `record` or `diagnostics` fields. Use [member outcomes](#what-each-result-status-lets-you-claim) for delivery claims and the [state location](#published-state-location) for protected state discovery.
 
 Strict document admission limits each document to 1,000,000 UTF-8 bytes and depth 32. Duplicate decoded keys, non-NFC/malformed strings, nonfinite/negative-zero/unsafe integer values, number tokens that lose their value, accessors, cycles and non-data objects reject. Canonical JSON uses UTF-16 key ordering, authored array order, UTF-8 and no whitespace. This restricted profile is not unrestricted RFC 8785.
 

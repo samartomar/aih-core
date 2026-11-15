@@ -17,17 +17,20 @@ unpublished local builds by source commit and artifact digest. Preserve the actu
 installed package identity and selected helper/input byte binding.
 Build only the root package; no nested package or sibling checkout is required.
 
+For maintainer assignments, keep the coordinating session in its supplied
+workspace and target this Git root explicitly for commands and edits. Load these
+product rules from that session; command working directories do not create a
+separate workflow. Public contributors can use this repository independently.
+
 Run focused checks for the change and the applicable package checks before
 handoff. Use `npm test` so package tests receive npm's executable path. Exercise
 product operations only against temporary homes and target directories; never
 use this source checkout as the product's repair or policy target.
 
-Start code discovery at this Git root. Pass its absolute path to
-code-review-graph, refresh after source/ref changes, and verify findings in source
-and tests. For codebase-memory-mcp, select the project returned for this root by
-`list_projects`; for Serena, read its initial instructions and activate this root.
-Generated indexes stay ignored. A parent graph does not establish this repo's
-coverage or freshness.
+Start code discovery in source and tests at this Git root. When navigation
+helpers are available, select this explicit root and verify their freshness;
+an unavailable or stale index does not block source search. Generated indexes
+stay ignored. A parent graph does not establish this repository's coverage.
 
 ## Issue and delivery routing
 
@@ -44,18 +47,11 @@ required publication pending or name its follow-up owner. Confidential details a
 private coordination links stay outside public text. Private maintainer handoffs
 carry any additional internal instructions explicitly.
 
-## Agent skills
+## Workflow references
 
-Use the installed Matt Pocock engineering skills and aih-extensions within this repository's existing rules. Keep the skills in their managed user installation.
+Use the managed Matt Pocock skills and Extensions within this repository's rules.
+Keep upstream skills in their managed installation, unchanged by repository cleanup.
 
-### Issue tracker
-
-Follow the supplied delivery issue and current intake route. See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-Preserve accepted label mappings and existing categories. See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-One product vocabulary with the existing decision authority. See `docs/agents/domain.md`.
+- [Issue routing](docs/agents/issue-tracker.md): owning delivery issue and intake.
+- [Triage](docs/agents/triage-labels.md): existing label roles and mappings.
+- [Domain documentation](docs/agents/domain.md): vocabulary and decision homes.
