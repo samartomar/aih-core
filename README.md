@@ -1600,7 +1600,7 @@ helper preserves `<home>/.claude`, including that workspace's existing plugin
 registration and cache. It never registers or force-loads a plugin. Claude may
 write its ordinary bookkeeping under the supplied home. Project settings are read
 normally; user and local settings are excluded. The fixed invocation uses
-`--bare`, disables hooks, plugin sync, LSP, keychain reads and nonessential
+[`--bare`](https://code.claude.com/docs/en/cli-reference), disables hooks, plugin sync, LSP, keychain reads and nonessential
 traffic, and supplies an empty strict MCP configuration. These restrictions keep
 this prompt-free plugin readback from executing project hooks or activating MCP
 servers; they do not verify those behaviors. Known restrictive or unreadable
@@ -1617,7 +1617,7 @@ Malformed, incomplete, nonzero-error or unexpected protocol responses fail
 closed. Current native support is Windows x64 with the shipped Windows Job
 facility; other platforms or missing containment return unconfirmed. Executable
 lookup excludes project/home PATH entries and never invokes command shims or a
-shell. Combined stdout/stderr is bounded to 1 MiB, the check to 20 seconds and
+shell. Native executables are bounded to 512 MiB. Combined stdout/stderr is bounded to 1 MiB, client execution to 20 seconds and
 process-tree cleanup to another 5 seconds. An unconfirmed cleanup cannot produce
 an observed result. This is an owned-workspace observation, not a filesystem
 sandbox for an adversarial project that changes during the check.

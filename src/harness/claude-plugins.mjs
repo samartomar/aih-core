@@ -37,7 +37,7 @@ function requestPaths(request, personalHome) {
       ![Object.prototype, null].includes(Object.getPrototypeOf(request)) ||
       Reflect.ownKeys(request).length !== 2 || !['project', 'home'].every(name => {
         const field = Object.getOwnPropertyDescriptor(request, name);
-        return field?.enumerable && 'value' in field && text(field.value) && isAbsolute(field.value);
+        return field?.enumerable && 'value' in field && text(field.value) && isAbsolute(field.value) && !field.value.startsWith('\\\\');
       })) throw Error('input-invalid');
   const project = directDirectory(request.project), home = directDirectory(request.home);
   if (key(home) === key(resolve(personalHome)) || inside(project, home) || inside(home, project)) throw Error('home-not-isolated');
@@ -61,7 +61,7 @@ function ensureDirectory(root, parts) {
 // Internal test seam: the public export never accepts PATH, executable, argv or a launcher override.
 export function claudePluginLookupPath(pathEnv, project, home) {
   return String(pathEnv ?? '').split(delimiter).filter(directory => {
-    if (!text(directory) || !isAbsolute(directory)) return false;
+    if (!text(directory) || !isAbsolute(directory) || directory.startsWith('\\\\')) return false;
     try {
       const real = realpathSync.native(directory);
       return !inside(project, real) && !inside(home, real);
@@ -80,7 +80,11 @@ export function parseClaudePluginReadback(bytes) {
     let value;
     try { value = parseStrictJson(line, 32); } catch { return fail('response-invalid'); }
     if (!isRecord(value)) return fail('response-invalid');
-    if (value.type === 'system') continue;
+    if (value.type === 'system') {
+      if (value.is_error === true || typeof value.subtype === 'string' && /error/i.test(value.subtype)) return fail('response-unexpected');
+      if (Array.isArray(value.mcp_servers) && value.mcp_servers.length) return fail('mcp-not-contained');
+      continue;
+    }
     if (value.type !== 'control_response' || !isRecord(value.response)) return fail('response-unexpected');
     const response = value.response;
     if (!['init', 'plugins'].includes(response.request_id) || responses.has(response.request_id) ||
@@ -88,6 +92,9 @@ export function parseClaudePluginReadback(bytes) {
     responses.set(response.request_id, response.response);
   }
   if (!responses.has('init') || !responses.has('plugins')) return fail('response-incomplete');
+  const initialized = responses.get('init');
+  if (initialized.error_count !== undefined && initialized.error_count !== 0) return fail('plugin-errors');
+  if (Array.isArray(initialized.mcpServers) && initialized.mcpServers.length) return fail('mcp-not-contained');
   const observed = responses.get('plugins');
   if (!Number.isSafeInteger(observed.error_count) || observed.error_count < 0) return fail('response-invalid');
   if (observed.error_count !== 0) return fail('plugin-errors');
@@ -121,12 +128,21 @@ function environment(paths, executable) {
     NoDefaultCurrentDirectoryInExePath: '1', DISABLE_AUTOUPDATER: '1', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
     CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL: '1', CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1' };
 }
+async function pinClaude(paths) {
+  const directories = claudePluginLookupPath(process.env.PATH, paths.project, paths.home).split(delimiter).filter(directory => {
+    try {
+      const executable = realpathSync.native(join(directory, 'claude.exe')), stat = lstatSync(executable);
+      return stat.isFile() && stat.size > 0 && stat.size <= 512 * 1024 * 1024 &&
+        !executable.startsWith('\\\\') && !inside(paths.project, executable) && !inside(paths.home, executable);
+    } catch { return false; }
+  });
+  return pinExecutable({ names: ['claude.exe'], platform: process.platform, pathEnv: directories.join(delimiter) });
+}
 
 const host = {
   platform: process.platform, personalHome: () => userInfo().homedir,
   managed: () => observeClaudeManagedSettings(),
-  pin: paths => pinExecutable({ names: ['claude.exe'], platform: process.platform,
-    pathEnv: claudePluginLookupPath(process.env.PATH, paths.project, paths.home) }),
+  pin: pinClaude,
   revalidate: revalidateExecutable,
   start: input => startLifecycle({ lifecycleId: 'windows-job.v1', os: process.platform, ...input })
 };

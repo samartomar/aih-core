@@ -30,12 +30,15 @@ test('missing, failed, ambiguous and malformed responses never establish absence
     [response('init', {}), response('other-id', { plugins: [], mcpServers: [], error_count: 0 })],
     [response('init', {}), { type: 'control_response', response: { subtype: 'error', request_id: 'plugins', error: 'failed' } }],
     [response('init', {}), response('plugins', { plugins: knownPlugins, mcpServers: [], error_count: 1 })],
+    [response('init', { error_count: 1 }), response('plugins', { plugins: [], mcpServers: [], error_count: 0 })],
     [response('init', {}), response('plugins', { plugins: [], error_count: 0 })],
     [response('init', {}), response('plugins', { plugins: [], mcpServers: [{ name: 'not-contained' }], error_count: 0 })],
     records([{ name: 'bad', path: 'relative/plugin', source: 'bad@market' }]),
     records([{ name: 'bad', path: 'builtin', source: 'bad@market' }]),
     records([...knownPlugins, knownPlugins[0]]), records(Array.from({ length: 257 }, () => knownPlugins[0])),
-    [...records([]), { type: 'assistant', message: { content: [] } }]
+    [...records([]), { type: 'assistant', message: { content: [] } }],
+    [...records([]), { type: 'system', subtype: 'error', message: 'failed' }],
+    [...records([]), { type: 'system', mcp_servers: [{ name: 'not-contained' }] }]
   ];
   for (const value of cases) {
     const result = parseClaudePluginReadback(encode(value));
