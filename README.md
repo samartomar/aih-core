@@ -1607,6 +1607,15 @@ servers; they do not verify those behaviors. Known restrictive or unreadable
 machine settings refuse the observation; registry, MDM and server policy sources
 are not independently audited by this helper.
 
+The supplied Claude registration/cache tree, home bookkeeping file and project
+settings tree are checked for symbolic links, junctions and hard-linked files
+before launch and after cleanup. Named local marketplace/cache inputs must stay
+inside the project or supplied home and receive the same checks. Remote
+marketplace declarations remain permitted because synchronization is disabled.
+The shared walk admits at most 8,192 entries and 32 directory levels; inspected
+settings/registry JSON is limited to 1 MiB per file and 4 MiB total. An unsafe,
+unreadable or out-of-cell input returns unconfirmed rather than plugin absence.
+
 The result is `{ status, plugins, checkedAt, ... }`. A complete, valid,
 error-free response returns `status: 'observed'` and each plugin's `name`, `source`,
 `path`, `builtin` and optional `version`. Built-in entries and unrelated plugin

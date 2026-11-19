@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { linkSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { PassThrough, Writable } from 'node:stream';
 import { observeClaudePlugins } from '@aihq/core/harness/runtime';
 import { claudePluginLookupPath, observeClaudePluginsWith, parseClaudePluginReadback } from '../../src/harness/claude-plugins.mjs';
+import { symlinked } from './symlink-fixture.mjs';
 
 const response = (id, value) => ({ type: 'control_response', response: { subtype: 'success', request_id: id, response: value } });
 const records = plugins => [response('init', {}), response('plugins', { plugins, mcpServers: [], error_count: 0 })];
@@ -130,6 +131,44 @@ test('unsupported containment, machine policy and changed executables return unc
     [{ start: async () => ({ status: 'unavailable', reason: 'facility-absent' }) }, 'containment-unavailable']
   ]) assert.equal((await observeClaudePluginsWith(f.request, { ...f.host, ...overrides })).reason, reason);
   assert.equal(f.calls.start.length, 0);
+});
+
+test('workspace cache, bookkeeping and project settings cannot follow links outside the cell', async t => {
+  for (const target of ['plugins', 'plugins/cache/linked-marketplace']) await t.test(target + ' junction', async sub => {
+    const f = fixture(sub), outside = join(f.root, 'outside-cache'), link = join(f.home, '.claude', ...target.split('/'));
+    mkdirSync(outside); mkdirSync(join(link, '..'), { recursive: true });
+    if (!symlinked(outside, link, sub, process.platform === 'win32' ? 'junction' : 'dir')) return;
+    assert.equal((await observeClaudePluginsWith(f.request, f.host)).reason, 'path-unsafe');
+    assert.equal(f.calls.start.length, 0);
+  });
+  for (const target of ['home/.claude.json', 'home/.claude/.claude.json', 'project/.claude/settings.json']) await t.test(target + ' file link', async sub => {
+    const f = fixture(sub), outside = join(f.root, 'outside-state.json'), link = join(f.root, ...target.split('/'));
+    writeFileSync(outside, '{}'); mkdirSync(join(link, '..'), { recursive: true });
+    linkSync(outside, link);
+    assert.equal((await observeClaudePluginsWith(f.request, f.host)).reason, 'path-unsafe');
+    assert.equal(f.calls.start.length, 0); assert.equal(readFileSync(outside, 'utf8'), '{}');
+  });
+  await t.test('linked project settings directory', async sub => {
+    const f = fixture(sub), outside = join(f.root, 'outside-settings');mkdirSync(outside);
+    if (!symlinked(outside, join(f.project, '.claude'), sub, process.platform === 'win32' ? 'junction' : 'dir')) return;
+    assert.equal((await observeClaudePluginsWith(f.request, f.host)).reason, 'path-unsafe');assert.equal(f.calls.start.length, 0);
+  });
+});
+
+test('named local plugin inputs stay in the cell, while harmless settings and remote declarations remain readable', async t => {
+  const outside = fixture(t), external = join(outside.root, 'external-plugin');mkdirSync(external);
+  mkdirSync(join(outside.home, '.claude', 'plugins'), { recursive: true });
+  writeFileSync(join(outside.home, '.claude', 'plugins', 'installed_plugins.json'), JSON.stringify({ version: 2, plugins: { x: [{ installPath: external }] } }));
+  assert.equal((await observeClaudePluginsWith(outside.request, outside.host)).reason, 'client-state-outside-workspace');
+  assert.equal(outside.calls.start.length, 0);
+  const benign = fixture(t);mkdirSync(join(benign.project, '.claude'));
+  writeFileSync(join(benign.project, '.claude', 'settings.json'), JSON.stringify({ theme: 'dark', model: 'inherited-choice',
+    permissions: { defaultMode: 'default' }, hooks: { SessionStart: [] }, extraKnownMarketplaces: { upstream: { source: { source: 'github', repo: 'example/plugins' } } } }));
+  assert.equal((await observeClaudePluginsWith(benign.request, benign.host)).status, 'observed');
+  const oversized = fixture(t);mkdirSync(join(oversized.project, '.claude'));
+  writeFileSync(join(oversized.project, '.claude', 'settings.json'), Buffer.alloc(1_048_577));
+  assert.equal((await observeClaudePluginsWith(oversized.request, oversized.host)).reason, 'client-state-limit');
+  assert.equal(oversized.calls.start.length, 0);
 });
 
 test('nonzero exit, excessive output and unconfirmed cleanup cannot produce observations', async t => {
