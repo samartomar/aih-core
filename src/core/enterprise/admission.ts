@@ -43,7 +43,7 @@ export interface ChangeFacts {
 export interface Denial {
   code: 'AUTHORITY_DENIED'; reason: string; message: string;
   /** The organization entry that denies, or the source rule. */
-  entry?: string; rule?: 'sources.published' | 'sources.own';
+  entry?: string; rule?: 'sources.published' | 'sources.own' | 'sources.frameworks';
   managementId?: string; step?: number; input?: string;
 }
 export type Applicability = 'applies' | 'not-applicable' | 'unknown';
@@ -97,6 +97,16 @@ export function admitPlan(organization: Organization, target: DeclaredTarget, pl
         known.managementId === denial.managementId)) denials.push({ code: 'AUTHORITY_DENIED', ...denial });
   };
   const sources = organization.sources;
+  if (sources?.frameworks) {
+    const permitted = new Set(sources.frameworks);
+    for (const step of plan.steps) for (const subject of step.subjects) {
+      if (subject.framework !== null && permitted.has(subject.framework)) continue;
+      add({ reason: subject.framework === null ? 'target-unknown' : 'framework-unlisted', rule: 'sources.frameworks',
+        managementId: step.managementId, step: step.step, message: subject.framework === null ?
+          'The framework is unknown. The organization requires a listed framework.' :
+          'The framework ' + subject.framework + ' is outside the organization’s allowed frameworks.' });
+    }
+  }
   if (plan.data === null && sources?.own?.kinds) {
     const kinds = sources.own.kinds;
     for (const step of plan.steps) for (const subject of step.subjects) {

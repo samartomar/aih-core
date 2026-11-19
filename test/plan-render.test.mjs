@@ -139,6 +139,10 @@ test('a recipe origin is recorded only when Core reproduces the plan byte for by
     assert.equal(getGuidance(input,{platform:process.platform}).status,'complete');
     assert.equal(renderSupportMarkdown(input,{platform:process.platform}).status,'rendered');
   }
+  assert.equal(getGuidance({kind:'prepare',result:{status:'ready',review:prepared.review,reason:42}},{platform:process.platform}).status,'invalid');
+  assert.equal(getGuidance({kind:'prepare',result:{status:'ready',review:prepared.review,code:'AUTHORITY_DENIED'}},{platform:process.platform}).status,'invalid');
+  const guidance = getGuidance({kind:'run',result},{platform:process.platform});
+  assert.ok(guidance.items.some(item => item.evidenceIds.some(pointer => pointer.startsWith('/steps/'))));
   const normalised = await outcome(request => { request.recipeProof.recipeJson += '\n'; }, catalog({
     readRecipe: (_plugin, bytes) => ({ status:'ok', sha256:createHash('sha256').update(Buffer.from(bytes).subarray(0,-1)).digest('hex') })
   }));

@@ -147,6 +147,8 @@ function adapt(input: SupportInput, options: SupportOptions): Adapted | Diagnost
       const prepared = kind === 'prepare';
       if (schemaProblems(schema, prepared ? review : current) ||
           (prepared && (!oneOf(current.status, ['ready','partial','blocked']) ||
+            (current.code !== undefined && (current.code !== 'AUTHORITY_DENIED' || current.status !== 'blocked')) ||
+            (current.reason !== undefined && typeof current.reason !== 'string') ||
             Object.keys(current).some(key => !['status','review','code','reason'].includes(key)))) ||
           snapshot.repair !== undefined) return invalid();
       const steps = (prepared ? review!.steps : current.steps) as Data[];

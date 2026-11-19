@@ -34,6 +34,19 @@ function organization(entries, extra = {}) {
 const enterprise = (request, client = CODEX) => ({ ...request, mode: 'enterprise', target: { ...request.target, ...(client ? { client } : {}) } });
 const withKind = (request, kind) => { for (const item of request.contents[0].items) item.kind = kind; return request; };
 
+test('the optional framework list admits listed plan content and blocks newly introduced frameworks', async () => {
+  const request = enterprise(ownRequest(project(), SKILLS, ['codex']));
+  const framework = request.contents[0].framework.id;
+  const allowed = await prepare(request, {organization:organization([], {sources:{frameworks:[framework]}})});
+  assert.equal(allowed.status, 'ready', JSON.stringify(allowed));
+  for (const frameworks of [[], ['another-framework']]) {
+    const denied = await prepare(request, {organization:organization([], {sources:{frameworks}})});
+    conforms(denied.review);
+    assert.equal(denied.status, 'blocked');
+    assert.equal(denied.review.organization.denials[0].rule, 'sources.frameworks');
+  }
+});
+
 test('sources.own denies own-content hooks for the whole request, naming the rule; skills of an allowed kind install', async () => {
   const source = organization([], { sources: { own: { kinds: ['skill', 'rule'] } } });
   const target = project();

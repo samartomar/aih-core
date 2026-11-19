@@ -82,7 +82,7 @@ export interface OrganizationReview {
   id: string; source: Json; contentDigest: string;
   target: { scope: 'project' | 'user'; client: { id: string; surface: 'cli' | 'ide' } | null; repository: string | null };
   admitted: boolean;
-  denials: { code: 'AUTHORITY_DENIED'; reason: string; message: string; entry?: string; rule?: 'sources.published' | 'sources.own';
+  denials: { code: 'AUTHORITY_DENIED'; reason: string; message: string; entry?: string; rule?: 'sources.published' | 'sources.own' | 'sources.frameworks';
     managementId?: string; step?: number; input?: string }[];
   advisory: { entry: string; status: 'taken' | 'not-taken'; applicability: 'applies' | 'not-applicable' | 'unknown'; unknown: string[]; managementIds: string[] }[];
   fulfilment: OrganizationFulfilment[];

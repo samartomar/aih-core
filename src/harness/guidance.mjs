@@ -65,7 +65,7 @@ const codeReasons = Object.freeze({
 export const clientGuidanceTargets = Object.freeze(Object.keys(clientSteps));
 const permissions = new Set(['authority-denied', 'state-protection', 'state-unwritable',
   'organization-permission-incomplete', 'authentication-required-or-denied', 'permission-denied', 'EACCES', 'EPERM']);
-const pointer = /^(?:\/(?:checks|observations|diagnostics|operations|tools)\/\d+|\/review\/(?:conflicts|omissions|observations|operations)\/\d+|\/(?:status|completion))$/;
+const pointer = /^(?:\/(?:checks|observations|diagnostics|operations|steps|tools)\/\d+|\/review\/(?:conflicts|omissions|observations|operations)\/\d+|\/(?:status|completion|code))$/;
 
 function suggestion(request, id, selected) {
   if (request.platform === 'unknown' || (request.repair && request.repair.id !== id)) return [];

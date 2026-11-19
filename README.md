@@ -1262,6 +1262,7 @@ The organization document `urn:aihq:core:organization:0.1.0` holds `entries`, `s
   (`change-not-admitted`); each explicit, default or secret input needs a permission (`allowDeclared`, `fixed` or
   `choices`; a secret only `allowDeclared`); a reviewed `replace` or `adopt` needs that lifecycle permission; removing
   a change needs `lifecycle.remove`. Content entries govern plans and change entries govern changes.
+- **Allowed frameworks** (optional): Set `sources.frameworks` to the framework IDs allowed for Catalog plan content. An empty list denies all framework content. Omit the field to keep the default. Authored changes follow their separate change entries.
 - **Sources** (C31): `sources.published: [{ repository, commit? }]` lists the data repositories a plan may come from,
   optionally pinned (`source-published`, `source-pin`); `sources.own.kinds` lists the kinds own content (`data: null`)
   may have (`own-content`). Without a rule, any repository and all own content are allowed.
