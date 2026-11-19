@@ -203,7 +203,7 @@ await check('checkFiles compares merged entries and blocks, never your other con
   freshHome('check-merge');
   const folder = project('check-merge');
   const request = mergeRequest(folder, [
-    { item: 'local-my-setup.mcp.docs', file: '.mcp.json', format: 'json', key: '/mcpServers/docs', entry: { command: 'docs-mcp' } },
+    { item: 'local-my-setup.mcp.docs', file: '.mcp.json', format: 'json', key: '/mcpServers/docs', entry: { command: 'docs-mcp', args: ['one', 'two'] } },
     { item: 'local-my-setup.rule.style', file: 'AGENTS.md', format: 'markdown', key: 'local-my-setup.rule.style', entry: 'Prefer small functions.\n', clis: ['codex'] }]);
   const absent = await checkFiles(request);
   assert.equal(validateFormat(absent).status, 'ok', JSON.stringify(absent));
@@ -222,10 +222,21 @@ await check('checkFiles compares merged entries and blocks, never your other con
   writeFileSync(join(folder, '.mcp.json'), JSON.stringify(settings, null, 2) + '\n');
   writeFileSync(join(folder, 'AGENTS.md'), readFileSync(join(folder, 'AGENTS.md'), 'utf8') + '\nUse tabs.\n');
   assert.equal((await checkFiles(request)).fileState, 'match', 'your own entries and lines are not compared');
+  settings.mcpServers.docs = { args: ['one', 'two'], command: 'docs-mcp' };
+  const reordered = '// client saved its settings\n' + JSON.stringify(settings);
+  writeFileSync(join(folder, '.mcp.json'), reordered);
+  assert.equal((await checkFiles(request)).targets[0].reason, 'entry-match', 'key order and formatting preserve the managed value');
+  assert.equal(readFileSync(join(folder, '.mcp.json'), 'utf8'), reordered);
+  settings.mcpServers.docs.args.reverse();
+  writeFileSync(join(folder, '.mcp.json'), JSON.stringify(settings));
+  assert.equal((await checkFiles(request)).targets[0].reason, 'entry-changed', 'array order is significant');
+  settings.mcpServers.docs.args.reverse();
   settings.mcpServers.docs.command = 'other-mcp';
   writeFileSync(join(folder, '.mcp.json'), JSON.stringify(settings, null, 2) + '\n');
   const edited = await checkFiles(request);
   assert.deepEqual([edited.fileState, edited.targets.map(item => item.outcome)], ['changed', ['changed', 'match']]);
+  writeFileSync(join(folder, '.mcp.json'), '{"mcpServers": {"docs": {}, "docs": {}}}');
+  assert.equal((await checkFiles(request)).targets[0].outcome, 'unavailable', 'ambiguous documents cannot confirm a match');
 });
 
 await check('checkFiles compares a change and aih check-files exits by its outcome', async () => {

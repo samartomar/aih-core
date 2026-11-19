@@ -200,7 +200,9 @@ throws and creates nothing.
 **Compare files.** `checkFiles(request, { signal?, catalog?, privateInputs?, materialRoots?, budgetMs? })` compares what
 a plan request or change request would write with the disk and returns `urn:aihq:core:file-check:0.1.0`. It has no
 effects: no state, history, receipts, network or processes. A plan's write steps are compared with their checked bytes
-(supplied, or rendered by the caller's Catalog); program and acquisition steps are listed in `notChecked`. `observation`
+(supplied, or rendered by the caller's Catalog). For a planned JSON merge, Core compares the value at the managed
+key. Object key order, whitespace and sibling settings can change while that value still matches. Array order matters.
+Program and acquisition steps are listed in `notChecked`. `observation`
 is `complete` only when every planned file was compared and nothing was left unchecked; `fileState` is `match` only
 then, `changed` when any compared file differs or is absent, and `unverified` otherwise. At most 4,096 targets.
 
