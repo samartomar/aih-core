@@ -736,8 +736,8 @@ Core never renders Catalog content itself and never bundles a Catalog. Pass the 
 `write` steps and Markdown `merge` blocks with a `render` and for recipe proofs.
 
 ```js
-import { renderStep, planRecipe } from '@aihq/catalog/reader';
-const controls = { catalog: { version: '<the installed @aihq/catalog version>', renderStep, planRecipe } };
+import { renderStep, readRecipe, planRecipe } from '@aihq/catalog/reader';
+const controls = { catalog: { version: '<the installed @aihq/catalog version>', renderStep, readRecipe, planRecipe } };
 const prepared = await prepare({ ...request, recipeProof: { pluginJson, recipeJson, choices, options } }, controls);
 ```
 
@@ -764,7 +764,7 @@ const prepared = await prepare({ ...request, recipeProof: { pluginJson, recipeJs
   reference is a warning and installs.
 - **Receipts** record the Catalog `version` and the profile ids and versions each management id was planned with;
   `list` shows them as `catalog` and `profiles`.
-- **Recipe origin.** A plan's `recipe` is only a claim. With `recipeProof` (the recipe plugin's exact `plugin.json` and
+- **Recipe origin.** Supply the planner’s public `readRecipe` to verify its canonical identity. Without it Core checks the exact recipe file digest. A plan's `recipe` is only a claim. With `recipeProof` (the recipe plugin's exact `plugin.json` and
   `recipe.json` text, and the planner `choices` and `options`; Core supplies `scope` and `source` itself), Prepare checks
   the `recipe.json` sha256 against `plan.recipe.sha256`, re-runs `planRecipe` with the request's contents, profiles and
   qualifications, and compares the result with the plan byte for byte. A match records the origin
@@ -1262,6 +1262,7 @@ The organization document `urn:aihq:core:organization:0.1.0` holds `entries`, `s
   (`change-not-admitted`); each explicit, default or secret input needs a permission (`allowDeclared`, `fixed` or
   `choices`; a secret only `allowDeclared`); a reviewed `replace` or `adopt` needs that lifecycle permission; removing
   a change needs `lifecycle.remove`. Content entries govern plans and change entries govern changes.
+- **Allowed frameworks** (optional): Set `sources.frameworks` to the framework IDs allowed for Catalog plan content. An empty list denies all framework content. Omit the field to keep the default. Authored changes follow their separate change entries.
 - **Sources** (C31): `sources.published: [{ repository, commit? }]` lists the data repositories a plan may come from,
   optionally pinned (`source-published`, `source-pin`); `sources.own.kinds` lists the kinds own content (`data: null`)
   may have (`own-content`). Without a rule, any repository and all own content are allowed.

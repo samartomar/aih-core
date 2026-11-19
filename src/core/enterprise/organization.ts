@@ -28,7 +28,7 @@ export type OrganizationEntry = ContentEntry | ChangeEntry;
 export interface ScanSigner { identity?: string; issuer: string; subject: string; extensions?: { [field: string]: Json } }
 export interface Organization {
   schema: typeof ORGANIZATION; id: string; entries: OrganizationEntry[];
-  sources?: { published?: { repository: string; commit?: string }[]; own?: { kinds?: string[] } };
+  sources?: { frameworks?: string[]; published?: { repository: string; commit?: string }[]; own?: { kinds?: string[] } };
   scanSigners?: { replace?: ScanSigner[]; add?: ScanSigner[] };
 }
 export type OrganizationResult = { status: 'ok'; value: Organization } | { status: 'invalid'; problems: Problem[] } |

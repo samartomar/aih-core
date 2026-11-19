@@ -128,7 +128,7 @@ function adapt(input: SupportInput, options: SupportOptions): Adapted | Diagnost
       for (const key of Reflect.ownKeys(wrapper.result)) {
         const descriptor = Object.getOwnPropertyDescriptor(wrapper.result, key);
         if (typeof key !== 'string' || !descriptor || !('value' in descriptor)) return invalid();
-        if (key === 'prepared') continue;
+        if (key === 'prepared' || key === 'handle') continue;
         if (!descriptor.enumerable) return invalid();
         Object.defineProperty(serializable, key, { value: descriptor.value, enumerable: true });
       }
@@ -139,6 +139,26 @@ function adapt(input: SupportInput, options: SupportOptions): Adapted | Diagnost
     assertStrictJsonValueV1(snapshot, 'support input');
     if (new TextEncoder().encode(canonicalJson(snapshot)).length > 1_000_000) return invalid();
     const kind = snapshot.kind as SupportInput['kind'];
+    const current = snapshot.result as Data;
+    const review = object(current.review) ? current.review : undefined;
+    const schema = kind === 'run' ? current.schema : kind === 'prepare' ? review?.schema : undefined;
+    if (schema === 'urn:aihq:core:review:0.1.0' && kind === 'prepare' ||
+        schema === 'urn:aihq:core:run:0.1.0' && kind === 'run') {
+      const prepared = kind === 'prepare';
+      if (schemaProblems(schema, prepared ? review : current) ||
+          (prepared && (!oneOf(current.status, ['ready','partial','blocked']) ||
+            (current.code !== undefined && (current.code !== 'AUTHORITY_DENIED' || current.status !== 'blocked')) ||
+            (current.reason !== undefined && typeof current.reason !== 'string') ||
+            Object.keys(current).some(key => !['status','review','code','reason'].includes(key)))) ||
+          snapshot.repair !== undefined) return invalid();
+      const steps = (prepared ? review!.steps : current.steps) as Data[];
+      const facts: GuidanceFact[] = [{ kind:'status', evidenceId:prepared ? '/status' : '/completion',
+        value:(prepared ? current.status : current.completion) as string }];
+      if (current.code === 'AUTHORITY_DENIED') facts.push({kind:'diagnostic',evidenceId:'/code',code:'AUTHORITY_DENIED',reason:'policy-denied'});
+      if (!prepared) steps.forEach((step,index) => facts.push({kind:'operation',evidenceId:'/steps/'+index,
+        application:step.application as string,verification:(step.verification as Data).status as string,reason:''}));
+      return { kind, result:current, request:{kind,platform:optionData.platform,useCase:'policy',facts} };
+    }
     // An inspection 0.1.0 (`inspect`) is read as the retained inspection it presents: its observation is the status
     // and each tool is named by its inspection target.
     const modern = kind === 'inspect' && (snapshot.result as Data).schema === INSPECTION;
@@ -246,10 +266,10 @@ export function renderSupportMarkdown(input: SupportInput, options: SupportOptio
   const packageData = kind === 'inspect' ? result.package : kind === 'prepare' ?
     object(result.review) ? bound(result.review.inputs) : undefined : bound(result.inputs);
   const checks = Array.isArray(result.checks) ? result.checks as Data[] : [];
-  const operations = Array.isArray(result.operations) ? result.operations : object(result.review) && Array.isArray(result.review.operations) ? result.review.operations : [];
+  const operations = Array.isArray(result.steps) ? result.steps : object(result.review) && Array.isArray(result.review.steps) ? result.review.steps : Array.isArray(result.operations) ? result.operations : object(result.review) && Array.isArray(result.review.operations) ? result.review.operations : [];
   const lines = ['# Support report\n', `Package: ${identity(packageData)}\n`, `Result: ${kind}\n`,
     `Status: ${escape((kind === 'run' ? result.completion : result.status) as string)}\n`,
-    `Counts: ${checks.length} checks; ${operations.length} operations; ${(result.diagnostics as unknown[]).length} diagnostics; ${items.length} guidance items.\n`,
+    `Counts: ${checks.length} checks; ${operations.length} operations; ${Array.isArray(result.diagnostics) ? result.diagnostics.length : 0} diagnostics; ${items.length} guidance items.\n`,
     'Application or presence is not verification. Partial, incomplete or cancelled results require review of completed effects and missing verification.\n',
     'Review this report before sharing it. Repair suggestions require a separate fresh preparation, review and explicit authorization.\n'];
   let bytes = new TextEncoder().encode(lines.join('\n')).length;

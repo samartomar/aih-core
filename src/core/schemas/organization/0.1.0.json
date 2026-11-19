@@ -12,6 +12,7 @@
     "sources": {
       "type": "object", "additionalProperties": false,
       "properties": {
+        "frameworks": { "type": "array", "maxItems": 4096, "uniqueItems": true, "items": { "$ref": "#/$defs/id" } },
         "published": { "type": "array", "maxItems": 256, "items": {
           "type": "object", "additionalProperties": false, "required": ["repository"],
           "properties": { "repository": { "type": "string", "minLength": 1, "maxLength": 512 }, "commit": { "type": "string", "minLength": 1, "maxLength": 128 } } } },
