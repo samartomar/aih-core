@@ -85,8 +85,9 @@ export function planControls(controls: unknown): PlanControls | undefined {
     const catalog = value.catalog;
     if (!catalog || typeof catalog !== 'object' || Array.isArray(catalog) || typeof catalog.version !== 'string' ||
         catalog.version.length === 0 || catalog.version.length > 64 ||
-        Object.keys(catalog).some(key => !['version', 'renderStep', 'planRecipe'].includes(key)) ||
+        Object.keys(catalog).some(key => !['version', 'renderStep', 'planRecipe', 'readRecipe'].includes(key)) ||
         catalog.renderStep !== undefined && typeof catalog.renderStep !== 'function' ||
+        catalog.readRecipe !== undefined && typeof catalog.readRecipe !== 'function' ||
         catalog.planRecipe !== undefined && typeof catalog.planRecipe !== 'function') return undefined;
   }
   if (value.onProgress !== undefined && typeof value.onProgress !== 'function') return undefined;

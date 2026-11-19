@@ -31,7 +31,13 @@ export async function proveOrigin(request: PlanRequest, controls: PlanControls):
   const planRecipe = controls.catalog?.planRecipe;
   if (typeof planRecipe !== 'function') return { status: 'refused', code: 'catalog-required',
     reason: `Proving the origin of recipe \`${recipe.id}\` needs the Catalog that made the plan (\`controls.catalog.planRecipe\`).` };
-  if (createHash('sha256').update(proof.recipeJson, 'utf8').digest('hex') !== recipe.sha256) return unproven;
+  if (controls.catalog?.readRecipe) {
+    // The same reader that made the plan owns the canonical recipe identity.
+    try {
+      const read = controls.catalog.readRecipe(Buffer.from(proof.pluginJson), Buffer.from(proof.recipeJson));
+      if (read.status !== 'ok' || read.sha256 !== recipe.sha256) return unproven;
+    } catch { return unproven; }
+  } else if (createHash('sha256').update(proof.recipeJson, 'utf8').digest('hex') !== recipe.sha256) return unproven;
   const options: Record<string, Json> = { ...(proof.options ?? {}), scope: request.scope,
     source: { repository: recipe.repository, commit: recipe.commit },
     ...(request.qualifications?.length ? { qualifications: structuredClone(request.qualifications) } : {}) };

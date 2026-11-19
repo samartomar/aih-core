@@ -736,8 +736,8 @@ Core never renders Catalog content itself and never bundles a Catalog. Pass the 
 `write` steps and Markdown `merge` blocks with a `render` and for recipe proofs.
 
 ```js
-import { renderStep, planRecipe } from '@aihq/catalog/reader';
-const controls = { catalog: { version: '<the installed @aihq/catalog version>', renderStep, planRecipe } };
+import { renderStep, readRecipe, planRecipe } from '@aihq/catalog/reader';
+const controls = { catalog: { version: '<the installed @aihq/catalog version>', renderStep, readRecipe, planRecipe } };
 const prepared = await prepare({ ...request, recipeProof: { pluginJson, recipeJson, choices, options } }, controls);
 ```
 
@@ -764,7 +764,7 @@ const prepared = await prepare({ ...request, recipeProof: { pluginJson, recipeJs
   reference is a warning and installs.
 - **Receipts** record the Catalog `version` and the profile ids and versions each management id was planned with;
   `list` shows them as `catalog` and `profiles`.
-- **Recipe origin.** A plan's `recipe` is only a claim. With `recipeProof` (the recipe plugin's exact `plugin.json` and
+- **Recipe origin.** Supply the planner’s public `readRecipe` to verify its canonical identity. Without it Core checks the exact recipe file digest. A plan's `recipe` is only a claim. With `recipeProof` (the recipe plugin's exact `plugin.json` and
   `recipe.json` text, and the planner `choices` and `options`; Core supplies `scope` and `source` itself), Prepare checks
   the `recipe.json` sha256 against `plan.recipe.sha256`, re-runs `planRecipe` with the request's contents, profiles and
   qualifications, and compares the result with the plan byte for byte. A match records the origin

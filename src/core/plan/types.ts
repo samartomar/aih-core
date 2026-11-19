@@ -53,6 +53,7 @@ export interface PlanRequest {
 export interface CatalogControls {
   version: string;
   renderStep?: (step: Json, contents: Json[], profiles: Json[], files: { sourceId: string; sourcePath: string; bytes: Uint8Array }[]) => unknown;
+  readRecipe?: (plugin: Uint8Array, recipe: Uint8Array) => { status: string; sha256?: string };
   planRecipe?: (recipe: Json, contents: Json[], profiles: Json[], choices: Json, options: Json) => unknown;
 }
 /** Controls for plan requests; the rest of `HostControls` stays with the older request formats. */

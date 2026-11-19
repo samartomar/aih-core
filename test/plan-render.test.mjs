@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { apply, list, prepare, prepareRemoval } from '../dist/core/index.js';
-import { validateFormat } from '../dist/core/contracts.js';
+import { getGuidance, renderSupportMarkdown, validateFormat } from '../dist/core/contracts.js';
 import * as reader from './fixtures/catalog-node-fixture/reader.mjs';
 import { renderRequest } from './fixtures/plan-fixture.mjs';
 
@@ -133,7 +133,16 @@ test('a recipe origin is recorded only when Core reproduces the plan byte for by
   assert.equal(prepared.status, 'ready', JSON.stringify(prepared));
   conforms(prepared.review);
   assert.deepEqual([prepared.review.origin, prepared.review.originNote], [PROVEN, null]);
-  assert.equal((await apply(prepared.handle, approve(prepared.review))).completion, 'complete');
+  const result = await apply(prepared.handle, approve(prepared.review));
+  assert.equal(result.completion,'complete');
+  for (const input of [{kind:'prepare',result:prepared},{kind:'run',result}]) {
+    assert.equal(getGuidance(input,{platform:process.platform}).status,'complete');
+    assert.equal(renderSupportMarkdown(input,{platform:process.platform}).status,'rendered');
+  }
+  const normalised = await outcome(request => { request.recipeProof.recipeJson += '\n'; }, catalog({
+    readRecipe: (_plugin, bytes) => ({ status:'ok', sha256:createHash('sha256').update(Buffer.from(bytes).subarray(0,-1)).digest('hex') })
+  }));
+  assert.deepEqual(normalised.prepared.review.origin, PROVEN);
   const row = await entryOf(target);
   assert.deepEqual([row.origin, row.data], [PROVEN, PROVEN.data]);
   conforms(await list({ target: { project: target }, scope: 'project' }));
