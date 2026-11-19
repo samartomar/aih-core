@@ -243,7 +243,12 @@ export async function observeClaudePluginsWith(request, selectedHost) {
       'client-state-outside-workspace', 'client-state-unconfirmed'].includes(error.message) ? error.message : 'input-unavailable');
   }
   if (started.status !== 'started') {
-    if (started.partial) await started.partial.terminate({ graceMs: 0, deadlineMs: CLEANUP_MS });
+    if (started.partial) {
+      try {
+        const cleanup = await started.partial.terminate({ graceMs: 0, deadlineMs: CLEANUP_MS });
+        if (cleanup.processes !== 'confirmed') return fail('cleanup-unconfirmed');
+      } catch { return fail('cleanup-unconfirmed'); }
+    } else if (started.cleanup?.confirmed === false) return fail('cleanup-unconfirmed');
     return fail('containment-unavailable');
   }
   const child = started.handle, chunks = [];

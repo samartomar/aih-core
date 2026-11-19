@@ -181,6 +181,18 @@ test('nonzero exit, excessive output and unconfirmed cleanup cannot produce obse
   }
 });
 
+test('partial launch cleanup failures are typed unconfirmed results, never rejected promises', async t => {
+  const f = fixture(t);
+  for (const terminate of [async () => ({ processes: 'unresolved' }), async () => { throw Error('cleanup failed'); }]) {
+    const result = await observeClaudePluginsWith(f.request, { ...f.host,
+      start: async () => ({ status: 'unavailable', partial: { terminate } }) });
+    assert.equal(result.status, 'unconfirmed');assert.equal(result.reason, 'cleanup-unconfirmed');
+  }
+  const result = await observeClaudePluginsWith(f.request, { ...f.host,
+    start: async () => ({ status: 'unavailable', cleanup: { confirmed: false } }) });
+  assert.equal(result.reason, 'cleanup-unconfirmed');
+});
+
 test('deadline closes the owned process tree without waiting indefinitely for protocol output', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const f = fixture(t, { hang: true });
