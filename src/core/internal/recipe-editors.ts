@@ -64,6 +64,22 @@ export function parsedObject(text: string, format: 'json' | 'jsonc'): Node {
   walk(root);
   return root;
 }
+function checkJsonParents(root: Node, path: string[]): void {
+  for (let length = 1; length < path.length; length += 1) {
+    const parent = findNodeAtLocation(root, path.slice(0, length));
+    if (parent && parent.type !== 'object') fail('unsupported-json-path');
+  }
+}
+
+/** Compare the managed value without changing the byte identity used for ownership and removal. */
+export function matchesJsonPlanEntry(before: Buffer, path: string[], value: Json): boolean {
+  validateEntries([{ path, action: 'set', value }]);
+  const root = parsedObject(decode(before), 'jsonc');
+  checkJsonParents(root, path);
+  const member = findNodeAtLocation(root, path);
+  return member !== undefined && canonicalJson(getNodeValue(member)) === canonicalJson(value);
+}
+
 function jsonEdit(format: 'json' | 'jsonc', before: Buffer | null, entries: ConfigEntry[]): Buffer {
   let text = decode(before);
   if (before === null) text = '{}\n';
@@ -71,10 +87,7 @@ function jsonEdit(format: 'json' | 'jsonc', before: Buffer | null, entries: Conf
   const eol = text.includes('\r\n') ? '\r\n' : '\n';
   for (const entry of entries) {
     const root = parsedObject(text, format);
-    for (let length = 1; length < entry.path.length; length += 1) {
-      const parent = findNodeAtLocation(root, entry.path.slice(0, length));
-      if (parent && parent.type !== 'object') fail('unsupported-json-path');
-    }
+    checkJsonParents(root, entry.path);
     try {
       text = applyEdits(text, modify(text, entry.path, entry.action === 'set' ? entry.value : undefined,
         { formattingOptions: { insertSpaces: true, tabSize: 2, eol } }));
