@@ -37,6 +37,7 @@ export { inspectToolHost } from './tool-host.mjs';
 export { inspectUserToolTrust } from './user-trust.mjs';
 import { inspectUserToolTrust, windowsDirectory, windowsDirectorySource } from './user-trust.mjs';
 export { detectProjectFacts } from './project-facts.mjs';
+export { observeClaudePlugins } from './claude-plugins.mjs';
 export { renderMacosSessionLaunchAgent,
   observeMacosGuiSession, observeMacosApplication, readMacosGuiDomainKey } from './macos-session-public.mjs';
 export { discoverTrustSources, parseTrustOutput, serializeTrustSet, reviewTrustDelta, hashTrustSourceSet,

@@ -22,7 +22,7 @@ const expectedRuntimeNames = {
     'repairIndex', 'selectTool', 'signerRecords', 'targets', 'toolRegistry', 'trustCapabilities', 'trustLimits', 'trustPlatformMatrix',
     'validateNativeTestIdentity', 'validateNativeVerificationDefinition', 'validateToolRegistry'],
   '@aihq/core/harness/runtime': ['detectProjectFacts', 'diagnose', 'discoverTrustSources', 'hashTrustSourceSet', 'inspectToolHost', 'inspectUserToolTrust',
-    'parseTrustOutput', 'readGitHubPolicy', 'readLocalPolicy', 'reviewTrustDelta', 'serializeTrustSet']
+    'observeClaudePlugins', 'parseTrustOutput', 'readGitHubPolicy', 'readLocalPolicy', 'reviewTrustDelta', 'serializeTrustSet']
 };
 // Contract 4: every format, each at 0.1.0, with one schema and one valid and one invalid fixture.
 const expectedFormats = ['change', 'change-request', 'claims', 'export-inputs', 'export-request', 'file-check', 'inspection', 'inventory',

@@ -164,6 +164,8 @@ export { inspectToolHost } from './tool-host.mjs';
 export type { ToolHostItemReference, ToolHostItem, ToolHostRequest, ToolHostControls, ToolHostCopy, ToolHostBlocker,
   ToolHostWarning, ToolHostUnchecked, ToolHostItemResult, ToolHostLimits, ToolHostResult } from './tool-host.mjs';
 export { detectProjectFacts } from './project-facts.mjs';
+export { observeClaudePlugins } from './claude-plugins.mjs';
+export type { ObserveClaudePluginsRequest, ObserveClaudePluginsResult, ObservedClaudePlugin } from './claude-plugins.mjs';
 export type { ProjectFact, ProjectFactField, ProjectFactConfidence, DetectProjectFactsRequest, DetectProjectFactsControls,
   DetectProjectFactsResult, DetectProjectFactsLimits, DetectProjectFactsDiagnostic } from './project-facts.d.mts';
 export { renderMacosSessionLaunchAgent,

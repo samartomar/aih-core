@@ -1585,6 +1585,52 @@ disabled verification. They do not qualify Windows/macOS stores, Linux native
 admission, real user accounts or client sessions. Those exact native tuples
 remain independently gated.
 
+## Claude Code plugin readback
+
+`observeClaudePlugins({ project, home })` from `@aihq/core/harness/runtime`
+explicitly starts the installed native Claude executable to enumerate plugins
+through its `initialize` and `reload_plugins` control responses. It sends no user
+prompt or model-turn request. This observation is separate from `verifyClient`
+qualification and does not establish that a plugin's hooks, tools or native
+operations work.
+
+Supply an owned, disposable project and a separate credential-free home; the
+actual account home, overlapping directories and linked paths are refused. The
+helper preserves `<home>/.claude`, including that workspace's existing plugin
+registration and cache. It never registers or force-loads a plugin. Claude may
+write its ordinary bookkeeping under the supplied home. Project settings are read
+normally; user and local settings are excluded. The fixed invocation uses
+[`--bare`](https://code.claude.com/docs/en/cli-reference), disables hooks, plugin sync, LSP, keychain reads and nonessential
+traffic, and supplies an empty strict MCP configuration. These restrictions keep
+this prompt-free plugin readback from executing project hooks or activating MCP
+servers; they do not verify those behaviors. Known restrictive or unreadable
+machine settings refuse the observation; registry, MDM and server policy sources
+are not independently audited by this helper.
+
+The supplied Claude registration/cache tree, home bookkeeping file and project
+settings tree are checked for symbolic links, junctions and hard-linked files
+before launch and after cleanup. Named local marketplace/cache inputs must stay
+inside the project or supplied home and receive the same checks. Remote
+marketplace declarations remain permitted because synchronization is disabled.
+The shared walk admits at most 8,192 entries and 32 directory levels; inspected
+settings/registry JSON is limited to 1 MiB per file and 4 MiB total. An unsafe,
+unreadable or out-of-cell input returns unconfirmed rather than plugin absence.
+
+The result is `{ status, plugins, checkedAt, ... }`. A complete, valid,
+error-free response returns `status: 'observed'` and each plugin's `name`, `source`,
+`path`, `builtin` and optional `version`. Built-in entries and unrelated plugin
+copies stay distinct: a consumer must match its expected source and actual
+managed path. `status: 'unconfirmed'` with a reason and empty list means the check
+could not establish a complete observation; it never establishes absence.
+Malformed, incomplete, nonzero-error or unexpected protocol responses fail
+closed. Current native support is Windows x64 with the shipped Windows Job
+facility; other platforms or missing containment return unconfirmed. Executable
+lookup excludes project/home PATH entries and never invokes command shims or a
+shell. Native executables are bounded to 512 MiB. Combined stdout/stderr is bounded to 1 MiB, client execution to 20 seconds and
+process-tree cleanup to another 5 seconds. An unconfirmed cleanup cannot produce
+an observed result. This is an owned-workspace observation, not a filesystem
+sandbox for an adversarial project that changes during the check.
+
 ## Development checks
 
 Source lives in [`samartomar/aih-core`](https://github.com/samartomar/aih-core).

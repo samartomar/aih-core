@@ -1,5 +1,7 @@
 export { diagnose, inspectToolHost, detectProjectFacts, readGitHubPolicy, readLocalPolicy,
-  discoverTrustSources, parseTrustOutput, serializeTrustSet, reviewTrustDelta, hashTrustSourceSet, inspectUserToolTrust } from './runtime.mjs';
+  discoverTrustSources, parseTrustOutput, serializeTrustSet, reviewTrustDelta, hashTrustSourceSet, inspectUserToolTrust,
+  observeClaudePlugins } from './runtime.mjs';
+export type { ObserveClaudePluginsRequest, ObserveClaudePluginsResult, ObservedClaudePlugin } from './runtime.mjs';
 export type { DiagnoseRequest, DiagnoseControls, DiagnoseResult, PersistedTrust, PersistedTrustEntry,
   GitHubPolicySource, GitHubPolicyReaderControls, GitHubPolicyReaderIdentity, GitHubPolicyReaderAccounting, ReadGitHubPolicyResult,
   LocalPolicySource, LocalPolicyReaderIdentity, ReadLocalPolicyResult,
