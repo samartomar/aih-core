@@ -125,6 +125,14 @@ const historicalLinuxAdmission = deepFreeze({
   evidenceSha256: 'a8c226d1c56764a6c773268186a79a3643e5a5d0afc2acd9f9708faa9de50947'
 });
 
+// The executable route recognizes only exact admitted definitions in this distribution's active registry.
+export function isActiveNativeAdmission(value) {
+  try {
+    return nativeVerificationDefinitions.some(active => active.state === 'admitted' &&
+      canonicalJson(active) === canonicalJson(snapshotNativeData(value)));
+  } catch { return false; }
+}
+
 const diagnostic = (reason, path) => ({ code: 'INPUT_INVALID', reason, message: 'Invalid native verification field.', path });
 const SEMVER_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]{1,64})?$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
