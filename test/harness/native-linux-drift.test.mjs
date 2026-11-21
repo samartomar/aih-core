@@ -75,7 +75,7 @@ async function platformCopy(t, { libc } = {}) {
   mkdirSync(join(directory, 'linux'));
   copyFileSync(fileURLToPath(new URL('canonical.mjs', native)), join(directory, 'canonical.mjs'));
   const source = readFileSync(fileURLToPath(new URL('linux-platform.mjs', native)), 'utf8');
-  const token = "node: '24.19.0'";
+  const token = "node: '26.12.1'";
   assert.equal(source.split(token).length, 2, "VERSIONS node token must appear exactly once");
   const patched = source.replace(token, () => `node: '${process.version.slice(1)}'`);
   writeFileSync(join(directory, 'linux-platform.mjs'), patched);

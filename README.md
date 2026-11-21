@@ -380,11 +380,10 @@ admission, security, cleanup and limits. Each format has one 0.1.0 schema in
 `/contracts` `schemas`: `native-verification-request`, `-result`, `-bundle` (a
 supplied configuration names its tool by registry id), `-definition` and
 `native-test-identity` (a dedicated test identity names `claude-code`). The
-bundled definitions are published as `nativeClientDefinitions` from
-`@aihq/core/harness`. They are the retained definitions with only `schema` and
-`client` renamed; definition ids, admission and `evidenceSha256` are unchanged.
-The `aih-linux-facility` bin is the fixed Linux x64 process observer the admitted
-Linux cell launches the client under: an observer, not a sandbox. A 0.1.0
+active definitions are published as `nativeClientDefinitions` from
+`@aihq/core/harness`. The definition schema also validates the exact historical
+admitted descriptor for readers of earlier evidence. The `aih-linux-facility`
+bin supplies Linux x64 process observation to the active WSL2 candidate. A 0.1.0
 request reads only a 0.1.0 bundle.
 
 Still pending live observation, and not claimed by any result: an unattended
@@ -562,11 +561,11 @@ bytes fail closed. Dedicated identity still requires operator provisioning and
 same-session authentication evidence. The candidate has no whole-client isolation
 mechanism, so useful hygiene evidence remains incomplete/unverified. See
 [Windows facilities and dedicated identity preparation](docs/native-windows-verification.md).
-The separate admitted Linux x64 WSL2 definition wraps the entire workload in pinned
-Anthropic Sandbox Runtime 0.0.78 and uses a bundled Linux kernel observer for
-process ownership, authenticated IPC and cleanup. It requires the exact client,
-kernel and runtime byte closure recorded by its definition metadata. Admission
-is limited to the exact tested version and environment described above.
+The Linux x64 WSL2 candidate wraps the entire workload with the pinned AIH Core
+build of Anthropic Sandbox Runtime `0.0.78-aihq.1`. The bundled Linux kernel
+observer checks process ownership, authenticated IPC and cleanup. The candidate
+requires the exact client version, kernel and runtime byte closure recorded for
+its environment. The earlier admitted artifact retains its own evidence record.
 See [Linux isolation, prerequisites and limitations](docs/native-linux-verification.md).
 Controlled facility and synthetic session checks do not establish native acceptance.
 

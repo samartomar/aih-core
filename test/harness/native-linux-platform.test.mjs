@@ -5,7 +5,7 @@ import { validateLinuxPlatformRecord, validateLinuxLibraryAliasInventory, window
 const hash = 'a'.repeat(64);
 const artifact = version => ({ version, sha256: hash, byteLength: 123 });
 const record = () => ({ schemaVersion: '1.0.0', platform: 'linux-x64', roles: {
-  node: artifact('24.19.0'), client: artifact('2.1.285'), bash: artifact('5.3-2ubuntu1'),
+  node: artifact('26.12.1'), client: artifact('2.1.285'), bash: artifact('5.3-2ubuntu1'),
   env: artifact('0.8.0-0ubuntu3'), bwrap: artifact('0.11.1-1ubuntu0.3'),
   socat: artifact('1.8.1.1-1ubuntu0.1'), rg: artifact('15.1.0-1ubuntu1'), which: artifact('5.23.2build1'), wslinfo: null
 }, libraries: [{ path: '/usr/lib/x86_64-linux-gnu/libc.so.6', sha256: hash, byteLength: 123 },
@@ -15,7 +15,7 @@ readFiles: [{ path: '/usr/bin/dash', aliases: ['/bin/sh', '/usr/bin/sh'], sha256
 
 test('fixed platform source record accepts only exact version and byte references', () => {
   assert.equal(validateLinuxPlatformRecord(record()), true);
-  for (const change of [r => { r.roles.node.version = '24.19.1'; }, r => { r.roles.bwrap.version = '0.11.1-1ubuntu0.1'; },
+  for (const change of [r => { r.roles.node.version = '24.19.0'; }, r => { r.roles.bwrap.version = '0.11.1-1ubuntu0.1'; },
     r => { r.roles.env.path = '/caller/program'; }, r => { r.roles.client.sha256 = 'A'.repeat(64); },
     r => { r.roles.client.byteLength = 268435457; }, r => { r.roles.client.sha256 = hash + '\n'; }, r => { r.roles.shell = artifact('1'); },
     r => { r.wsl.networkingMode = 'mirrored'; }, r => { r.libraries[0].path = '/home/owner/.ssh/id_rsa'; },

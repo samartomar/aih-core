@@ -8,7 +8,7 @@ import { posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { hasExactKeys, parseStrictJson, snapshotNativeData } from './canonical.mjs';
 
-const VERSIONS = Object.freeze({ node: '24.19.0', client: '2.1.285', bash: '5.3-2ubuntu1',
+const VERSIONS = Object.freeze({ node: '26.12.1', client: '2.1.285', bash: '5.3-2ubuntu1',
   env: '0.8.0-0ubuntu3', bwrap: '0.11.1-1ubuntu0.3', socat: '1.8.1.1-1ubuntu0.1', rg: '15.1.0-1ubuntu1', which: '5.23.2build1' });
 const MAX_FILE = 268435456;
 const SOURCE = fileURLToPath(new URL('./linux/runtime-platform.json', import.meta.url));

@@ -33,9 +33,9 @@
       "byteLength": 1080
     },
     "node": {
-      "version": "24.19.0",
-      "sha256": "bc17c508ffeed0ec622934f9b7fa72f8e78da65350e63c3eceb56fa688aa5e12",
-      "byteLength": 125989464
+      "version": "26.12.1",
+      "sha256": "08f12d42fb304468e8ee86247fe686aae5b225836ea65e9d6566c11ae6ba2e8e",
+      "byteLength": 150319168
     },
     "client": {
       "version": "2.1.285",
@@ -95,6 +95,14 @@
       "path": "/usr/lib/x86_64-linux-gnu/libgcc_s.so.1",
       "sha256": "9d339ecb409578d6a5d587e6c537a8f9589b8a13fefba30d167433a4b5758bee",
       "byteLength": 187120
+    },
+    {
+      "path": "/usr/lib/x86_64-linux-gnu/libatomic.so.1.2.0",
+      "sha256": "eac440708f874c4d446671efb5353cebeaa829bd1f18cd8d5065cd6efefa387b",
+      "byteLength": 35120,
+      "aliases": [
+        "/usr/lib/x86_64-linux-gnu/libatomic.so.1"
+      ]
     },
     {
       "path": "/usr/lib/x86_64-linux-gnu/libtinfo.so.6.6",

@@ -31,14 +31,14 @@ native two-session acceptance nor admission.
 
 The bundled `claude-linux-x64-wsl2-srt-2.1.285-wsl-3.0.5.0` definition is a
 candidate for Claude Code 2.1.285 on Ubuntu 26.04.1 x64 with WSL 3.0.5.0, kernel
-`6.18.58.1-microsoft-standard-WSL2`, NAT networking, Node 24.19.0 and the exact
+`6.18.58.1-microsoft-standard-WSL2`, NAT networking, Node 26.12.1 and the exact
 runtime bytes in `dist/harness/native/linux/runtime-platform.json`. This tuple
 uses the bundled Sandbox Runtime derivative `0.0.78-aihq.1`. Both Linux and
 Windows definitions have null evidence and require `candidate-smoke`. Candidate
 results cannot change admission.
 
 The previous Linux definition `claude-linux-x64-wsl2-srt-2.1.285` was admitted for
-kernel `6.18.33.2-microsoft-standard-WSL2`. The reviewed batch evidence with digest
+kernel `6.18.33.2-microsoft-standard-WSL2` and Node 24.19.0. The reviewed batch evidence with digest
 `a8c226d1c56764a6c773268186a79a3643e5a5d0afc2acd9f9708faa9de50947` belongs to
 the Core `1.0.0-dev.27` packed artifact. Core `1.0.0-dev.28` recorded that
 promotion. The portable validator and definition schemas still read that exact
