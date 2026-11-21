@@ -92,8 +92,8 @@ const fakeCli = (name, line) => {
 fakeCli('codex', 'codex-cli 0.150.0');
 fakeCli('claude', '2.1.400 (Claude Code)');
 // Only the fixture CLIs, Node and (on Windows) the system folder that runs .cmd files: no real CLI of this host is seen.
+for (const key of Object.keys(process.env)) if (key.toUpperCase() === 'PATH') delete process.env[key];
 process.env.PATH = [bin, dirname(process.execPath), ...(process.platform === 'win32' ? [join(process.env.SystemRoot ?? 'C:\\Windows', 'System32')] : ['/usr/bin', '/bin'])].join(delimiter);
-for (const key of Object.keys(process.env)) if (key !== 'PATH' && key.toUpperCase() === 'PATH') delete process.env[key];
 const profiles = [
   { schema: 'urn:aihq:catalog:tool-profile:0.1.0', id: 'codex', name: 'Codex', version: 3, checkedWith: [{ app: 'codex', version: '0.166.0', date: '2026-11-02' }] },
   { schema: 'urn:aihq:catalog:tool-profile:0.1.0', id: 'claude-code', name: 'Claude Code', version: 4, checkedWith: [{ app: 'claude-code', version: '2.1.316', date: '2026-11-02' }] },
