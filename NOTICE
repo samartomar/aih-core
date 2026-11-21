@@ -24,11 +24,11 @@ or native-client admission.
 
 ## Bundled sandbox runtime
 
-The package includes the unmodified Anthropic Sandbox Runtime 0.0.78 and its
-locked JavaScript dependencies. Their original license and copyright files remain
-in their bundled node_modules directories. The runtime is Apache-2.0-licensed. The fixed
-Harness integration does not grant native-client admission or general sandbox
-configuration authority.
+The package includes Anthropic Sandbox Runtime 0.0.78, copyright Anthropic PBC,
+with an AIH Core backport identified as 0.0.78-aihq.1. The backport uses the Zod 4
+schema API and pins updated Zod and Forge releases. Original license and copyright
+files remain in the bundled node_modules directories. The runtime is licensed
+under Apache-2.0. Harness uses it with a fixed Linux verification profile.
 
 ## Bundled TUF client
 

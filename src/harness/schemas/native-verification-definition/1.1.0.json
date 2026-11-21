@@ -114,7 +114,7 @@
   },
   "allOf": [
     {
-      "$comment": "Admission is a registry fact: an admitted descriptor must equal one registered admitted definition exactly.",
+      "$comment": "Recognizes an exact historical admission document. Execution selects from the separate active registry.",
       "if": { "properties": { "state": { "const": "admitted" } }, "required": ["state"] },
       "then": {
         "enum": [

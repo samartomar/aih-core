@@ -9,7 +9,9 @@ if (!['--check', '--write'].includes(process.argv[2]) || process.argv.length !==
 const root = fileURLToPath(new URL('../', import.meta.url));
 const file = join(root, 'src/harness/native/linux/runtime-lock.json');
 const names = ['@anthropic-ai/sandbox-runtime', '@pondwader/socks5-server', 'commander', 'node-forge', 'zod'];
+const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 const npmLock = JSON.parse(readFileSync(join(root, 'package-lock.json'), 'utf8'));
+const provenance = JSON.parse(readFileSync(join(root, 'vendor/sandbox-runtime/provenance.json'), 'utf8'));
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const packages = names.map(name => {
   const directory = join(root, 'node_modules', name), files = [];
@@ -31,9 +33,21 @@ const packages = names.map(name => {
   if (record.version !== manifest.version || manifest.name !== name || typeof record.integrity !== 'string') throw Error('Lock identity mismatch');
   return { name, version: manifest.version, integrity: record.integrity, files };
 });
-const record = { format: 1, vendor: { name: names[0], version: '0.0.78',
-  releaseCommit: '6f0ce155ccb136bda33a8a72201fe7f54fe47d9b',
-  archiveIntegrity: 'sha512-YAIcybXTp7MZkBjasnkR1E3yxnf7u6kUkyW0vZrtsAZ9tyJGMaugWETmquPZs0YvW0sR0VnZeMfS0gsN/wQiVQ==' },
+const [vendor] = packages;
+const archivePath = `vendor/sandbox-runtime/anthropic-ai-sandbox-runtime-${vendor.version}.tgz`;
+if (vendor.name !== provenance.name || vendor.version !== provenance.version ||
+    manifest.dependencies[vendor.name] !== vendor.version || npmLock.packages[''].dependencies[vendor.name] !== vendor.version ||
+    npmLock.packages[`node_modules/${vendor.name}`].resolved !== `file:${archivePath}`)
+  throw Error('Sandbox runtime provenance mismatch');
+const archive = readFileSync(join(root, archivePath));
+if (vendor.integrity !== `sha512-${createHash('sha512').update(archive).digest('base64')}`) throw Error('Sandbox runtime archive integrity mismatch');
+for (const [name, patched] of Object.entries(provenance.patchedDependencies)) {
+  const dependency = packages.find(value => value.name === name);
+  if (dependency?.version !== patched.version || dependency.integrity !== patched.integrity)
+    throw Error(`Sandbox runtime dependency provenance mismatch: ${name}`);
+}
+const record = { format: 1, vendor: { name: vendor.name, version: vendor.version,
+  releaseCommit: provenance.upstreamReleaseCommit, archiveIntegrity: vendor.integrity },
   packages, treeSha256: sha(canonicalJson(packages)) };
 const bytes = JSON.stringify(record, null, 2) + '\n';
 if (process.argv[2] === '--write') writeFileSync(file, bytes);

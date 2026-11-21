@@ -55,13 +55,14 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "pack:distribution": "node scripts/pack-distribution.mjs --build",
+    "rebuild:sandbox-runtime": "node scripts/rebuild-sandbox-runtime.mjs",
     "typecheck": "tsc --noEmit",
     "verify:public-consumer": "node scripts/verify-public-consumer.mjs",
     "test": "node scripts/run-ci-tests.mjs",
     "prepack": "npm run build"
   },
   "dependencies": {
-    "@anthropic-ai/sandbox-runtime": "0.0.78",
+    "@anthropic-ai/sandbox-runtime": "0.0.78-aihq.1",
     "@sigstore/bundle": "5.0.1",
     "@sigstore/protobuf-specs": "0.5.2",
     "@sigstore/verify": "4.1.3",

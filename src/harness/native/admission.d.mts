@@ -12,7 +12,7 @@ export type NativeAuthenticationProofKind = 'telemetry-identity' | 'provisioning
 export type NativeSessionDiagnostics = Readonly<{
   schema: 'aih.native.diagnostics.v1'; event: 'native-session-diagnostics'; recordId: string;
   runSha256: string | null; phase: 'session'; index: 1 | 2;
-  definition: 'claude-win32-x64-2.1.285' | 'claude-linux-x64-wsl2-srt-2.1.285' | null;
+  definition: 'claude-win32-x64-2.1.285' | 'claude-linux-x64-wsl2-srt-2.1.285-wsl-3.0.5.0' | null;
   collector: Readonly<{
     requests: number; accepted: number;
     rejected: Readonly<Record<'auth' | 'method' | 'path' | 'contentType' | 'contentEncoding' | 'size' | 'parse' | 'other', number>>;
@@ -41,7 +41,7 @@ export function publishNativeDiagnostics(input: Record<string, unknown>): void;
 export function publishNativeAdmission(input: Record<string, unknown>): void;
 export type NativePlatformDrift = Readonly<{
   schema: 'aih.native.diagnostics.v1'; event: 'native-platform-drift'; recordId: string; runSha256: string | null;
-  definition: 'claude-linux-x64-wsl2-srt-2.1.285'; table: 'roles' | 'libraries' | 'readFiles';
+  definition: 'claude-linux-x64-wsl2-srt-2.1.285-wsl-3.0.5.0'; table: 'roles' | 'libraries' | 'readFiles';
   key: 'bash' | 'env' | 'bwrap' | 'socat' | 'rg' | 'which' | number | null;
   remedy: 'recapture-platform-record';
 }>;

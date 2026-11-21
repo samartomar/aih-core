@@ -75,7 +75,8 @@ test('one Core artifact publishes exactly four entries, one schema per format, a
   const install = packed => {
     writeFileSync(join(consumer, 'package.json'), JSON.stringify({ name: 'outside-consumer', private: true, type: 'module',
       dependencies: { '@aihq/core': `file:${join(root, packed.filename)}` } }));
-    npm(['install', '--ignore-scripts', '--no-audit', '--no-fund', '--package-lock=false'], consumer, 300_000);
+    npm(['install', '--ignore-scripts', '--no-audit', '--no-fund'], consumer, 300_000);
+    npm(['ls', '--omit=dev', '--all'], consumer);
   };
   const run = (file, extraEnv = {}, timeout = 30_000) => execFileSync(process.execPath, [file],
     { cwd: consumer, env: { ...env, TEST_PROJECT: project, ...extraEnv }, encoding: 'utf8', timeout, windowsHide: true });
@@ -99,6 +100,8 @@ test('one Core artifact publishes exactly four entries, one schema per format, a
     // The cryptography tree must come from the selected artifact, even without registry access.
     writeFileSync(join(consumer, '.npmrc'), '@sigstore:registry=http://127.0.0.1:1/\nfetch-retries=0\n');
     install(packed);
+    npm(['ci', '--ignore-scripts', '--no-audit', '--no-fund'], consumer, 300_000);
+    npm(['ls', '--omit=dev', '--all'], consumer);
     const installed = join(consumer, 'node_modules/@aihq/core');
     if (process.platform === 'linux') {
       const { linuxSafePath, createLinuxBaseProfile } = await import(pathToFileURL(join(installed, 'dist/harness/native/linux-profile.mjs')).href);
@@ -315,12 +318,18 @@ test('one Core artifact publishes exactly four entries, one schema per format, a
       }
       throw new Error(`Cannot locate the installed ${name} manifest`);
     };
-    for (const [name, expected] of Object.entries({ '@anthropic-ai/sandbox-runtime': '0.0.78', '@pondwader/socks5-server': '1.0.10',
-      commander: '12.1.0', 'node-forge': '1.4.0', zod: '3.25.76' })) {
+    for (const [name, expected] of Object.entries({ '@anthropic-ai/sandbox-runtime': '0.0.78-aihq.1', '@pondwader/socks5-server': '1.0.10',
+      commander: '12.1.0', 'node-forge': '1.4.3', zod: '4.6.7' })) {
       const found = closureVersion(name === '@anthropic-ai/sandbox-runtime' ? coreRequire : srtRequire, name);
       assert.ok(found.root.startsWith(join(installed, 'node_modules') + sep), `Bundled resolution of ${name}`);
       assert.equal(found.version, expected, `Actual Linux vendor closure resolution of ${name}`);
     }
+    const { verifyLinuxVendorClosure } = await import(pathToFileURL(join(installed, 'dist/harness/native/linux-runtime.mjs')).href);
+    const closure = verifyLinuxVendorClosure();
+    assert.equal(closure.status, 'ready');
+    const { SandboxRuntimeConfigSchema } = await import(pathToFileURL(closure.entry).href);
+    const installedZod = srtRequire('zod');
+    assert.equal(SandboxRuntimeConfigSchema instanceof installedZod.ZodObject, true, 'The packaged schema uses Zod 4');
     for (const name of ['@aihq/harness', '@aihq/scan', '@aihq/catalog', 'tuf-js']) assert.equal(existsSync(join(consumer, 'node_modules', name)), false, name);
 
     // Trust repairs and the certificate export through the public API and CLI.
@@ -520,7 +529,7 @@ test('one Core artifact publishes exactly four entries, one schema per format, a
 
     // A Harness edit ships in a new Core version built from standalone source.
     const updated = join(root, 'updated-core'); mkdirSync(updated);
-    for (const name of ['src', 'scripts', 'docs/reporting', 'examples/reporting']) cpSync(join(packageRoot, name), join(updated, name), { recursive: true });
+    for (const name of ['src', 'scripts', 'vendor', 'docs/reporting', 'examples/reporting']) cpSync(join(packageRoot, name), join(updated, name), { recursive: true });
     for (const name of ['package.json', 'package-lock.json', 'tsconfig.json', 'README.md', 'CHANGELOG.md', 'LICENSE', 'NOTICE'])
       copyFileSync(join(packageRoot, name), join(updated, name));
     mkdirSync(join(updated, 'test'));

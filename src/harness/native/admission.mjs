@@ -7,13 +7,15 @@ import { sha256 } from './digest.mjs';
 import { isolationProbeNames } from './linux-isolation.mjs';
 import { linuxProxyBuckets } from './linux-proxy.mjs';
 import { nativeErrorClasses } from './claude.mjs';
+import { nativeVerificationDefinitions } from './contracts.mjs';
 import { persistenceFailureClasses, inspectedStateDiagnoses, safePersistenceDiagnosticToken } from './persistence-diagnostics.mjs';
 
 const admittedErrorClasses = Object.freeze(Object.values(nativeErrorClasses));
 
 const stream = channel('aih.native.admission.v1');
 const diagnosticsStream = channel('aih.native.diagnostics.v1');
-const diagnosticsDefinitions = ['claude-win32-x64-2.1.285', 'claude-linux-x64-wsl2-srt-2.1.285'];
+const diagnosticsDefinitions = nativeVerificationDefinitions.map(definition => definition.id);
+const linuxDefinition = nativeVerificationDefinitions.find(definition => definition.lifecycleId === 'linux-srt.v1').id;
 const digest = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value) ? value : null;
 const count = value => Number.isSafeInteger(value) && value >= 0 && value <= 1000000 ? value : 0;
 const authenticationProofKind = value => ['telemetry-identity', 'provisioning-bound-session'].includes(value) ? value : null;
@@ -60,7 +62,7 @@ export function publishNativeAdmission(input) {
     outcome: ['observed', 'violated', 'unobservable'].includes(source.outcome) ? source.outcome : 'unobservable' });
   stream.publish(Object.freeze({ schema: 'aih.native.admission.v1', event: 'native-admission', recordId: randomUUID(),
     runSha256: digest(input.runSha256), phase: input.phase === 'version' ? 'version' : 'session', index: input.index === 2 ? 2 : 1,
-    definition: input.definition === 'claude-linux-x64-wsl2-srt-2.1.285' ? input.definition : null,
+    definition: input.definition === linuxDefinition ? input.definition : null,
     mechanism: 'anthropic-srt-linux.v1', vendorTreeSha256: digest(input.vendorTreeSha256),
     innerArgvSha256: argvDigest(input.innerArgv), outerArgvSha256: argvDigest(input.outerArgv), isolation,
     restrictions: Object.freeze(Object.fromEntries(restrictionCounts.map(name => [name, count(input.restrictions?.[name])]))),
@@ -79,7 +81,7 @@ export function publishNativePlatformDrift(input) {
   const key = table === 'roles' ? (driftRoles.includes(input.key) ? input.key : null)
     : Number.isSafeInteger(input.key) && input.key >= 0 && input.key <= 63 ? input.key : null;
   diagnosticsStream.publish(Object.freeze({ schema: 'aih.native.diagnostics.v1', event: 'native-platform-drift', recordId: randomUUID(),
-    runSha256: digest(input.runSha256), definition: 'claude-linux-x64-wsl2-srt-2.1.285', table, key, remedy: 'recapture-platform-record' }));
+    runSha256: digest(input.runSha256), definition: linuxDefinition, table, key, remedy: 'recapture-platform-record' }));
 }
 
 // Session diagnostics are an optional observation: explicit fields discard all client strings.
@@ -98,7 +100,7 @@ export function publishNativeDiagnostics(input) {
   const proxy = isRecord(input.proxy) ? Object.freeze(Object.fromEntries(linuxProxyBuckets.map(key =>
     [key, counts(input.proxy[key], ['allowed', 'denied'])]))) : null;
   const runnerWarnings = proxy !== null && input.runnerWarnings != null ? boundedCount(input.runnerWarnings) : null;
-  const forwarder = input.definition === 'claude-linux-x64-wsl2-srt-2.1.285' && isRecord(input.forwarder)
+  const forwarder = input.definition === linuxDefinition && isRecord(input.forwarder)
     ? counts(input.forwarder, ['accepted', 'connected', 'refused', 'capped']) : null;
   diagnosticsStream.publish(Object.freeze({ schema: 'aih.native.diagnostics.v1', event: 'native-session-diagnostics', recordId: randomUUID(),
     runSha256: digest(input.runSha256), phase: 'session', index: input.index === 2 ? 2 : 1,

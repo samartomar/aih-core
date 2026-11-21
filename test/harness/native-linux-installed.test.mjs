@@ -32,10 +32,14 @@ test('an installed scoped package prepares the real pinned sandbox without start
   const { verifyLinuxVendorClosure } = await installed('linux-runtime.mjs');
   const { linuxObserverPins, prepareLinuxSandboxContext } = await installed('linux-sandbox.mjs');
   const { createClaudeCollector } = await installed('collector.mjs');
-  const { nativeVerificationDefinitions } = await installed('contracts.mjs');
-  const definition = nativeVerificationDefinitions.find(value => value.platform.os === 'linux' &&
-    value.schema === 'urn:aihq:harness:native-verification-definition:1.1.0');
-  assert.ok(definition);
+  const { observeNativePlatform, selectNativeCell } = await installed('select.mjs');
+  const host = observeNativePlatform();
+  assert.deepEqual(await selectNativeCell({ client: 'claude', platform: host }),
+    { outcome: 'unsupported', reason: 'cell-not-admitted' });
+  const selected = await selectNativeCell({ client: 'claude', admission: 'candidate-smoke', platform: host });
+  assert.equal(selected.outcome, 'selected', selected.reason);
+  const { definition } = selected;
+  assert.equal(definition.state, 'candidate');
   const deadline = performance.now() + 110_000;
   const check = () => assert.ok(performance.now() < deadline, 'preparation deadline');
   assert.equal(observeLinuxNativePolicy(definition.platform.execution).outcome, 'file-sources-clear');

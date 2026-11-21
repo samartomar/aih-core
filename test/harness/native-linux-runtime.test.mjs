@@ -15,8 +15,8 @@ import { inspectLinuxVendorTree, validateLinuxRuntimeLock, verifyLinuxVendorClos
 
 const VENDOR = '@anthropic-ai/sandbox-runtime';
 const NAMES = [VENDOR, '@pondwader/socks5-server', 'commander', 'node-forge', 'zod'];
-const VERSIONS = new Map([[VENDOR, '0.0.78'], ['@pondwader/socks5-server', '1.0.10'],
-  ['commander', '12.1.0'], ['node-forge', '1.4.0'], ['zod', '3.25.76']]);
+const VERSIONS = new Map([[VENDOR, '0.0.78-aihq.1'], ['@pondwader/socks5-server', '1.0.10'],
+  ['commander', '12.1.0'], ['node-forge', '1.4.3'], ['zod', '4.6.7']]);
 // Only the sha512 shape matters to the verifier; the expected bytes are the file pins.
 const INTEGRITY = `sha512-${'A'.repeat(86)}==`;
 const RELEASE_COMMIT = 'a'.repeat(40);
@@ -102,11 +102,11 @@ const fixedLock = () => JSON.parse(readFileSync(
 // Portable lock validation
 // ---------------------------------------------------------------------------------------
 
-test('the packaged fixed lock validates with the fixed five packages and 848 files', () => {
+test('the packaged fixed lock validates with the fixed five packages and 1,092 files', () => {
   const lock = fixedLock();
   assert.equal(validateLinuxRuntimeLock(lock), true);
   assert.equal(lock.packages.length, 5);
-  assert.equal(lock.packages.reduce((total, pkg) => total + pkg.files.length, 0), 848);
+  assert.equal(lock.packages.reduce((total, pkg) => total + pkg.files.length, 0), 1092);
   assert.deepEqual(lock.packages.map(pkg => pkg.name),
     [VENDOR, '@pondwader/socks5-server', 'commander', 'node-forge', 'zod']);
   assert.equal(lock.vendor.name, lock.packages[0].name);
@@ -169,10 +169,10 @@ test('validateLinuxRuntimeLock rejects the closed byte and count bounds', () => 
   assert.equal(validateLinuxRuntimeLock(overBytes), false, 'total bytes over 32 MiB');
 
   const manyFiles = clone(base);
-  manyFiles.packages[0].files = Array.from({ length: 1025 }, (unused, index) => ({
+  manyFiles.packages[0].files = Array.from({ length: 1153 }, (unused, index) => ({
     path: `f${String(index).padStart(4, '0')}.bin`, byteLength: 1, sha256: 'a'.repeat(64) }));
   manyFiles.treeSha256 = sha256Hex(canonicalJson(manyFiles.packages));
-  assert.equal(validateLinuxRuntimeLock(manyFiles), false, 'more than 1024 files');
+  assert.equal(validateLinuxRuntimeLock(manyFiles), false, 'more than 1152 files');
 });
 
 // ---------------------------------------------------------------------------------------
@@ -188,7 +188,7 @@ test('the actual installed SRT closure verifies against the packaged fixed lock'
   const vendorRoot = dirname(canonical(createRequire(import.meta.url).resolve(`${VENDOR}/package.json`)));
   const modulesRoot = dirname(dirname(vendorRoot));
   assert.equal(result.entry, join(vendorRoot, 'dist/index.js'));
-  assert.equal(result.pins.length, 848);
+  assert.equal(result.pins.length, 1092);
   assert.equal(result.pins[0].path, join(vendorRoot, 'LICENSE'));
   const byPath = new Map(result.pins.map(pin => [pin.path, pin]));
   for (const pkg of lock.packages) {

@@ -393,25 +393,18 @@ loads a junctioned skill folder on Windows (Core copies for Cursor until then).
 Controlled test fixtures exercise the verification mechanism only; they are not
 native loading evidence.
 
-The bundled `claude-linux-x64-wsl2-srt-2.1.285` definition is admitted for
-Claude Code 2.1.285 on Linux x64 WSL2, osRelease
-`6.18.33.2-microsoft-standard-WSL2`, and selects without `--candidate-smoke`.
-Its retained reviewed batch evidence is identified by `evidenceSha256`
-`a8c226d1c56764a6c773268186a79a3643e5a5d0afc2acd9f9708faa9de50947`.
-The tested packed artifact was Core `1.0.0-dev.27`; Core `1.0.0-dev.28` promotes
-the descriptor. Promotion is not publication: no npm publish has occurred.
-Coverage is the bundled mechanism only, not Catalog's cross-client matrix.
-Acceptance covers the fixed verifier environment: auto-memory disabled,
-marketplace auto-install disabled, fast mode disabled, and MCP connections
-awaited before init within the client's bounded timeout. Authentication uses
-`provisioning-bound-session` identity, with the owner's recorded acceptance:
-it loses the runtime wrong-account/refresh cross-check and is not provider-signed
-attestation. The documented proxy and policy limitations still apply.
-The Windows definition remains a candidate with null evidence and requires
-`--candidate-smoke`; passing a smoke never changes admission. The portable
-validator and the 1.1.0 definition schema both accept an admitted state only as
-an exact registered admitted descriptor. Every registry tool gets an explicit,
-honest outcome; only Claude Code has definitions.
+The Linux definition `claude-linux-x64-wsl2-srt-2.1.285-wsl-3.0.5.0` is a
+candidate for Claude Code 2.1.285, Ubuntu x64 on WSL 3.0.5.0 and kernel
+`6.18.58.1-microsoft-standard-WSL2`. Both it and the Windows candidate require
+`--candidate-smoke`. Running a smoke does not change admission. This distribution
+has no admitted definition. Every registry tool receives an explicit outcome;
+only Claude Code has definitions.
+
+The earlier WSL2 admission covered Core `1.0.0-dev.27` with the earlier Sandbox
+Runtime dependency closure, WSL 2.7.14.0 and kernel
+`6.18.33.2-microsoft-standard-WSL2`. Core `1.0.0-dev.28` recorded its promotion.
+That evidence remains associated with the earlier artifact. See
+[Linux isolation, prerequisites and limitations](docs/native-linux-verification.md).
 
 The default whole-check budget is 180000 ms; `--budget-ms` accepts integers
 1000–600000. Cancellation uses `controls.signal` or CLI SIGINT. Cleanup has one
@@ -1666,11 +1659,11 @@ the complete suite.
 
 Create a qualified Core distribution with `npm run pack:distribution --
 --pack-destination <existing directory>`. The command builds and packs the root
-package, preserves every archive entry's bytes and metadata except the Linux
-facility's executable mode, refuses to overwrite an existing artifact, and
+package, verifies the pinned Linux facility and vendor seccomp helpers, and sets
+their archive modes to `0755`. It refuses to overwrite an existing artifact and
 reports the final archive's SHA-256 and integrity. Use this command on all
-producer platforms; raw `npm pack` can preserve missing executable bits from a
-Windows producer. Pack from a real `npm ci` install: npm bundles the bundled
+producer platforms because npm can preserve missing executable bits from a
+Windows producer. Pack from a real `npm ci` install because npm bundles the bundled
 dependencies' own dependencies (such as `@sigstore/core`) only from installed
 files, so the command refuses a missing or linked `node_modules` (a symlink or
 Windows junction to another checkout's). See the [Linux packaging checks](docs/native-linux-verification.md#build-records-and-development-checks).

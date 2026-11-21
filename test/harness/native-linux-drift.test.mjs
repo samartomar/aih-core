@@ -41,7 +41,7 @@ test('drift publisher emits one frozen closed record on the diagnostics channel'
   });
   assert.deepEqual(Object.keys(role), ['schema', 'event', 'recordId', 'runSha256', 'definition', 'table', 'key', 'remedy']);
   assert.equal(role.schema, 'aih.native.diagnostics.v1'); assert.equal(role.event, 'native-platform-drift');
-  assert.equal(role.definition, 'claude-linux-x64-wsl2-srt-2.1.285'); assert.equal(role.remedy, 'recapture-platform-record');
+  assert.equal(role.definition, 'claude-linux-x64-wsl2-srt-2.1.285-wsl-3.0.5.0'); assert.equal(role.remedy, 'recapture-platform-record');
   assert.equal(role.runSha256, 'a'.repeat(64)); assert.equal(role.table, 'roles'); assert.equal(role.key, 'bwrap');
   assert.equal(Object.isFrozen(role), true);
   assert.deepEqual([library.table, library.key, read.table, read.key], ['libraries', 7, 'readFiles', 0]);

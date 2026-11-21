@@ -43,9 +43,9 @@
       "byteLength": 240327864
     },
     "wslinfo": {
-      "version": "2.7.14.0",
-      "sha256": "421768dd3357a95f4967481f61ef055612db534af02ddca7fbb3e35b4a8ac55c",
-      "byteLength": 2837280
+      "version": "3.0.5.0",
+      "sha256": "06106f90c6c4e9a83b8e83dbac848b8a48fb092f00f998dc48398342755c869a",
+      "byteLength": 3491856
     }
   },
   "libraries": [
@@ -137,7 +137,7 @@
     },
     {
       "path": "/usr/lib/x86_64-linux-gnu/libz.so.1.3.1",
-      "sha256": "47b61967895b30e8c0c6818dd633ffeb87711cf637c688f981896f0dd84ce23b",
+      "sha256": "27fa6c6cb94fb5b099ead61758a300dbc392d1dbf307fff6c16a9b8e57fdc9de",
       "byteLength": 121272,
       "aliases": [
         "/usr/lib/x86_64-linux-gnu/libz.so.1"

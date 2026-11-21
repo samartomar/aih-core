@@ -127,7 +127,7 @@ test('session diagnostics publish an exact deeply frozen counts-only record with
   const records = [], sink = value => records.push(value), stream = channel('aih.native.diagnostics.v1');
   stream.subscribe(sink);
   try {
-    admission.publishNativeDiagnostics({ phase: 'version', index: 2, definition: 'claude-linux-x64-wsl2-srt-2.1.285',
+    admission.publishNativeDiagnostics({ phase: 'version', index: 2, definition: 'claude-linux-x64-wsl2-srt-2.1.285-wsl-3.0.5.0',
       runSha256: 'a'.repeat(64), collector: { ...emptyCollector, requests: 5, accepted: 2, events: 2,
         rejected: { ...emptyCollector.rejected, auth: 1, contentType: 1, contentEncoding: 1, private: 'header-marker' },
         contentTypes: { json: 4, protobuf: 1, other: 0, none: 0 }, contentEncodings: { none: 4, gzip: 1, other: 0 },
@@ -144,7 +144,7 @@ test('session diagnostics publish an exact deeply frozen counts-only record with
     assert.match(record.recordId, /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/);
     assert.deepEqual(record, {
       schema: 'aih.native.diagnostics.v1', event: 'native-session-diagnostics', recordId: record.recordId,
-      runSha256: 'a'.repeat(64), phase: 'session', index: 2, definition: 'claude-linux-x64-wsl2-srt-2.1.285',
+      runSha256: 'a'.repeat(64), phase: 'session', index: 2, definition: 'claude-linux-x64-wsl2-srt-2.1.285-wsl-3.0.5.0',
       collector: { ...emptyCollector, requests: 5, accepted: 2, events: 2,
         rejected: { auth: 1, method: 0, path: 0, contentType: 1, contentEncoding: 1, size: 0, parse: 0, other: 0 },
         contentTypes: { json: 4, protobuf: 1, other: 0, none: 0 }, contentEncodings: { none: 4, gzip: 1, other: 0 },
@@ -228,7 +228,7 @@ test('session forwarder diagnostics are Linux-only, clamped, exact-key and froze
   stream.subscribe(sink);
   try {
     const forwarder = { accepted: 1000001, connected: 2, refused: -1, capped: Infinity, payload: 'payload-marker' };
-    admission.publishNativeDiagnostics({ definition: 'claude-linux-x64-wsl2-srt-2.1.285', forwarder });
+    admission.publishNativeDiagnostics({ definition: 'claude-linux-x64-wsl2-srt-2.1.285-wsl-3.0.5.0', forwarder });
     assert.deepEqual(records[0].forwarder, { accepted: 1000000, connected: 2, refused: 0, capped: 0 });
     assert.ok(Object.isFrozen(records[0].forwarder));
     assert.equal(JSON.stringify(records[0]).includes('payload-marker'), false);
@@ -237,7 +237,7 @@ test('session forwarder diagnostics are Linux-only, clamped, exact-key and froze
       assert.equal(records.at(-1).forwarder, null);
     }
     for (const forwarder of [undefined, null, 'payload-marker', []]) {
-      admission.publishNativeDiagnostics({ definition: 'claude-linux-x64-wsl2-srt-2.1.285', forwarder });
+      admission.publishNativeDiagnostics({ definition: 'claude-linux-x64-wsl2-srt-2.1.285-wsl-3.0.5.0', forwarder });
       assert.equal(records.at(-1).forwarder, null);
     }
   } finally { stream.unsubscribe(sink); }
@@ -355,7 +355,7 @@ test('admission instrumentation retains only fixed proof fields and counts', () 
   const records = [], sink = value => records.push(value), stream = channel('aih.native.admission.v1');
   stream.subscribe(sink);
   try {
-    publishNativeAdmission({ phase: 'session', index: 1, definition: 'claude-linux-x64-wsl2-srt-2.1.285',
+    publishNativeAdmission({ phase: 'session', index: 1, definition: 'claude-linux-x64-wsl2-srt-2.1.285-wsl-3.0.5.0',
       vendorTreeSha256: 'a'.repeat(64), innerArgv: ['claude', '--tools', ''], outerArgv: ['node', '/private/runner', '/private/plan'],
       isolation: { baseSha256: 'b'.repeat(64), profileSha256: 'c'.repeat(64), compared: true, authenticated: true,
         clientBound: true, serverBound: true, namespaceSeparated: true, argumentsClean: true, argumentsInspected: 42,
