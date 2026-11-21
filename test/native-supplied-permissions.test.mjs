@@ -34,13 +34,13 @@ async function controlled(t,scenario='healthy',generation='1.0.0',bundleGenerati
   cpSync(join(native,'runtime.mjs'),join(native,'runtime-installed.mjs'));
   const recordPath=join(directory,'observed.json');
   const wrapper=`import * as installed from './runtime-installed.mjs';
-import {readFileSync,writeFileSync} from 'node:fs'; import {join} from 'node:path'; import {release} from 'node:os';
+import {readFileSync,writeFileSync} from 'node:fs'; import {join} from 'node:path';
 export * from './runtime-installed.mjs';
 export function createNativeRuntime(_module,dependencies) {
  const runtime=installed.createNativeRuntime(installed,dependencies), scenario=${JSON.stringify(scenario)}, recordPath=${JSON.stringify(recordPath)};
  const observations={resolutions:0,sessions:[]}; const save=()=>writeFileSync(recordPath,JSON.stringify(observations)); save();
  const original=runtime.nativeDefinitions.find(d=>d.platform.os==='win32');
- const definition={...original,platform:{os:process.platform,arch:process.arch,execution:'native',osRelease:release()},state:'candidate',evidenceSha256:null};
+ const definition={...original,platform:installed.observeNativePlatform(),state:'candidate',evidenceSha256:null};
  runtime.nativeDefinitions=[definition]; runtime.nativeManagedRestriction=()=>scenario==='managed';
  runtime.resolveNativeClient=async()=>{observations.resolutions++;save();return {executable:process.execPath,sha256:installed.sha256(readFileSync(process.execPath)),observedVersion:definition.clientVersions[0],argv:[],runtime:[]};};
  runtime.revalidateNativeClient=()=>true; runtime.nativeCapabilities=()=>({lifecycle:true,peerIdentity:true,credentialChannel:true});
