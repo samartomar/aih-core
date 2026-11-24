@@ -9,6 +9,7 @@ import { observeOsTrust, detectTrustPlatform } from './trust-os.mjs';
 import { parsePemBundle, parsePkcs7, serializeCertificateSet, sha256Hex } from './trust-encoding.mjs';
 import { validateTrustCapabilities, trustProfiles } from './trust-definitions.mjs';
 import { checkTrustMigration } from './trust-migration.mjs';
+import { checkTrustMigrationV2 } from './trust-migration-v2.mjs';
 
 export { canonicalTrustJson, hashTrustSourceSet, reviewTrustDelta, detectTrustPlatform };
 export { getTrustFileIntegration } from './trust-definitions.mjs';
@@ -18,7 +19,8 @@ export const trustHelperFiles = Object.freeze([
   'dist/harness/trust.mjs', 'dist/harness/trust-definitions.mjs', 'dist/harness/trust-encoding.mjs',
   'dist/harness/trust-source.mjs', 'dist/harness/trust-os.mjs', 'dist/harness/ca.mjs', 'dist/harness/jvm-trust.mjs',
   'dist/harness/trust-migration.mjs', 'dist/harness/trust-migration-rules.mjs', 'dist/harness/trust-migration-policy.mjs',
-  'dist/harness/trust-export-platform.mjs', 'dist/core/trust.js'
+  'dist/harness/trust-export-platform.mjs', 'dist/core/trust.js',
+  'dist/harness/trust-migration-v2.mjs', 'dist/harness/trust-migration-v2-policy.mjs'
 ]);
 
 const plain = value => value !== null && typeof value === 'object' && !Array.isArray(value) &&
@@ -244,7 +246,9 @@ export function verifyTrustAdmissionEvidence({ packageRoot, capabilities, defini
     if (subject !== cell.evidence.subjectSha256) return bad('evidence-subject');
     let record;
     try { record = parseStrictJson(new TextDecoder('utf-8', { fatal: true }).decode(bytes)); } catch { return bad('record-invalid'); }
-    const reason = record?.schema === 'aih.trust.acceptance-migration.v1'
+    const reason = record?.schema === 'aih.trust.acceptance-migration.v2'
+      ? checkTrustMigrationV2({ record, cell, subject, packageRoot: root, checkOriginal: checkAcceptanceRecord, parseOriginal: parseStrictJson, checkMigration: checkTrustMigration, profile: trustProfiles[cell.probeProfile], librariesSha256: trustProfiles[cell.probeProfile].libraries ? hashTrustLibraries({ packageRoot: root }).sha256 : null })
+      : record?.schema === 'aih.trust.acceptance-migration.v1'
       ? checkTrustMigration({ record, cell, subject, packageRoot: root, checkOriginal: checkAcceptanceRecord, parseOriginal: parseStrictJson, profile: trustProfiles[cell.probeProfile], librariesSha256: trustProfiles[cell.probeProfile].libraries ? hashTrustLibraries({ packageRoot: root }).sha256 : null })
       : checkAcceptanceRecord(record, cell, subject, trustProfiles[cell.probeProfile]);
     if (reason) return bad(reason);
