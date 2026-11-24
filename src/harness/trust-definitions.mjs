@@ -28,7 +28,8 @@ export const trustPlatformMatrix = Object.freeze([
   Object.freeze({ os: 'win32', release: 'Windows 11 25H2', architecture: 'x64', projection: 'windows-effective-server-auth-v1' }),
   Object.freeze({ os: 'darwin', release: 'macOS 26', architecture: 'arm64', projection: 'macos-effective-server-auth-v1' }),
   Object.freeze({ os: 'linux', release: 'Ubuntu 24.04 LTS', architecture: 'x64', projection: 'ubuntu-24.04-system-openssl-v1' }),
-  Object.freeze({ os: 'win32', release: 'Windows 11 26H2 build 26340.9767', architecture: 'x64', projection: 'windows-effective-server-auth-v1' })
+  Object.freeze({ os: 'win32', release: 'Windows 11 26H2 build 26340.9767', architecture: 'x64', projection: 'windows-effective-server-auth-v1' }),
+  Object.freeze({ os: 'win32', release: 'Windows 11 Dev build 29695.1001', architecture: 'x64', projection: 'windows-effective-server-auth-v1' })
 ]);
 
 const FAMILIES = Object.freeze({
