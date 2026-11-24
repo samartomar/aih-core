@@ -101,6 +101,17 @@ export async function prepareManagedRemoval(request: ManagedRemovalRequest | Man
   return prepareOne(request as ManagedRemovalRequest, controls);
 }
 /**
+ * Management IDs held by protected user trust custody (including pending entries) or session custody. They are removed
+ * only through the single-id removal, which also releases that custody. Throws when the custody cannot be read.
+ */
+export function specialCustodyIds(): Set<string> {
+  const special = new Set<string>();
+  const trust = readTrustCustody(true); const pendingTrust = readPendingTrust(trust);
+  for (const entry of [...trust.value.entries, ...(pendingTrust ? pendingEntries(pendingTrust) : [])]) special.add(entry.managementId);
+  for (const entry of readMacosCustody().value.entries) special.add(entry.managementId);
+  return special;
+}
+/**
  * A repair's removal for the 0.1.0 lifecycle (contract 7.4, 10): the retained single-id removal, whose run checks every
  * member it releases on disk and is verified from those checks. Not a public entry.
  */
@@ -286,13 +297,10 @@ async function prepareRemovals(request: ManagedRemovalsRequest, controls: HostCo
   try { home = userHomeRoot(); image = readImage(project, home); } catch { return unavailable('ownership-unverifiable', UNVERIFIABLE); }
   if (image.ownUnreadable || image.inventoryFailed || scope === 'user' && image.foreignUnverifiable) return unavailable('ownership-unverifiable', UNVERIFIABLE);
   // Trust and session custody keep their own reviewed path: the single-id call.
-  const special = new Set<string>();
+  let special = new Set<string>();
   if (scope === 'user') {
-    try {
-      const trust = readTrustCustody(true); const pendingTrust = readPendingTrust(trust);
-      for (const entry of [...trust.value.entries, ...(pendingTrust ? pendingEntries(pendingTrust) : [])]) special.add(entry.managementId);
-      for (const entry of readMacosCustody().value.entries) special.add(entry.managementId);
-    } catch { return unavailable('special-custody-unverifiable', 'Protected trust or session custody could not be verified.', 'STATE_CONFLICT'); }
+    try { special = specialCustodyIds(); }
+    catch { return unavailable('special-custody-unverifiable', 'Protected trust or session custody could not be verified.', 'STATE_CONFLICT'); }
   }
 
   const identityOf = (managementId: string) => claimIdentity(scope, managementId, project!);

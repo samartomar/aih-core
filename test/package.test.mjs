@@ -326,8 +326,11 @@ test('one Core artifact publishes exactly four entries, one schema per format, a
     // Trust repairs and the certificate export through the public API and CLI.
     copyFileSync(new URL('./fixtures/root-a.pem', import.meta.url), join(consumer, 'ca.pem'));
     copyFileSync(new URL('./fixtures/trust-consumer.mjs', import.meta.url), join(consumer, 'trust-consumer.mjs'));
+    copyFileSync(new URL('./fixtures/synthetic-export-admission.mjs', import.meta.url), join(consumer, 'synthetic-export-admission.mjs'));
     const trustHome = join(root, 'trust-home'); mkdirSync(trustHome);
-    assert.match(run('trust-consumer.mjs', { HOME: trustHome, USERPROFILE: trustHome }, 180_000), /packed trust public contracts passed/);
+    // An exact trust platform must remove both exports through the public API; any other host must say why it skipped.
+    assert.match(run('trust-consumer.mjs', { HOME: trustHome, USERPROFILE: trustHome }, 180_000),
+      /packed trust public contracts passed \(\d exports written, \d through synthetic admission\); export removal (?:ran=2|skipped: \S.*is not an exact trust platform)/);
     // Installed support guidance interprets stored trust and macOS session results.
     const supportFixtures = join(consumer, 'support-fixtures'); mkdirSync(supportFixtures);
     for (const [directory, names] of [['trust-contracts', ['run-result-1.2-partial', 'run-result-1.2-stale', 'prepared-work-1.2-ready', 'prepared-work-1.2-partial']],
