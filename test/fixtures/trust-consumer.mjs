@@ -3,13 +3,14 @@
 // through the installed artifact's own helper module (an internal path), the same check Prepare applies.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { prepare, apply, prepareRemoval } from '@aihq/core';
 import { validateFormat } from '@aihq/core/contracts';
 import { trustCapabilities as published } from '@aihq/core/harness';
 import { parseTrustOutput } from '@aihq/core/harness/runtime';
+import { disposableInstall } from './synthetic-export-admission.mjs';
 
 const installed = dirname(dirname(dirname(fileURLToPath(import.meta.resolve('@aihq/core')))));
 const cli = join(installed, 'dist/core/cli.js');
@@ -68,4 +69,53 @@ for (const format of ['pem', 'pkcs7-der']) {
   assert.equal(removed.completion, 'complete', JSON.stringify(removed)); assert.equal(existsSync(target), false);
   written++;
 }
-console.log(`packed trust public contracts passed (${written} exports written)`);
+// Without a published export cell for this host, the same public export and removal run against a disposable copy of
+// this installed artifact, with unpublished synthetic admission for the host's exact platform (never product evidence).
+let synthetic = 0;
+if (!written) {
+  const { trustPlatformMatrix } = await import(new URL('../harness/trust-definitions.mjs', import.meta.resolve('@aihq/core')).href);
+  const { detectCertificateExportPlatform } = await import(new URL('../harness/trust-export-platform.mjs', import.meta.resolve('@aihq/core')).href);
+  const host = detectCertificateExportPlatform();
+  const row = trustPlatformMatrix.find(item => item.os === host.os && item.release === host.release &&
+    item.architecture === host.architecture && item.projection === host.projection);
+  if (row) {
+    const copy = disposableInstall(installed, join(process.cwd(), 'synthetic-export'));
+    const helper = new URL('./synthetic-export-admission.mjs', import.meta.url).href;
+    const admit = spawnSync(process.execPath, ['--input-type=module', '-e',
+      `const { admitSyntheticExport } = await import(${JSON.stringify(helper)}); await admitSyntheticExport(${JSON.stringify(copy)}, ${JSON.stringify(row)});`],
+      { encoding: 'utf8', timeout: 60_000, windowsHide: true });
+    assert.equal(admit.status, 0, admit.stderr);
+    const entry = name => JSON.stringify(pathToFileURL(join(copy, 'dist/core', name)).href);
+    const script = join(process.cwd(), 'synthetic-export.mjs');
+    writeFileSync(script, `
+import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
+import { prepare, apply, prepareRemoval } from ${entry('index.js')};
+import { validateFormat } from ${entry('contracts.js')};
+const controls = { logging: 'off' };
+const authorize = review => ({ approved: true, origin: 'automation', reviewDigest: review.reviewDigest });
+let done = 0;
+for (const format of ['pem', 'pkcs7-der']) {
+  const p = await prepare({ schema: 'urn:aihq:core:export-request:0.1.0', format, output: 'synthetic/api.' + (format === 'pem' ? 'pem' : 'p7b'),
+    network: 'off', sources: ${JSON.stringify(source)} }, controls);
+  assert.equal(p.status, 'ready', JSON.stringify(p));
+  const written = await apply(p.handle, authorize(p.review), controls);
+  assert.deepEqual(validateFormat(written), { status: 'ok', schema: 'urn:aihq:core:run:0.1.0' }); assert.equal(written.completion, 'complete');
+  const path = written.environment.outputs[0].path; assert.equal(existsSync(path), true);
+  const managementId = p.review.steps[0].managementId;
+  const removal = await prepareRemoval({ target: { project: null }, scope: 'user', removals: [{ managementId }] }, controls);
+  assert.equal(removal.status, 'ok', JSON.stringify(removal)); assert.ok(removal.handle, JSON.stringify(removal));
+  const removed = await apply(removal.handle, authorize(removal.review), controls);
+  assert.equal(removed.completion, 'complete', JSON.stringify(removed)); assert.equal(existsSync(path), false);
+  done++;
+}
+console.log(done);
+`);
+    const syntheticHome = join(process.env.HOME, 'synthetic-home'); mkdirSync(syntheticHome);
+    const ran = spawnSync(process.execPath, [script], { cwd: process.cwd(), env: { ...process.env, HOME: syntheticHome, USERPROFILE: syntheticHome },
+      encoding: 'utf8', timeout: 120_000, windowsHide: true });
+    assert.equal(ran.status, 0, ran.stdout + ran.stderr);
+    synthetic = Number(ran.stdout.trim()); assert.equal(synthetic, 2);
+  }
+}
+console.log(`packed trust public contracts passed (${written} exports written, ${synthetic} through synthetic admission)`);

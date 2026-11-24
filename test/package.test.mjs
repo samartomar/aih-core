@@ -326,6 +326,7 @@ test('one Core artifact publishes exactly four entries, one schema per format, a
     // Trust repairs and the certificate export through the public API and CLI.
     copyFileSync(new URL('./fixtures/root-a.pem', import.meta.url), join(consumer, 'ca.pem'));
     copyFileSync(new URL('./fixtures/trust-consumer.mjs', import.meta.url), join(consumer, 'trust-consumer.mjs'));
+    copyFileSync(new URL('./fixtures/synthetic-export-admission.mjs', import.meta.url), join(consumer, 'synthetic-export-admission.mjs'));
     const trustHome = join(root, 'trust-home'); mkdirSync(trustHome);
     assert.match(run('trust-consumer.mjs', { HOME: trustHome, USERPROFILE: trustHome }, 180_000), /packed trust public contracts passed/);
     // Installed support guidance interprets stored trust and macOS session results.

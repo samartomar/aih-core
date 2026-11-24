@@ -8,7 +8,7 @@ import { homedir } from 'node:os';
 import { isAbsolute, relative } from 'node:path';
 import { isProxy } from 'node:util/types';
 import { listManagedSelections } from '../managed-inventory.js';
-import { prepareManagedRemovals, prepareRepairRemoval } from '../managed-removal.js';
+import { prepareManagedRemovals, prepareRepairRemoval, specialCustodyIds } from '../managed-removal.js';
 import type { RemovalMember as EngineRemovalMember } from '../removal-types.js';
 import { repairIndex } from '../../harness/contracts.mjs';
 import { windowsUserEnvironmentKept } from '../../harness/runtime.mjs';
@@ -316,10 +316,13 @@ export async function prepareRemoval(request: unknown, controls: unknown = {}): 
           `\`controls.privateInputs\` (\`--private-input\`).` };
   }
   // `origin: chosen` removes the whole management id here: a plan install records exactly that one origin.
-  // A repair (trust or session custody, contract 10) is removed on its own, by its repair id, through the retained
-  // single-id removal that also releases that custody.
-  const repairCustody = selectors.length === 1 && selectors[0]!.engineIds.length === 1 &&
-    repairIndex.some(definition => definition.managementId === selectors[0]!.engineIds[0]) ? selectors[0]!.engineIds[0]! : undefined;
+  // A repair or any other user trust or session custody entry, such as a certificate export (contract 10), is removed
+  // on its own, by its id, through the retained single-id removal that also releases that custody. Unreadable custody
+  // falls through to the batch removal, which reports it.
+  const single = selectors.length === 1 && selectors[0]!.engineIds.length === 1 ? selectors[0]!.engineIds[0]! : undefined;
+  const heldInCustody = (managementId: string) => { try { return specialCustodyIds().has(managementId); } catch { return false; } };
+  const repairCustody = single !== undefined && (repairIndex.some(definition => definition.managementId === single) ||
+    scope === 'user' && heldInCustody(single)) ? single : undefined;
   const prepared = repairCustody !== undefined ? await (async () => {
     const one = await prepareRepairRemoval({ target: { project: located.anchor }, managementId: repairCustody, scope, mode: 'vibe' }, engineControls(options));
     return { disposition: one.disposition, preparation: one.preparation, diagnostics: one.diagnostics,
