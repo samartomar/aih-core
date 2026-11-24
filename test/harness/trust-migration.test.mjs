@@ -106,9 +106,17 @@ test('exact additional platforms preserve legacy classifications and require mat
   const historical = { ...trustCapabilities, cells: trustCapabilities.cells.filter(cell => cell.platform.release === 'Windows 11 25H2') };
   assert.equal(historical.cells.length, 4);
   assert.equal(selectTrustCell(request, historical, buildTrustDefinitions(historical.cells)).status, 'unavailable');
-  // The new exact host is classified but stays unadmitted until its own native records exist.
-  for (const format of ['pem', 'pkcs7-der']) for (const network of ['declared', 'off'])
-    assert.equal(selectTrustCell({ ...request, format, network, platform: { ...request.platform, release: 'Windows 11 Dev build 29695.1001' } },
-      trustCapabilities, buildTrustDefinitions(trustCapabilities.cells)).status, 'unavailable', `${format}/${network}`);
-  assert.equal(trustCapabilities.cells.some(cell => cell.platform.release === 'Windows 11 Dev build 29695.1001'), false);
+  // The new exact host selects only its own native cells; it never borrows a 25H2 or 26340.9767 migration.
+  for (const format of ['pem', 'pkcs7-der']) for (const network of ['declared', 'off']) {
+    const selected = selectTrustCell({ ...request, format, network, platform: { ...request.platform, release: 'Windows 11 Dev build 29695.1001' } },
+      trustCapabilities, buildTrustDefinitions(trustCapabilities.cells));
+    assert.equal(selected.status, 'admitted', `${format}/${network}`);
+    assert.equal(selected.cell.id, `export-${format === 'pem' ? 'pem' : 'p7b'}-win32-29695-1001-${network}`);
+    assert.equal(selected.cell.evidence.reference, `dist/harness/acceptance/${selected.cell.id}.json`);
+  }
+  assert.equal(trustCapabilities.cells.filter(cell => cell.platform.release === 'Windows 11 Dev build 29695.1001').length, 4);
+  // Without its native records, the same host stays unavailable.
+  const withoutNative = { ...trustCapabilities, cells: trustCapabilities.cells.filter(cell => cell.platform.release !== 'Windows 11 Dev build 29695.1001') };
+  assert.equal(selectTrustCell({ ...request, platform: { ...request.platform, release: 'Windows 11 Dev build 29695.1001' } },
+    withoutNative, buildTrustDefinitions(withoutNative.cells)).status, 'unavailable');
 });

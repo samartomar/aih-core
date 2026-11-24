@@ -180,6 +180,94 @@
         "sha256": "1302aeddf7d8fae06c22918fb353d3077e48d42795a8ec9ac6469040fdce18bf",
         "subjectSha256": "55e75c5206b0195250b6c38c28c2ca46ff678cc83a02bae6d147074a5f99e12f"
       }
+    },
+    {
+      "id": "export-pem-win32-29695-1001-declared",
+      "definitionId": "certificate-export",
+      "route": "export",
+      "target": null,
+      "platform": {
+        "os": "win32",
+        "release": "Windows 11 Dev build 29695.1001",
+        "architecture": "x64"
+      },
+      "network": "declared",
+      "projection": "windows-effective-server-auth-v1",
+      "client": null,
+      "configurationProfile": "pem-server-ca-v1",
+      "probeProfile": "export-pem-parse-v1",
+      "launchContext": "no-client",
+      "evidence": {
+        "reference": "dist/harness/acceptance/export-pem-win32-29695-1001-declared.json",
+        "sha256": "f28829b882c152e5085b1e54e54e0da96cfe20ebf4b2fa75bdf18f128961cc1a",
+        "subjectSha256": "f761a75169c4f78e90ce0ad5fe9adda5e6231bcd9d4b112a7f566c8b34dc6ebc"
+      }
+    },
+    {
+      "id": "export-pem-win32-29695-1001-off",
+      "definitionId": "certificate-export",
+      "route": "export",
+      "target": null,
+      "platform": {
+        "os": "win32",
+        "release": "Windows 11 Dev build 29695.1001",
+        "architecture": "x64"
+      },
+      "network": "off",
+      "projection": "windows-effective-server-auth-v1",
+      "client": null,
+      "configurationProfile": "pem-server-ca-v1",
+      "probeProfile": "export-pem-parse-v1",
+      "launchContext": "no-client",
+      "evidence": {
+        "reference": "dist/harness/acceptance/export-pem-win32-29695-1001-off.json",
+        "sha256": "74de8c8c01b233bb852087111c4b5ff65a992c66e460723722bea09a7e4c0073",
+        "subjectSha256": "59473463a0555dbf880a2d341601e5f7996a80792f7b796d07f2fbb1117fcd0a"
+      }
+    },
+    {
+      "id": "export-p7b-win32-29695-1001-declared",
+      "definitionId": "certificate-export",
+      "route": "export",
+      "target": null,
+      "platform": {
+        "os": "win32",
+        "release": "Windows 11 Dev build 29695.1001",
+        "architecture": "x64"
+      },
+      "network": "declared",
+      "projection": "windows-effective-server-auth-v1",
+      "client": null,
+      "configurationProfile": "pkcs7-certificate-import-v1",
+      "probeProfile": "export-p7b-parse-v1",
+      "launchContext": "no-client",
+      "evidence": {
+        "reference": "dist/harness/acceptance/export-p7b-win32-29695-1001-declared.json",
+        "sha256": "b101ed5278a7ccb7a6ceef5ad89f97d8f61f9c870aeca9e244af0acf6e9db4bc",
+        "subjectSha256": "521278519bd3204d2651646fc9dae739f523e79393db27a41c0294cc4275d653"
+      }
+    },
+    {
+      "id": "export-p7b-win32-29695-1001-off",
+      "definitionId": "certificate-export",
+      "route": "export",
+      "target": null,
+      "platform": {
+        "os": "win32",
+        "release": "Windows 11 Dev build 29695.1001",
+        "architecture": "x64"
+      },
+      "network": "off",
+      "projection": "windows-effective-server-auth-v1",
+      "client": null,
+      "configurationProfile": "pkcs7-certificate-import-v1",
+      "probeProfile": "export-p7b-parse-v1",
+      "launchContext": "no-client",
+      "evidence": {
+        "reference": "dist/harness/acceptance/export-p7b-win32-29695-1001-off.json",
+        "sha256": "fca20fd0b63aeebcd642b6fdd3c581f8ad55fd6eb99a48ff57d995272fa46d27",
+        "subjectSha256": "d8cc1519ba393f013d1af2d492943ae03bb027f0aafc6825cf54198e0112f1b5"
+      }
     }
   ]
 }

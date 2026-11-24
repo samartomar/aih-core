@@ -14,6 +14,9 @@ const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const devRelease = 'Windows 11 Dev build 29695.1001';
 const generated = ['src/harness/trust-migration-v2-policy.mjs', 'src/harness/trust-capabilities.mjs',
   'src/fixtures/harness/trust-capabilities/1.0.0/accept.json', ...trustCellRecords.map(cell => cell.evidence.reference.replace(/^dist\//, 'src/'))];
+// The admitted table: eight v2 migrations plus any separately captured native records for the newest exact host.
+const migrated = trustCellRecords.filter(cell => cell.evidence.reference.startsWith('dist/harness/acceptance/migration-v2-'));
+const nativeCells = trustCellRecords.length - migrated.length;
 
 function scratchCopy(run) {
   const scratch = join(source, '.scratch'); mkdirSync(scratch, { recursive: true });
@@ -36,7 +39,7 @@ test('generator reproduces the shipped v2 policy, envelopes and admission table 
   assert.equal(result.status, 0, result.stderr);
   const summary = JSON.parse(result.stdout);
   assert.deepEqual({ ...summary, proofSha256: undefined }, { kind: 'equivalence-migration', method: 'core417-serializer-v4-and-exact-export-hosts-v1',
-    predecessorRecordsVerified: 8, migratedCells: 8, retainedNativeCells: 0, casesCompared: { pem: 9, p7b: 11 },
+    predecessorRecordsVerified: 8, migratedCells: 8, retainedNativeCells: nativeCells, casesCompared: { pem: 9, p7b: 11 },
     supplementaryCompared: true, proofSha256: undefined, nativeExecutionsCreated: 0 });
   for (const name of generated) assert.ok(readFileSync(join(root, name)).equals(readFileSync(join(source, name))), name);
 }));
@@ -86,7 +89,7 @@ test('generator refuses duplicate native cells, wrong tuples, mismatched record 
     return { ...tested, evidence: { ...evidence, sha256: sha(bytes), subjectSha256: subject } };
   });
   const run = (cells, expected) => {
-    writeFileSync(join(root, 'src/harness/trust-capabilities.mjs'), `export const trustCellRecords = Object.freeze(${JSON.stringify([...trustCellRecords, ...cells])});\n`);
+    writeFileSync(join(root, 'src/harness/trust-capabilities.mjs'), `export const trustCellRecords = Object.freeze(${JSON.stringify([...migrated, ...cells])});\n`);
     const result = generate();
     assert.notEqual(result.status, 0, 'malformed native table must refuse');
     assert.match(result.stderr, expected);
