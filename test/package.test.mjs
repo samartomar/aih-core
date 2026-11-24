@@ -293,12 +293,12 @@ test('one Core artifact publishes exactly four entries, one schema per format, a
     const verifierRequire = createRequire(coreRequire.resolve('@sigstore/verify'));
     const bundleRequire = createRequire(verifierRequire.resolve('@sigstore/bundle'));
     const installedVersion = (resolveFrom, name) => JSON.parse(readFileSync(join(dirname(resolveFrom.resolve(name)), '../package.json'), 'utf8')).version;
-    for (const [name, expected] of Object.entries({ '@sigstore/verify': '4.1.2', '@sigstore/core': '4.0.1', '@sigstore/bundle': '5.0.0', '@sigstore/protobuf-specs': '0.5.0' })) {
+    for (const [name, expected] of Object.entries({ '@sigstore/verify': '4.1.3', '@sigstore/core': '4.0.1', '@sigstore/bundle': '5.0.1', '@sigstore/protobuf-specs': '0.5.2' })) {
       const resolveFrom = name === '@sigstore/verify' ? coreRequire : verifierRequire;
       assert.ok(resolveFrom.resolve(name).startsWith(join(installed, 'node_modules') + sep), `Bundled resolution of ${name}`);
       assert.equal(installedVersion(resolveFrom, name), expected, `Actual verifier resolution of ${name}`);
     }
-    assert.equal(installedVersion(bundleRequire, '@sigstore/protobuf-specs'), '0.5.0');
+    assert.equal(installedVersion(bundleRequire, '@sigstore/protobuf-specs'), '0.5.2');
     // The pinned Linux vendor closure resolves from the artifact's own bundled bytes.
     const srtRequire = createRequire(coreRequire.resolve('@anthropic-ai/sandbox-runtime/package.json'));
     const closureVersion = (resolveFrom, name) => {
