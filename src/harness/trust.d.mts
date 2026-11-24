@@ -60,7 +60,7 @@ export declare function trustCellSubjectSha256(cell: Record<string, unknown>, pa
 export declare const trustLibraryPackages: readonly string[];
 export declare function hashTrustLibraries(request: { packageRoot: string }):
   { status: 'hashed'; packages: { name: string; version: string | null; sha256: string }[]; sha256: string } |
-  { status: 'unavailable'; reason: 'trust-library-unavailable' | 'trust-library-unbounded'; name: string };
+  { status: 'unavailable'; reason: 'trust-library-unavailable' | 'trust-library-unbounded' | 'trust-library-closure'; name: string };
 export declare function getTrustFileIntegration(definitionId: string, targets: readonly string[]):
   { status: 'supported'; format: 'pem'; includeNodeBundled: boolean; baseline?: 'jks';
     outputs?: readonly { operationId: string; name: string; format: 'jks' }[] } |

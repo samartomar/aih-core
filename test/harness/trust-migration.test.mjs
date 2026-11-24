@@ -52,11 +52,11 @@ for (const file of ['dist/harness/trust.mjs', 'dist/harness/trust-export-platfor
     assert.equal(verify().valid, false);
   }));
 test('migration rejects changed serializer library bytes rather than migrating their new digest', () => fixture(({ root, capabilities, change, verify }) => {
-  for (const name of ['pkijs','asn1js','pvtsutils','pvutils','bytestreamjs','tslib','@noble/hashes']) {
+  for (const name of ['pkijs','asn1js','bytestreamjs','@noble/hashes','@peculiar/utils']) {
     mkdirSync(dirname(join(root, 'node_modules', name)), { recursive: true });
     cpSync(join(source, 'node_modules', name), join(root, 'node_modules', name), { recursive: true });
   }
-  const file = join(root, 'node_modules/pvutils/package.json'); writeFileSync(file, readFileSync(file, 'utf8') + '\n');
+  const file = join(root, 'node_modules/@peculiar/utils/package.json'); writeFileSync(file, readFileSync(file, 'utf8') + '\n');
   for (let i = 0; i < capabilities.cells.length; i++) change(() => {}, i);
   assert.equal(verify().valid, false);
 }));

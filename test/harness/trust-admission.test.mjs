@@ -2,11 +2,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync, appendFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, dirname } from 'node:path';
+import { join, dirname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 import { X509Certificate } from 'node:crypto';
 import { verifyTrustAdmissionEvidence, trustCellSubjectSha256, hashTrustLibraries, trustHelperFiles, serializeTrustSet, parseTrustOutput,
-  acceptanceRecordSchema } from '../../src/harness/trust.mjs';
+  acceptanceRecordSchema, trustLibraryPackages } from '../../src/harness/trust.mjs';
 import { buildTrustCapabilities, buildTrustDefinitions, trustProfiles } from '../../src/harness/trust-definitions.mjs';
 import { trustCellRecords } from '../../src/harness/trust-capabilities.mjs';
 import { sha256Hex } from '../../src/harness/trust-encoding.mjs';
@@ -147,6 +148,37 @@ test('installed serializer libraries are hashed byte-for-byte and a missing one 
   try {
     writeFileSync(join(root, 'package.json'), '{}');
     assert.deepEqual(hashTrustLibraries({ packageRoot: root }), { status: 'unavailable', reason: 'trust-library-unavailable', name: 'pkijs' });
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('the hashed serializer set is exactly the installed dependency closure of pkijs and asn1js', () => {
+  const require = createRequire(join(worktree, 'package.json'));
+  const seen = new Set(); const queue = ['pkijs', 'asn1js'];
+  while (queue.length) {
+    const name = queue.shift(); if (seen.has(name)) continue; seen.add(name);
+    const manifest = JSON.parse(readFileSync(join(worktree, 'node_modules', name, 'package.json'), 'utf8'));
+    queue.push(...['dependencies', 'peerDependencies', 'optionalDependencies'].flatMap(field => Object.keys(manifest[field] ?? {})));
+  }
+  assert.deepEqual([...seen].sort(), [...trustLibraryPackages].sort());
+  assert.ok(require.resolve('pkijs').startsWith(join(worktree, 'node_modules') + sep));
+});
+
+test('a serializer dependency outside the hashed set, or a misnamed manifest, is unavailable rather than unhashed', () => {
+  const root = mkdtempSync(join(tmpdir(), 'aih-trust-closure-'));
+  try {
+    writeFileSync(join(root, 'package.json'), '{}');
+    for (const name of trustLibraryPackages) cpSync(join(worktree, 'node_modules', name), join(root, 'node_modules', name), { recursive: true });
+    assert.equal(hashTrustLibraries({ packageRoot: root }).status, 'hashed');
+    const manifestPath = join(root, 'node_modules', 'pkijs', 'package.json'); const original = readFileSync(manifestPath, 'utf8');
+    for (const field of ['dependencies', 'peerDependencies', 'optionalDependencies']) {
+      const manifest = JSON.parse(original); manifest[field] = { ...manifest[field], 'unhashed-helper': '1.0.0' };
+      writeFileSync(manifestPath, JSON.stringify(manifest));
+      assert.deepEqual(hashTrustLibraries({ packageRoot: root }), { status: 'unavailable', reason: 'trust-library-closure', name: 'pkijs' }, field);
+    }
+    writeFileSync(manifestPath, JSON.stringify({ ...JSON.parse(original), name: 'not-pkijs' }));
+    assert.deepEqual(hashTrustLibraries({ packageRoot: root }), { status: 'unavailable', reason: 'trust-library-closure', name: 'pkijs' });
+    writeFileSync(manifestPath, original);
+    assert.equal(hashTrustLibraries({ packageRoot: root }).status, 'hashed');
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

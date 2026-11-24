@@ -83,7 +83,9 @@ export function trustCellSubjectSha256(cell, packageRoot) {
 }
 
 /** Installed serializer libraries whose bytes the helper binding must include. */
-export const trustLibraryPackages = Object.freeze(['pkijs', 'asn1js', 'pvtsutils', 'pvutils', 'bytestreamjs', 'tslib', '@noble/hashes']);
+export const trustLibraryPackages = Object.freeze(['pkijs', 'asn1js', 'bytestreamjs', '@noble/hashes', '@peculiar/utils']);
+const manifestDependencyNames = manifest => ['dependencies', 'peerDependencies', 'optionalDependencies']
+  .flatMap(field => Object.keys(manifest?.[field] ?? {}));
 
 /** Digest every regular file of the installed serializer packages (resolved as the helper would load them). */
 export function hashTrustLibraries({ packageRoot }) {
@@ -120,7 +122,11 @@ export function hashTrustLibraries({ packageRoot }) {
         if (total > 64 * 1024 * 1024) return { status: 'unavailable', reason: 'trust-library-unbounded', name };
         hash.update(relative(base, file).split(sep).join('/')).update('\0').update(bytes).update('\0');
       }
-      version = JSON.parse(readFileSync(manifest, 'utf8')).version;
+      const parsed = JSON.parse(readFileSync(manifest, 'utf8'));
+      version = parsed.version;
+      // The installed closure must be exactly the hashed set: an unhashed dependency could change serializer behaviour.
+      if (parsed.name !== name || manifestDependencyNames(parsed).some(dependency => !trustLibraryPackages.includes(dependency)))
+        return { status: 'unavailable', reason: 'trust-library-closure', name };
     } catch { return { status: 'unavailable', reason: 'trust-library-unavailable', name }; }
     packages.push({ name, version, sha256: hash.digest('hex') });
   }
