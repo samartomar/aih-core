@@ -4,16 +4,24 @@ import { spawnSync } from 'node:child_process';
 import { detectTrustPlatform } from './trust-os.mjs';
 
 export const exactExportRelease = 'Windows 11 26H2 build 26340.9767';
+// Each additional export host is one exact build and update revision; nothing is matched by range or prefix.
+export const exactExportHosts = Object.freeze([
+  Object.freeze({ release: exactExportRelease, nodeRelease: '10.0.26340', cimVersion: '10.0.26340', currentBuild: '26340',
+    ubr: 9767, displayVersion: '26H2', architecture: 'AMD64', caption: 'Microsoft Windows 11 Pro Insider Preview' }),
+  Object.freeze({ release: 'Windows 11 Dev build 29695.1001', nodeRelease: '10.0.29695', cimVersion: '10.0.29695', currentBuild: '29695',
+    ubr: 1001, displayVersion: 'Dev', architecture: 'AMD64', caption: 'Microsoft Windows 11 Pro Insider Preview' })
+]);
+export const exactExportReleases = Object.freeze(exactExportHosts.map(host => host.release));
+const hostFacts = Object.freeze(['nodeRelease', 'cimVersion', 'currentBuild', 'ubr', 'displayVersion', 'architecture', 'caption']);
 export function classifyCertificateExportPlatform(legacy, facts) {
   if (legacy.release !== null || legacy.os !== 'win32' || legacy.architecture !== 'x64') return legacy;
-  if (!facts || facts.nodeRelease !== '10.0.26340' || facts.cimVersion !== '10.0.26340' ||
-      facts.currentBuild !== '26340' || facts.ubr !== 9767 || facts.displayVersion !== '26H2' ||
-      facts.architecture !== 'AMD64' || facts.caption !== 'Microsoft Windows 11 Pro Insider Preview') return legacy;
-  return { ...legacy, release: exactExportRelease, projection: 'windows-effective-server-auth-v1' };
+  const host = facts ? exactExportHosts.find(item => hostFacts.every(name => facts[name] === item[name])) : undefined;
+  if (!host) return legacy;
+  return { ...legacy, release: host.release, projection: 'windows-effective-server-auth-v1' };
 }
 export function detectCertificateExportPlatform() {
   const legacy = detectTrustPlatform();
-  if (legacy.release !== null || platform() !== 'win32' || arch() !== 'x64' || release() !== '10.0.26340') return legacy;
+  if (legacy.release !== null || platform() !== 'win32' || arch() !== 'x64' || !exactExportHosts.some(host => host.nodeRelease === release())) return legacy;
   try {
     // This additional cell is scoped to the reviewed C:\Windows host. Environment variables
     // must not redirect either the OS observer or its autoloaded modules to user-owned code.

@@ -18,7 +18,8 @@ test('admitted Windows export cells are named by exactly the matching export var
       ? trustCellRecords.filter(cell => cell.network === variant.network).map(cell => cell.id).sort() : [];
     assert.deepEqual([...variant.capabilityIds].sort(), expected, `${variant.os}/${variant.network}`);
   }
-  assert.equal(exportDefinition.variants.find(v => v.os === 'win32' && v.network === 'declared').capabilityIds.length, 4);
+  // 25H2 (migrated), 26H2 build 26340.9767 (migrated) and Dev build 29695.1001 (native): one PEM and one P7B cell each.
+  assert.equal(exportDefinition.variants.find(v => v.os === 'win32' && v.network === 'declared').capabilityIds.length, 6);
 });
 
 test('no repair variant, native or file, names an admitted cell', () => {
