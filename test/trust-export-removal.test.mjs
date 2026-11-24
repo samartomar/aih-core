@@ -80,7 +80,7 @@ console.log(JSON.stringify({ managementId, before, prepared,
   });
 
 // The single-id route is only for one custody-held ID with readable custody. Everything else keeps the batch refusals.
-test('public prepareRemoval keeps refusing a multi-ID request with an export and unreadable custody, with no handle', { skip }, () => {
+test('public prepareRemoval refuses a multi-ID request with an export, naming why, and unreadable custody, with no handle', { skip }, () => {
   const scratch = mkdtempSync(join(tmpdir(), 'aih-export-removal-refusals-'));
   try {
     const url = installedCopy(scratch); const home = join(scratch, 'home'); mkdirSync(home);
@@ -109,7 +109,11 @@ console.log(JSON.stringify({ managementId, multi, unreadable, exists: existsSync
       { cwd: scratch, env: { ...process.env, HOME: home, USERPROFILE: home }, encoding: 'utf8', timeout: 120_000 }));
     assert.equal(result.multi.status, 'ok', JSON.stringify(result.multi));
     assert.equal(result.multi.handle, 'undefined', JSON.stringify(result.multi));
-    assert.equal(result.multi.entries.find(entry => entry.managementId === result.managementId)?.disposition, 'unavailable', JSON.stringify(result.multi));
+    // The custody-held export says why it was not prepared: it is removed in its own single-id request (#193).
+    // The other entry keeps its ordinary shape.
+    assert.deepEqual(result.multi.entries, [
+      { managementId: result.managementId, disposition: 'unavailable', members: [], reason: 'single-removal-required' },
+      { managementId: 'other-thing', disposition: 'absent', members: [] }], JSON.stringify(result.multi));
     assert.equal(result.unreadable.status, 'refused', JSON.stringify(result.unreadable));
     assert.equal(result.unreadable.handle, 'undefined', JSON.stringify(result.unreadable));
     assert.equal(result.exists, true, 'neither refusal touched the output');
