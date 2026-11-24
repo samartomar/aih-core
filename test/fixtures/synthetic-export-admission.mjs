@@ -2,12 +2,17 @@
 // exact trust platform, so the public export and removal paths can run on a host that has no published export cell.
 // The copy is never the product, and its records are never product evidence.
 import { createHash } from 'node:crypto';
-import { cpSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-/** Copy an installed Core (dist and package.json), sharing its dependencies through a link. */
-export function disposableInstall(installed, into, modules = join(installed, 'node_modules')) {
+/**
+ * Copy an installed Core (dist and package.json), linking `modules` as the copy's own node_modules. A packed install
+ * keeps its bundled dependencies there, while npm hoists the rest to the consumer's node_modules, so a copy of a
+ * packed install must stay inside that consumer directory.
+ */
+export function disposableInstall(installed, into, modules) {
+  if (typeof modules !== 'string' || !existsSync(modules)) throw new Error(`disposable install needs an existing node_modules: ${modules}`);
   mkdirSync(into, { recursive: true });
   cpSync(join(installed, 'dist'), join(into, 'dist'), { recursive: true });
   cpSync(join(installed, 'package.json'), join(into, 'package.json'));

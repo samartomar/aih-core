@@ -101,10 +101,6 @@ export async function prepareManagedRemoval(request: ManagedRemovalRequest | Man
   return prepareOne(request as ManagedRemovalRequest, controls);
 }
 /**
- * A repair's removal for the 0.1.0 lifecycle (contract 7.4, 10): the retained single-id removal, whose run checks every
- * member it releases on disk and is verified from those checks. Not a public entry.
- */
-/**
  * Management IDs held by protected user trust custody (including pending entries) or session custody. They are removed
  * only through the single-id removal, which also releases that custody. Throws when the custody cannot be read.
  */
@@ -115,6 +111,10 @@ export function specialCustodyIds(): Set<string> {
   for (const entry of readMacosCustody().value.entries) special.add(entry.managementId);
   return special;
 }
+/**
+ * A repair's removal for the 0.1.0 lifecycle (contract 7.4, 10): the retained single-id removal, whose run checks every
+ * member it releases on disk and is verified from those checks. Not a public entry.
+ */
 export function prepareRepairRemoval(request: ManagedRemovalRequest, controls: HostControls): Promise<ManagedRemovalPreparationResult> {
   forgetProvenState();
   return prepareOne(request, controls, true);

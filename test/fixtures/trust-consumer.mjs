@@ -4,8 +4,8 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join, relative, isAbsolute } from 'node:path';
 import { prepare, apply, prepareRemoval } from '@aihq/core';
 import { validateFormat } from '@aihq/core/contracts';
 import { trustCapabilities as published } from '@aihq/core/harness';
@@ -44,6 +44,18 @@ assert.equal(userPreview.review.environment.repair, 'user-tools-ca');
 
 writeFileSync(join(process.cwd(), 'export-inputs.json'), JSON.stringify({ schema: 'urn:aihq:core:export-inputs:0.1.0',
   sources: { os: false, supplied: [{ id: 'company', file: 'ca.pem' }] } }));
+// Whether a published export cell admits this exact host decides the route; a blocked Prepare alone never does.
+const harness = name => new URL(`../harness/${name}`, import.meta.resolve('@aihq/core')).href;
+const { trustPlatformMatrix } = await import(harness('trust-definitions.mjs'));
+const { detectCertificateExportPlatform } = await import(harness('trust-export-platform.mjs'));
+const { selectTrustCell } = await import(harness('contracts.mjs'));
+const host = detectCertificateExportPlatform();
+const row = trustPlatformMatrix.find(item => item.os === host.os && item.release === host.release &&
+  item.architecture === host.architecture && item.projection === host.projection);
+const publishedAdmits = format => !!host.release && selectTrustCell({ definitionId: 'certificate-export', route: 'export', target: null,
+  platform: { os: host.os, release: host.release, architecture: host.architecture }, network: 'off', format }, published).status === 'admitted';
+const publishedFormats = ['pem', 'pkcs7-der'].filter(publishedAdmits);
+assert.ok(publishedFormats.length === 0 || publishedFormats.length === 2, `published export admission covers both formats or neither: ${publishedFormats}`);
 let written = 0;
 for (const format of ['pem', 'pkcs7-der']) {
   const output = `packed/cli.${format === 'pem' ? 'pem' : 'p7b'}`;
@@ -51,13 +63,14 @@ for (const format of ['pem', 'pkcs7-der']) {
   const result = spawnSync(process.execPath, [cli, 'export-ca', '--format', format, '--output', output, '--inputs-file', 'export-inputs.json',
     '--offline', '--apply', '--yes', '--no-log', '--json'], { cwd: process.cwd(), env: process.env, encoding: 'utf8', timeout: 60_000, windowsHide: true });
   const value = JSON.parse(result.stdout);
-  if (preview.status !== 'ready') {
-    // An export cell this host has no admission for is shown as blocked, with no effects.
+  if (!publishedAdmits(format)) {
+    // An export cell this host has no published admission for is shown as blocked, with no effects.
     assert.equal(preview.status, 'blocked', JSON.stringify(preview));
     assert.equal(result.status, 1, result.stdout + result.stderr);
     assert.equal(value.status, 'blocked'); ok(value.review, REVIEW);
     continue;
   }
+  assert.equal(preview.status, 'ready', JSON.stringify(preview));
   assert.equal(result.status, 0, result.stdout + result.stderr);
   ok(value, RUN); assert.equal(value.completion, 'complete');
   const target = join(process.env.HOME, ...output.split('/'));
@@ -72,14 +85,13 @@ for (const format of ['pem', 'pkcs7-der']) {
 // Without a published export cell for this host, the same public export and removal run against a disposable copy of
 // this installed artifact, with unpublished synthetic admission for the host's exact platform (never product evidence).
 let synthetic = 0;
-if (!written) {
-  const { trustPlatformMatrix } = await import(new URL('../harness/trust-definitions.mjs', import.meta.resolve('@aihq/core')).href);
-  const { detectCertificateExportPlatform } = await import(new URL('../harness/trust-export-platform.mjs', import.meta.resolve('@aihq/core')).href);
-  const host = detectCertificateExportPlatform();
-  const row = trustPlatformMatrix.find(item => item.os === host.os && item.release === host.release &&
-    item.architecture === host.architecture && item.projection === host.projection);
+if (!publishedFormats.length) {
   if (row) {
-    const copy = disposableInstall(installed, join(process.cwd(), 'synthetic-export'));
+    // The copy shares the artifact's bundled modules explicitly; its unbundled dependencies resolve from this
+    // consumer's node_modules, which is why the copy must stay inside the consumer directory.
+    const copyRoot = mkdtempSync(join(process.cwd(), 'synthetic-export-'));
+    const inside = relative(process.cwd(), copyRoot); assert.ok(inside && !inside.startsWith('..') && !isAbsolute(inside));
+    const copy = disposableInstall(installed, copyRoot, join(installed, 'node_modules'));
     const helper = new URL('./synthetic-export-admission.mjs', import.meta.url).href;
     const admit = spawnSync(process.execPath, ['--input-type=module', '-e',
       `const { admitSyntheticExport } = await import(${JSON.stringify(helper)}); await admitSyntheticExport(${JSON.stringify(copy)}, ${JSON.stringify(row)});`],
@@ -111,11 +123,15 @@ for (const format of ['pem', 'pkcs7-der']) {
 }
 console.log(done);
 `);
-    const syntheticHome = join(process.env.HOME, 'synthetic-home'); mkdirSync(syntheticHome);
+    const syntheticHome = mkdtempSync(join(process.cwd(), 'synthetic-home-'));
     const ran = spawnSync(process.execPath, [script], { cwd: process.cwd(), env: { ...process.env, HOME: syntheticHome, USERPROFILE: syntheticHome },
       encoding: 'utf8', timeout: 120_000, windowsHide: true });
     assert.equal(ran.status, 0, ran.stdout + ran.stderr);
     synthetic = Number(ran.stdout.trim()); assert.equal(synthetic, 2);
   }
 }
-console.log(`packed trust public contracts passed (${written} exports written, ${synthetic} through synthetic admission)`);
+// An exact trust platform must actually remove both exports, published or synthetic; any other host says why it skipped.
+const removalLine = row ? `export removal ran=${written + synthetic}` :
+  `export removal skipped: ${host.os}/${host.architecture} ${host.release ?? 'unclassified release'} is not an exact trust platform`;
+if (row) assert.equal(written + synthetic, 2, removalLine);
+console.log(`packed trust public contracts passed (${written} exports written, ${synthetic} through synthetic admission); ${removalLine}`);
