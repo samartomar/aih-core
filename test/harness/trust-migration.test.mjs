@@ -60,7 +60,8 @@ test('the historical v1 envelope alone no longer verifies against the changed cu
   assert.deepEqual(verify().diagnostics.map(item => item.reason), ['migration-executable-change']);
 }));
 for (const file of ['dist/harness/trust.mjs', 'dist/harness/trust-export-platform.mjs', 'dist/harness/trust-migration-policy.mjs', 'dist/core/trust.js',
-  'dist/harness/trust-migration.mjs', 'dist/harness/trust-migration-v2.mjs', 'dist/harness/trust-migration-v2-policy.mjs', 'dist/harness/trust-definitions.mjs'])
+  'dist/harness/trust-migration.mjs', 'dist/harness/trust-migration-v2.mjs', 'dist/harness/trust-migration-v2-policy.mjs', 'dist/harness/trust-definitions.mjs',
+  'dist/harness/trust-encoding.mjs'])
   test(`migration refuses changed current ${file} even with a recomputed current subject`, () => fixture(({ root, capabilities, change, verify }) => {
     writeFileSync(join(root, file), Buffer.concat([readFileSync(join(root, file)), Buffer.from('\n// changed\n')]));
     for (let i = 0; i < capabilities.cells.length; i++) change(() => {}, i);

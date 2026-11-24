@@ -37,8 +37,19 @@ test('generator reproduces the shipped v2 policy, envelopes and admission table 
   const summary = JSON.parse(result.stdout);
   assert.deepEqual({ ...summary, proofSha256: undefined }, { kind: 'equivalence-migration', method: 'core417-serializer-v4-and-exact-export-hosts-v1',
     predecessorRecordsVerified: 8, migratedCells: 8, retainedNativeCells: 0, casesCompared: { pem: 9, p7b: 11 },
-    supplementaryCompared: summary.supplementaryCompared, proofSha256: undefined, nativeExecutionsCreated: 0 });
+    supplementaryCompared: true, proofSha256: undefined, nativeExecutionsCreated: 0 });
   for (const name of generated) assert.ok(readFileSync(join(root, name)).equals(readFileSync(join(source, name))), name);
+}));
+
+test('generator refuses to regenerate when the supplementary comparison cannot run', () => scratchCopy(({ root, generate }) => {
+  const file = join(root, 'scripts/fixtures/trust-migration-v2-predecessor.json');
+  const recorded = JSON.parse(readFileSync(file)); recorded.observations.supplementary.nodeBundledRootsSha256 = '0'.repeat(64);
+  writeFileSync(file, JSON.stringify(recorded, null, 2) + '\n');
+  const before = readFileSync(join(root, 'src/harness/trust-migration-v2-policy.mjs'));
+  const result = generate();
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /supplementary comparison requires the recorded Node bundled roots/);
+  assert.ok(readFileSync(join(root, 'src/harness/trust-migration-v2-policy.mjs')).equals(before), 'nothing is written after the refusal');
 }));
 
 test('the v2 proof binds every installed case with identical predecessor and current outputs', async () => {

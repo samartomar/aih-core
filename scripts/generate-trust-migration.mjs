@@ -79,8 +79,10 @@ for (const id of ['export-pem-parse-v1', 'export-p7b-parse-v1']) {
 assert.deepEqual([current.profiles['export-pem-parse-v1'].length, current.profiles['export-p7b-parse-v1'].length], [9, 11]);
 assert.deepEqual(current.fixtures, input.observations.fixtures);
 const supplementary = input.observations.supplementary;
+// The proof states the supplementary sets were compared, so regeneration refuses rather than silently skipping them.
 const supplementaryMatched = supplementary.nodeBundledRootsSha256 === current.supplementary.nodeBundledRootsSha256;
-if (supplementaryMatched) assert.ok(isDeepStrictEqual(current.supplementary.results, supplementary.results), 'supplementary differential is identical');
+assert.ok(supplementaryMatched, `supplementary comparison requires the recorded Node bundled roots (${supplementary.node}); this runtime is ${current.supplementary.node}`);
+assert.ok(isDeepStrictEqual(current.supplementary.results, supplementary.results), 'supplementary differential is identical');
 // 4. Predecessor records: shipped bytes are unchanged and still bind their recorded predecessor subjects.
 const predecessorFiles = files.map(({ name, sha256 }) => ({ name, sha256 }));
 const subjectFiles = [...predecessorFiles].sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
