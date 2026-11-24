@@ -217,6 +217,8 @@ export async function list(request: unknown, controls: unknown = {}): Promise<Li
   return deepFreezeStrictJsonV1(inventory as unknown as Json) as unknown as Inventory;
 }
 
+/** Why a custody-held entry in a multi-ID removal request was not prepared (#193). */
+const SINGLE_REMOVAL_REQUIRED = 'single-removal-required';
 export async function prepareRemoval(request: unknown, controls: unknown = {}): Promise<RemovalResult> {
   forgetProvenState();
   if (!plain(request, ['target', 'scope', 'removals', 'mode', 'resolutions'])) return invalid('', 'request', 'A removal request is `{ target, scope, removals, mode?, resolutions? }`.');
@@ -335,7 +337,12 @@ export async function prepareRemoval(request: unknown, controls: unknown = {}): 
   if (prepared.disposition === 'cancelled') return { status: 'refused', code: 'cancelled', reason: 'Removal preparation was cancelled.' };
   if (prepared.disposition === 'invalid') return { status: 'invalid', problems: prepared.diagnostics.map(item => ({ path: item.path ?? '', reason: item.reason, message: item.message })) };
   const engine = prepared.preparation;
+  // A trust or session custody ID named with other removals is not prepared in the batch: its entry says it is removed
+  // in its own single-id request. No other engine diagnostic becomes an entry reason.
+  const batchRefusal = (entry: { disposition: string; diagnostics?: readonly { reason: string }[] }) =>
+    entry.disposition === 'unavailable' && entry.diagnostics?.some(item => item.reason === SINGLE_REMOVAL_REQUIRED) ? { reason: SINGLE_REMOVAL_REQUIRED } : {};
   const entries: RemovalEntry[] = merged((prepared.removals ?? []).map(entry => ({ managementId: entry.managementId, disposition: entry.disposition,
+    ...batchRefusal(entry),
     ...(entry.disposition === 'prepared' && engine && ['ready', 'partial', 'blocked'].includes(engine.status) ?
       { status: engine.status as 'ready' | 'partial' | 'blocked' } : {}),
     members: entry.members.map(member => ({ kind: member.kind, path: member.path, ...(member.pointer === undefined ? {} : { pointer: member.pointer }),

@@ -1370,6 +1370,8 @@ A repair run lists each member it touched in `members`, checked on disk after Ap
 --scope user`) checks every member it releases the same way, and each removal step is verified from those checks
 (`passed` `member-checked`). A configuration file the repair created, such as a `pip.conf` that did not exist before,
 is removed with its last entry; a file you already had keeps your own settings, byte for byte.
+A repair or certificate export is removed in its own request, naming only its ID. Named with other removals, its
+entry is `unavailable` with `reason: single-removal-required`, and nothing is prepared for it.
 
 The `user-tools-ca` file route writes a CA file setting, so it needs the selected Git or Cargo to use a TLS backend
 that reads one: OpenSSL, Schannel (Windows) or GnuTLS. Git's backend is its `http.sslBackend` setting, or GnuTLS when
