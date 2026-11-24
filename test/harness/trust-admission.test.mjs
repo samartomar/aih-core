@@ -57,13 +57,21 @@ test('shipped evidence verifies historical transport claims without inventing ne
   assert.ok(trustCellRecords.every(cell => cell.route === 'export' && cell.client === null));
   assert.equal(verifyTrustAdmissionEvidence({ packageRoot: worktree, capabilities: buildTrustCapabilities(pkg, trustCellRecords) }).valid, true);
   for (const cell of trustCellRecords) {
-    const envelope = JSON.parse(readFileSync(join(worktree, cell.evidence.reference), 'utf8'));
-    if (envelope.schema === 'aih.trust.acceptance-migration.v1') {
-      assert.equal(envelope.kind, 'equivalence-migration');
-      assert.ok(envelope.limitations.includes('equivalence-migration-no-new-old-os-execution'));
+    let record = JSON.parse(readFileSync(join(worktree, cell.evidence.reference), 'utf8'));
+    // Unwrap each migration layer; none may claim a new execution or drop an earlier limitation.
+    if (record.schema === 'aih.trust.acceptance-migration.v2') {
+      assert.equal(record.kind, 'equivalence-migration');
+      assert.ok(record.limitations.includes('equivalence-migration-serializer-v4-no-new-execution'));
+      const inner = JSON.parse(Buffer.from(record.predecessorRecordBytes, 'base64'));
+      assert.deepEqual(record.limitations, [...inner.limitations, 'equivalence-migration-serializer-v4-no-new-execution']);
+      record = inner;
     }
-    const record = envelope.schema === 'aih.trust.acceptance-migration.v1'
-      ? JSON.parse(Buffer.from(envelope.originalRecordBytes, 'base64')) : envelope;
+    if (record.schema === 'aih.trust.acceptance-migration.v1') {
+      assert.equal(record.kind, 'equivalence-migration');
+      assert.ok(record.limitations.includes('equivalence-migration-no-new-old-os-execution'));
+      record = JSON.parse(Buffer.from(record.originalRecordBytes, 'base64'));
+    }
+    assert.equal(record.schema, 'aih.trust.acceptance.v1');
     assert.ok(record.cases.every(item => item.outcome === 'passed' && !item.summary.includes('Synthetic fixture')));
     assert.ok(record.limitations.includes('no-os-fullset-claim') && record.limitations.includes('no-native-client-claim'));
     assert.equal(record.limitations.includes('synthetic-fixture-only'), false);
