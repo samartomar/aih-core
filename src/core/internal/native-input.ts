@@ -15,13 +15,25 @@ export const nativeReasons = new Set(['schema-id', 'request-field', 'controls-fi
   'configuration-not-loaded', 'managed-restriction', 'guardrail-path-conflict', 'restriction-unobservable', 'identity-session-mismatch', 'identity-conflict', 'tools-not-discovered',
   'server-evidence-unavailable', 'instructions-not-loaded', 'instruction-attestation-unobservable', 'instruction-attestation-mismatch', 'instruction-source-ambiguous',
   'query-challenge-mismatch', 'query-answer-mismatch', 'configuration-changed', 'isolation-unobserved', 'isolation-violated', 'observed', 'before-session-2', 'after-session-2',
-  'cancelled', 'budget-exhausted', 'limit-exceeded', 'native-internal', 'not-run-after-failure', 'not-run-after-restriction', 'not-run-after-unavailable', 'termination-unresolved', 'cleanup-unresolved']);
+  'cancelled', 'budget-exhausted', 'limit-exceeded', 'native-internal', 'not-run-after-failure', 'not-run-after-restriction', 'not-run-after-unavailable', 'termination-unresolved', 'cleanup-unresolved', 'wsl-interop-fixed-binary']);
 export class NativeStop extends Error {
-  constructor(readonly reason: string, readonly outcome: 'failed' | 'unsupported' | 'unavailable' | 'restricted' = 'unavailable') {
+  constructor(readonly reason: string, readonly outcome: 'failed' | 'unsupported' | 'unavailable' | 'restricted' = 'unavailable',
+    /** Fixed text built only from closed tokens; see {@link nativeProbeGuidance}. */
+    readonly guidance?: string) {
     super('Native verification stopped.');
-    if (!nativeReasons.has(reason)) { this.reason = 'native-internal'; this.outcome = 'unavailable'; }
+    if (!nativeReasons.has(reason)) { this.reason = 'native-internal'; this.outcome = 'unavailable'; this.guidance = undefined; }
   }
 }
+/** Names the helper's unproven isolation probes. Anything but a short list of distinct identifier tokens yields nothing. */
+export function nativeProbeGuidance(probes: unknown): string | undefined {
+  if (!Array.isArray(probes) || probes.length < 1 || probes.length > 24 || new Set(probes).size !== probes.length ||
+    !probes.every(name => typeof name === 'string' && /^[a-z][A-Za-z]{0,47}$/.test(name))) return undefined;
+  return `Unproven sandbox isolation probes: ${probes.join(', ')}.`;
+}
+const reasonGuidance: Record<string, string> = {
+  'managed-restriction': 'Contact your IT administrator about the managed restriction.',
+  'wsl-interop-fixed-binary': 'Windows interop on this WSL host is registered in binfmt_misc with the fix-binary (F) flag, so the sandbox cannot block Windows execution. This candidate supports only a Windows interop handler registered without that flag.',
+};
 export function nativeDiagnostic(reason: string, code = 'INPUT_INVALID', path?: string): Diagnostic {
   if (!nativeReasons.has(reason)) reason = 'native-internal';
   const message = code === 'INPUT_INVALID' ? 'Expected bounded, plain native verification input.' :
@@ -30,7 +42,7 @@ export function nativeDiagnostic(reason: string, code = 'INPUT_INVALID', path?: 
     code === 'EXECUTION_FAILED' ? 'Native verification observed a contradiction.' :
     code === 'INTERNAL_ERROR' ? 'Native verification could not finish.' : 'A native verification prerequisite is unavailable.';
   return { code, reason, message, ...(path ? { path } : {}),
-    ...(reason === 'managed-restriction' ? { guidance: 'Contact your IT administrator about the managed restriction.' } : {}) };
+    ...(Object.hasOwn(reasonGuidance, reason) ? { guidance: reasonGuidance[reason] } : {}) };
 }
 
 /** Node can reject proxies before any reflective operation triggers caller code. */

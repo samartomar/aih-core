@@ -536,7 +536,8 @@
         "not-run-after-restriction",
         "not-run-after-unavailable",
         "termination-unresolved",
-        "cleanup-unresolved"
+        "cleanup-unresolved",
+        "wsl-interop-fixed-binary"
       ]
     },
     "stageId": {

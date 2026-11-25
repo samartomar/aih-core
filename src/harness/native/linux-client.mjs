@@ -6,6 +6,7 @@ import { createClaudeCollector } from './collector.mjs';
 import { resolveLinuxPlatform, windowsPolicyDirectoryFromMounts } from './linux-platform.mjs';
 import { observeLinuxManagedPolicy } from './managed-policy.mjs';
 import { verifyLinuxVendorClosure } from './linux-runtime.mjs';
+import { unprovenIsolationProbes } from './linux-isolation.mjs';
 import { linuxObserverPins, prepareLinuxSandboxContext } from './linux-sandbox.mjs';
 import { parseClaudeVersionOutput } from './select.mjs';
 import { publishNativeAdmission, publishNativePlatformDrift } from './admission.mjs';
@@ -27,6 +28,8 @@ export function observeLinuxNativePolicy(execution) {
   return observeLinuxManagedPolicy({ execution, windowsDirectory, windowsSourceKnown: windowsDirectory !== undefined });
 }
 
+// Platform refusals that name a specific host configuration; every other platform gap stays isolation-unobserved.
+const PLATFORM_REASONS = new Set(['restriction-unobservable', 'wsl-interop-fixed-binary']);
 const defaultDependencies = Object.freeze({ observePolicy: observeLinuxNativePolicy, resolvePlatform: resolveLinuxPlatform });
 
 export async function resolveLinuxNativeClient({ definition, input, client, cell, check }) {
@@ -41,7 +44,7 @@ export async function resolveLinuxNativeClientWith({ observePolicy, resolvePlatf
   if (managed.outcome !== 'file-sources-clear') return fail('restriction-unobservable');
   const platform = await resolvePlatform({ client, check }); check();
   if (platform.reason === 'platform-record-drift') publishNativePlatformDrift({ runSha256: sha256(cell.path), ...platform.drift });
-  if (platform.status !== 'ready') return fail(platform.reason === 'restriction-unobservable' ? platform.reason : 'isolation-unobserved');
+  if (platform.status !== 'ready') return fail(PLATFORM_REASONS.has(platform.reason) ? platform.reason : 'isolation-unobserved');
   const vendor = verifyLinuxVendorClosure({ check }); check();
   if (vendor.status !== 'ready') return fail(vendor.reason);
   let observer;
@@ -64,6 +67,12 @@ export async function resolveLinuxNativeClientWith({ observePolicy, resolvePlatf
     return { confirmed: receipt.processes === 'confirmed', survivors: receipt.survivors };
   })();
   const failed = async reason => ({ ...fail(reason), cleanup: await terminate(), cleanupStartedAt: startedAt, probeBytes: bytes });
+  // Diagnostic only: an isolation gap names the closed probes that stayed unproven. It never changes the outcome.
+  const isolationFailure = async reason => {
+    const failure = await failed(reason);
+    const unproven = reason === 'isolation-unobserved' && context ? unprovenIsolationProbes(context.isolationRecord().probes) : null;
+    return unproven?.length ? { ...failure, unprovenProbes: unproven } : failure;
+  };
   try {
     writeFileSync(marker, 'fixed-version-probe', { flag: 'wx', mode: 0o600 });
     const telemetry = await collector.start(); check();
@@ -98,8 +107,8 @@ export async function resolveLinuxNativeClientWith({ observePolicy, resolvePlatf
     const receipt = await terminate();
     const proof = context.versionProbeReady();
     if (!receipt.confirmed) return { ...fail('termination-unresolved'), cleanup: receipt, cleanupStartedAt: startedAt, probeBytes: bytes };
-    if (stopped) return failed(stopped);
-    if (!proof) return failed(context.failureReason ?? 'isolation-unobserved');
+    if (stopped) return isolationFailure(stopped);
+    if (!proof) return isolationFailure(context.failureReason ?? 'isolation-unobserved');
     const version = exit?.code === 0 ? parseClaudeVersionOutput(output) : null;
     if (!version) return failed('version-unreadable');
     return { status: 'resolved', platform, vendor, runtime, pin: {

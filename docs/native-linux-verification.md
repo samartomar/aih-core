@@ -129,6 +129,28 @@ observed as the vendor's non-executable `/dev/null` mask. The current candidate
 requires independently observed NAT networking. Mirrored networking remains
 unavailable pending a separate Windows-side loopback denial proof.
 
+The `/init` mask blocks Windows execution only when the kernel opens the
+interpreter by path at each `execve`. A `binfmt_misc` handler with the
+fix-binary (`F`) flag keeps the interpreter it opened at registration, so no
+mask inside the sandbox stops it. WSL 3.0.5.0 registers `WSLInterop` with
+flags `PF`. Before any sandbox starts, the host's `binfmt_misc` entries are
+read. An enabled `F` handler for Windows images refuses the host with
+`wsl-interop-fixed-binary`. Such a handler is one with interpreter `/init`, the
+`.exe` extension or `MZ` magic at offset 0. This host observation only names
+the refusal and never proves denial: every other host still needs the helper's
+recognized refusal.
+
+The supported WSL configuration has the Windows interop handler registered
+without `F`, so the sandbox's `/init` mask applies. A host with no Windows
+handler at all is not yet supported: the kernel then refuses the canary with
+`ENOEXEC`, which the current helper does not recognize, so the proof stays
+unavailable.
+
+When the version probe's isolation proof is incomplete, the `host-presence`
+diagnostic names the probes that proved no denial in its `guidance`, for
+example `Unproven sandbox isolation probes: windowsExecDenied.`. The names come
+from the closed probe vocabulary and never change the outcome.
+
 One ten-second cleanup allowance covers the owned tree, including outer proxy
 helpers and detached descendants. An empty process group alone is insufficient.
 The helper must reap all owned children, close authenticated transports and

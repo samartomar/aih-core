@@ -107,6 +107,43 @@ export function observedWslNetworkingMode(text) {
   return ['nat', 'nat\n', 'nat\r\n'].includes(text) ? 'nat' : null;
 }
 
+// Host observation for a specific refusal, never a proof: an enabled fix-binary (F) handler for Windows images
+// runs the interpreter the kernel opened at registration, so no in-sandbox path mask can stop it. Handlers match
+// WSL's /init interpreter, the .exe extension or MZ magic at offset 0 under the entry's mask. Every other host
+// still needs the in-sandbox exec refusal.
+const WINDOWS_MAGIC = Buffer.from('MZ');
+export function observedWslFixedBinaryInterop(status, entries) {
+  if (status !== 'enabled\n' || !Array.isArray(entries)) return false;
+  return entries.some(text => {
+    if (typeof text !== 'string' || text.length > 4096) return false;
+    const lines = text.split('\n');
+    const field = name => { const row = lines.find(line => line.startsWith(name)); return row === undefined ? null : row.slice(name.length); };
+    if (lines[0] !== 'enabled' || !(field('flags: ') ?? field('flags:') ?? '').includes('F')) return false;
+    if (field('interpreter ') === '/init') return true;
+    const extension = field('extension ');
+    if (extension !== null) return extension.toLowerCase() === '.exe';
+    const magic = field('magic '), mask = field('mask ');
+    if (field('offset ') !== '0' || !/^(?:[0-9a-f]{2})+$/.test(magic ?? '') || (mask !== null && !/^(?:[0-9a-f]{2})+$/.test(mask))) return false;
+    const bytes = Buffer.from(magic, 'hex'), bits = mask === null ? null : Buffer.from(mask, 'hex');
+    return [0, 1].slice(0, bytes.length).every(index => (WINDOWS_MAGIC[index] & (bits?.[index] ?? 0xff)) === bytes[index]);
+  });
+}
+
+const BINFMT = '/proc/sys/fs/binfmt_misc';
+async function fixedBinaryInterop(check) {
+  const bounded = async path => {
+    try { return decode(await readProc(path, 4096, check)); }
+    catch (error) { if (error instanceof CheckFailed) throw error; return null; }
+  };
+  await check();
+  let names;
+  try { names = await readdir(BINFMT); } catch { return false; }
+  if (names.length > 66 || !names.every(name => /^[A-Za-z0-9._+-]{1,255}$/.test(name))) return false;
+  const entries = [];
+  for (const name of names.filter(value => value !== 'register' && value !== 'status')) entries.push(await bounded(posix.join(BINFMT, name)));
+  return observedWslFixedBinaryInterop(await bounded(posix.join(BINFMT, 'status')), entries);
+}
+
 class Unavailable extends Error { constructor(reason, drift) { super(); this.reason = reason; if (drift) this.drift = drift; } }
 class CheckFailed extends Error { constructor(error) { super(); this.error = error; } }
 const refuse = (reason, drift) => { throw new Unavailable(reason, drift); };
@@ -279,6 +316,7 @@ export async function resolveLinuxPlatform({ check: trustedCheck = () => {}, cli
       if (info.path !== '/init') refuse('isolation-unobserved');
       await check(); const mode = await networkingMode(); await check();
       if (mode !== 'nat') refuse('isolation-unobserved');
+      if (await fixedBinaryInterop(check)) refuse('wsl-interop-fixed-binary');
       const mounts = decode(await readProc('/proc/self/mounts', 262144, check));
       const windowsPolicyDirectory = windowsPolicyDirectoryFromMounts(mounts);
       if (!windowsPolicyDirectory) refuse('restriction-unobservable');
