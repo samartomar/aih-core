@@ -196,6 +196,12 @@ test('an ordinary runtime-changed result publishes nothing and stays isolation-u
   assert.deepEqual(result, { outcome: 'unavailable', reason: 'isolation-unobserved' });
 });
 
+test('a fix-binary Windows interop refusal keeps its own reason instead of isolation-unobserved', async () => {
+  const { records, result } = await wire({ status: 'unavailable', reason: 'wsl-interop-fixed-binary' });
+  assert.deepEqual(records, []);
+  assert.deepEqual(result, { outcome: 'unavailable', reason: 'wsl-interop-fixed-binary' });
+});
+
 test('a managed-policy refusal returns before platform resolution and publishes nothing', async () => {
   const drift = { status: 'unavailable', reason: 'platform-record-drift', drift: DRIFT };
   const restricted = await wire(drift, () => ({ outcome: 'restricted' }));

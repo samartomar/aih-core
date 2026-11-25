@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createHash } from 'node:crypto';
-import { isolationProbeNames, evaluateLinuxIsolation, inspectLinuxArguments, inspectLinuxProxyCapability, validIsolationProbes } from '../../src/harness/native/linux-isolation.mjs';
+import { isolationProbeNames, evaluateLinuxIsolation, inspectLinuxArguments, inspectLinuxProxyCapability, unprovenIsolationProbes, validIsolationProbes } from '../../src/harness/native/linux-isolation.mjs';
 
 test('only the pinned bwrap and shell sites may carry the current vendor proxy capability', () => {
   const token = 'a'.repeat(32), digest = createHash('sha256').update(token).digest('hex');
@@ -68,4 +68,13 @@ test('argument inspection never returns argument text, refuses protected values 
   assert.deepEqual(inspectLinuxArguments(['x'.repeat(1024 * 1024 + 1)], secrets), { clean: null, inspected: 0 });
   assert.deepEqual(inspectLinuxArguments('argv', secrets), { clean: null, inspected: 0 });
   assert.deepEqual(inspectLinuxArguments(['/usr/bin/node'], ['']), { clean: true, inspected: 1 });
+});
+
+test('the unproven probe names are the closed vocabulary entries that did not prove a denial', () => {
+  const probes = Object.fromEntries(isolationProbeNames.map(key => [key, true]));
+  assert.deepEqual(unprovenIsolationProbes(probes), []);
+  assert.deepEqual(unprovenIsolationProbes({ ...probes, windowsExecDenied: null }), ['windowsExecDenied']);
+  assert.deepEqual(unprovenIsolationProbes({ ...probes, windowsExecDenied: null, outsideReadDenied: false }), ['outsideReadDenied', 'windowsExecDenied']);
+  for (const value of [null, undefined, {}, { ...probes, extra: true }, { ...probes, windowsExecDenied: 'no' }, []])
+    assert.equal(unprovenIsolationProbes(value), null);
 });

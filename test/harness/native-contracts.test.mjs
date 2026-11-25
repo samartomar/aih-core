@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
 import {
   nativeClientIds, nativeBounds, nativeStageReasons, nativeVerificationDefinitions,
   validateNativeVerificationDefinition, validateNativeTestIdentity, bundledNativeFixtures
@@ -51,8 +52,16 @@ test('stable reason table carries every contract token', () => {
     'query-challenge-mismatch', 'query-answer-mismatch', 'configuration-changed', 'isolation-unobserved',
     'isolation-violated', 'observed', 'cancelled', 'budget-exhausted', 'limit-exceeded', 'native-internal',
     'not-run-after-failure', 'not-run-after-restriction', 'not-run-after-unavailable',
-    'termination-unresolved', 'cleanup-unresolved'])
+    'termination-unresolved', 'cleanup-unresolved', 'wsl-interop-fixed-binary'])
     assert.ok(nativeStageReasons.includes(reason), reason);
+});
+
+test('every stage reason is a reason of both native result schemas', () => {
+  for (const version of ['0.1.0', '1.0.0']) {
+    const schema = JSON.parse(readFileSync(new URL(`../../src/core/schemas/native-verification-result/${version}.json`, import.meta.url), 'utf8'));
+    const reasons = schema.$defs.reason.enum;
+    for (const reason of nativeStageReasons) assert.ok(reasons.includes(reason), `${version} ${reason}`);
+  }
 });
 
 test('the Windows Claude candidate is exact, unadmitted and evidence-free', () => {

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **WSL fix-binary interop is refused by name.** A WSL2 host whose enabled `binfmt_misc` Windows handler has the
+  fix-binary (`F`) flag, as WSL 3.0.5.0 registers `WSLInterop`, now stops at `host-presence` with the new reason
+  `wsl-interop-fixed-binary` (both native result schemas) and fixed guidance, instead of `isolation-unobserved`.
+  The kernel then runs the interpreter it opened at registration, so the sandbox's `/init` mask cannot block
+  Windows execution (samartomar/aih-core#196). A `host-presence` stop for `isolation-unobserved` names the
+  unproven sandbox probes in the diagnostic's `guidance`. No probe accepts anything new.
+
 The 0.1.0 cutover (samartomar/aih-core#181): one public surface, one version of each format.
 
 - **Exactly four package entries.** `package.json` `exports` lists `@aihq/core`, `@aihq/core/contracts`,

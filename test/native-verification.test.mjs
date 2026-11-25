@@ -657,7 +657,7 @@ test('missing executable remains observable when the fixed server adapter is una
 });
 // The installed Harness runtime and its real bundled fixture, behind the public verifier. Only the host match is
 // retargeted so each registered definition is reached on this machine; no client is resolved or launched.
-async function installedFixture(t, definitionId, parserId) {
+async function installedFixture(t, definitionId, parserId, resolved = { outcome: 'unavailable', reason: 'client-absent' }) {
   const directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'aih-installed-native-')));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const root = fileURLToPath(new URL('../', import.meta.url));
@@ -675,7 +675,7 @@ export function createNativeRuntime(_module, dependencies) {
   const platform = { os: process.platform, arch: process.arch, execution: process.platform === 'linux' && /microsoft/i.test(release()) ? 'wsl2' : 'native', osRelease: release() };
   const definition = { ...registered, platform, ...(${JSON.stringify(parserId ?? null)} ? { parserId: ${JSON.stringify(parserId ?? null)} } : {}) };
   return { ...runtime, nativeDefinitions: [definition], nativeManagedRestriction: () => false,
-    resolveNativeClient: async () => ({ outcome: 'unavailable', reason: 'client-absent' }) };
+    resolveNativeClient: async () => (${JSON.stringify(resolved)}) };
 }
 `);
   writeFileSync(join(directory, 'entry.mjs'), "import { verifyNative } from './dist/core/native-verification.js'; export const verifyNativeClient = (request, controls) => verifyNative(request, controls, { bundleSchema: 'urn:aihq:core:native-verification-bundle:1.0.0' });\n");
@@ -697,6 +697,29 @@ for (const definition of nativeVerificationDefinitions) {
     assert.equal(result.sessions.length, 0); assert.equal(result.cleanup.files, 'not-created');
   });
 }
+test('host presence names the isolation probes the sandbox left unproven', async t => {
+  const definition = nativeVerificationDefinitions[0];
+  const result = await installedFixture(t, definition.id, undefined,
+    { outcome: 'unavailable', reason: 'isolation-unobserved', unprovenProbes: ['windowsExecDenied'] });
+  const presence = result.stages.find(stage => stage.id === 'host-presence');
+  assert.deepEqual([presence.outcome, presence.reason], ['unavailable', 'isolation-unobserved']);
+  const diagnostic = result.diagnostics.find(value => value.reason === 'isolation-unobserved');
+  assert.equal(diagnostic.guidance, 'Unproven sandbox isolation probes: windowsExecDenied.');
+  // Only closed probe-name tokens are echoed; anything else leaves the fixed diagnostic unchanged.
+  for (const unprovenProbes of [['../etc/passwd'], ['windowsExecDenied', 7], 'windowsExecDenied', Array(32).fill('outsideReadDenied')]) {
+    const other = await installedFixture(t, definition.id, undefined, { outcome: 'unavailable', reason: 'isolation-unobserved', unprovenProbes });
+    assert.equal(other.diagnostics.find(value => value.reason === 'isolation-unobserved').guidance, undefined, JSON.stringify(unprovenProbes));
+  }
+});
+test('a host whose Windows interop handler has the fix-binary flag is refused with its own reason', async t => {
+  const definition = nativeVerificationDefinitions[0];
+  const result = await installedFixture(t, definition.id, undefined, { outcome: 'unavailable', reason: 'wsl-interop-fixed-binary' });
+  const presence = result.stages.find(stage => stage.id === 'host-presence');
+  assert.deepEqual([presence.outcome, presence.reason], ['unavailable', 'wsl-interop-fixed-binary']);
+  const diagnostic = result.diagnostics.find(value => value.reason === 'wsl-interop-fixed-binary');
+  assert.equal(diagnostic.code, 'PREREQUISITE_UNAVAILABLE');
+  assert.match(diagnostic.guidance, /fix-binary \(F\) flag/);
+});
 test('the bundled fixture is refused by a definition whose fixed parser it does not bind', async t => {
   const result = await installedFixture(t, nativeVerificationDefinitions[0].id, 'claude-unbound.v1');
   assert.ok(result.stages.some(row => row.id === 'fixture-integrity' && row.outcome === 'unsupported' && row.reason === 'configuration-channel-unsupported'),

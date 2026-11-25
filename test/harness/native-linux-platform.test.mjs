@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { validateLinuxPlatformRecord, validateLinuxLibraryAliasInventory, windowsPolicyDirectoryFromMounts, observedWslNetworkingMode, resolveLinuxPlatform } from '../../src/harness/native/linux-platform.mjs';
+import { validateLinuxPlatformRecord, validateLinuxLibraryAliasInventory, windowsPolicyDirectoryFromMounts, observedWslNetworkingMode, observedWslFixedBinaryInterop, resolveLinuxPlatform } from '../../src/harness/native/linux-platform.mjs';
 
 const hash = 'a'.repeat(64);
 const artifact = version => ({ version, sha256: hash, byteLength: 123 });
@@ -89,4 +89,25 @@ test('platform resolution propagates the trusted deadline check before filesyste
 test('platform resolver has no invented ready result without an independent record', async () => {
   const result = await resolveLinuxPlatform({ check() {} });
   assert.equal(result.status, 'unavailable');
+});
+
+// Recorded WSL 3.0.5.0 registration: WSL itself sets fix-binary, so the kernel keeps its own open /init.
+const wslInterop = 'enabled\ninterpreter /init\nflags: PF\noffset 0\nmagic 4d5a\n';
+test('an enabled fix-binary Windows interop handler is observed from the host binfmt_misc entries', () => {
+  assert.equal(observedWslFixedBinaryInterop('enabled\n', [wslInterop]), true);
+  assert.equal(observedWslFixedBinaryInterop('enabled\n', ['enabled\ninterpreter /usr/bin/python3.12\nflags: \noffset 0\nmagic cb0d0d0a\n', wslInterop]), true);
+  // Any fix-binary handler for Windows images: by WSL's interpreter, by MZ magic at offset 0 (also masked or longer), or by .exe extension.
+  for (const entry of ['enabled\ninterpreter /usr/bin/other\nflags: F\noffset 0\nmagic 4d5a9000\n',
+    'enabled\ninterpreter /usr/bin/other\nflags: OCF\noffset 0\nmagic 4d\n',
+    'enabled\ninterpreter /usr/bin/other\nflags: F\noffset 0\nmagic 4d5a\nmask ffff\n',
+    'enabled\ninterpreter /usr/bin/other\nflags: F\nextension .exe\n',
+    'enabled\ninterpreter /usr/bin/other\nflags: F\nextension .EXE\n',
+    'enabled\ninterpreter /init\nflags: F\noffset 0\nmagic 7f454c46\n']) assert.equal(observedWslFixedBinaryInterop('enabled\n', [entry]), true, entry);
+  // Not fix-binary, disabled, globally disabled, or not a Windows image handler: the in-sandbox probe still decides.
+  for (const [status, entries] of [['enabled\n', []], ['enabled\n', [wslInterop.replace('PF', 'P')]],
+    ['enabled\n', [wslInterop.replace('enabled', 'disabled')]], ['disabled\n', [wslInterop]],
+    ['enabled\n', ['enabled\ninterpreter /usr/bin/python3.12\nflags: F\noffset 0\nmagic cb0d0d0a\n']],
+    ['enabled\n', ['enabled\ninterpreter /usr/bin/other\nflags: F\noffset 2\nmagic 4d5a\n']],
+    ['enabled\n', ['enabled\ninterpreter /usr/bin/other\nflags: F\nextension .exe2\n']],
+    ['enabled\n', ['garbage']], ['enabled\n', ['']]]) assert.equal(observedWslFixedBinaryInterop(status, entries), false, JSON.stringify(entries));
 });

@@ -48,7 +48,7 @@ export const nativeStageReasons = Object.freeze([
   'observed', 'before-session-2', 'after-session-2', 'cancelled', 'budget-exhausted', 'limit-exceeded',
   'native-internal', 'not-run-after-failure', 'not-run-after-restriction', 'not-run-after-unavailable',
   'termination-unresolved', 'cleanup-unresolved', 'finite-limits-required', 'turn-limit-exhausted',
-  'estimated-cost-limit-exhausted', 'usage-unavailable'
+  'estimated-cost-limit-exhausted', 'usage-unavailable', 'wsl-interop-fixed-binary'
 ]);
 
 // Fixed registry IDs. Definitions can only name these; there are no dynamic imports.

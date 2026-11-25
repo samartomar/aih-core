@@ -14,6 +14,10 @@ const tri = value => value === true || value === false || value === null;
 export const validIsolationProbes = probes => hasExactKeys(probes, isolationProbeNames) &&
   isolationProbeNames.every(key => tri(probes[key]));
 
+// Diagnostic only: the closed probe names that did not prove a denial, in vocabulary order. Never a proof input.
+export const unprovenIsolationProbes = probes => validIsolationProbes(probes)
+  ? isolationProbeNames.filter(key => probes[key] !== true) : null;
+
 // Unauthenticated material never proves anything. Once the workload is kernel-authenticated, proven
 // access, a workload sharing a host namespace or a protected value in argv is a violation; every
 // other gap stays unobservable.
