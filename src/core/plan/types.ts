@@ -418,7 +418,11 @@ export interface RemovalEntry {
   status?: 'ready' | 'partial' | 'blocked'; members: RemovalMember[];
   /** A removal named by one item inside a plugin (C45). */
   item?: string;
-  /** Why an entry is not prepared: `plugin-indivisible` when the item is one part of a plugin that can't be split. */
+  /**
+   * Why an entry is not prepared: `plugin-indivisible` when the item is one part of a plugin that can't be split, or
+   * `single-removal-required` when trust or session custody (a repair or certificate export) was named with other
+   * removals; request it on its own.
+   */
   reason?: string;
   /** Everything the indivisible plugin holds. */
   contains?: string[];

@@ -31,7 +31,8 @@ for (const name of ['public.mjs', 'public.d.mts', 'runtime-public.mjs', 'runtime
   'tool-registry.mjs', 'tool-registry.d.mts', 'cli-facts.mjs', 'cli-facts.d.mts', 'tool-binding.mjs', 'tool-binding.d.mts', 'tool-binding-data.mjs', 'tool-binding-data.d.mts', 'tool-bindings.json', 'tool-host.mjs', 'tool-host.d.mts', 'delivery-review.mjs', 'delivery-review.d.mts',
   'project-facts.mjs', 'project-facts.d.mts', 'claude-plugins.mjs', 'claude-plugins.d.mts', 'signer-records.mjs', 'signer-records.d.mts',
   'trust-definitions.mjs', 'trust-validation.mjs', 'trust-capabilities.mjs', 'trust-encoding.mjs', 'trust-source.mjs', 'trust-os.mjs', 'trust.mjs', 'trust.d.mts',
-  'trust-migration.mjs', 'trust-migration-rules.mjs', 'trust-migration-policy.mjs', 'trust-export-platform.mjs', 'trust-export-platform.d.mts'])
+  'trust-migration.mjs', 'trust-migration-rules.mjs', 'trust-migration-policy.mjs', 'trust-export-platform.mjs', 'trust-export-platform.d.mts',
+  'trust-migration-v2.mjs', 'trust-migration-v2-policy.mjs'])
   copyFileSync(new URL(`../src/harness/${name}`, import.meta.url), new URL(`harness/${name}`, dist));
 writeFileSync(new URL('distribution.mjs', dist),
   `// Generated from package.json.\nexport const distribution = Object.freeze(${JSON.stringify({ name: manifest.name, version: manifest.version })});\n`);

@@ -8,7 +8,7 @@ import { homedir } from 'node:os';
 import { isAbsolute, relative } from 'node:path';
 import { isProxy } from 'node:util/types';
 import { listManagedSelections } from '../managed-inventory.js';
-import { prepareManagedRemovals, prepareRepairRemoval } from '../managed-removal.js';
+import { prepareManagedRemovals, prepareRepairRemoval, specialCustodyIds } from '../managed-removal.js';
 import type { RemovalMember as EngineRemovalMember } from '../removal-types.js';
 import { repairIndex } from '../../harness/contracts.mjs';
 import { windowsUserEnvironmentKept } from '../../harness/runtime.mjs';
@@ -217,6 +217,8 @@ export async function list(request: unknown, controls: unknown = {}): Promise<Li
   return deepFreezeStrictJsonV1(inventory as unknown as Json) as unknown as Inventory;
 }
 
+/** Why a custody-held entry in a multi-ID removal request was not prepared (#193). */
+const SINGLE_REMOVAL_REQUIRED = 'single-removal-required';
 export async function prepareRemoval(request: unknown, controls: unknown = {}): Promise<RemovalResult> {
   forgetProvenState();
   if (!plain(request, ['target', 'scope', 'removals', 'mode', 'resolutions'])) return invalid('', 'request', 'A removal request is `{ target, scope, removals, mode?, resolutions? }`.');
@@ -316,14 +318,17 @@ export async function prepareRemoval(request: unknown, controls: unknown = {}): 
           `\`controls.privateInputs\` (\`--private-input\`).` };
   }
   // `origin: chosen` removes the whole management id here: a plan install records exactly that one origin.
-  // A repair (trust or session custody, contract 10) is removed on its own, by its repair id, through the retained
-  // single-id removal that also releases that custody.
-  const repairCustody = selectors.length === 1 && selectors[0]!.engineIds.length === 1 &&
-    repairIndex.some(definition => definition.managementId === selectors[0]!.engineIds[0]) ? selectors[0]!.engineIds[0]! : undefined;
-  const prepared = repairCustody !== undefined ? await (async () => {
-    const one = await prepareRepairRemoval({ target: { project: located.anchor }, managementId: repairCustody, scope, mode: 'vibe' }, engineControls(options));
+  // A repair or any other user trust or session custody entry, such as a certificate export (contract 10), is removed
+  // on its own, by its id, through the retained single-id removal that also releases that custody. Unreadable custody
+  // falls through to the batch removal, which reports it.
+  const single = selectors.length === 1 && selectors[0]!.engineIds.length === 1 ? selectors[0]!.engineIds[0]! : undefined;
+  const heldInCustody = (managementId: string) => { try { return specialCustodyIds().has(managementId); } catch { return false; } };
+  const singleCustody = single !== undefined && (repairIndex.some(definition => definition.managementId === single) ||
+    scope === 'user' && heldInCustody(single)) ? single : undefined;
+  const prepared = singleCustody !== undefined ? await (async () => {
+    const one = await prepareRepairRemoval({ target: { project: located.anchor }, managementId: singleCustody, scope, mode: 'vibe' }, engineControls(options));
     return { disposition: one.disposition, preparation: one.preparation, diagnostics: one.diagnostics,
-      removals: ['cancelled', 'invalid'].includes(one.disposition) ? [] : [{ managementId: repairCustody,
+      removals: ['cancelled', 'invalid'].includes(one.disposition) ? [] : [{ managementId: singleCustody,
         disposition: one.disposition as Exclude<typeof one.disposition, 'cancelled' | 'invalid'>,
         members: [] as { kind: EngineRemovalMember['kind']; path: string; pointer?: string; action: EngineRemovalMember['action']; reason?: string; operationId?: string }[] }] };
   })() : await prepareManagedRemovals({ target: { project: located.anchor }, scope,
@@ -332,7 +337,12 @@ export async function prepareRemoval(request: unknown, controls: unknown = {}): 
   if (prepared.disposition === 'cancelled') return { status: 'refused', code: 'cancelled', reason: 'Removal preparation was cancelled.' };
   if (prepared.disposition === 'invalid') return { status: 'invalid', problems: prepared.diagnostics.map(item => ({ path: item.path ?? '', reason: item.reason, message: item.message })) };
   const engine = prepared.preparation;
+  // A trust or session custody ID named with other removals is not prepared in the batch: its entry says it is removed
+  // in its own single-id request. No other engine diagnostic becomes an entry reason.
+  const batchRefusal = (entry: { disposition: string; diagnostics?: readonly { reason: string }[] }) =>
+    entry.disposition === 'unavailable' && entry.diagnostics?.some(item => item.reason === SINGLE_REMOVAL_REQUIRED) ? { reason: SINGLE_REMOVAL_REQUIRED } : {};
   const entries: RemovalEntry[] = merged((prepared.removals ?? []).map(entry => ({ managementId: entry.managementId, disposition: entry.disposition,
+    ...batchRefusal(entry),
     ...(entry.disposition === 'prepared' && engine && ['ready', 'partial', 'blocked'].includes(engine.status) ?
       { status: engine.status as 'ready' | 'partial' | 'blocked' } : {}),
     members: entry.members.map(member => ({ kind: member.kind, path: member.path, ...(member.pointer === undefined ? {} : { pointer: member.pointer }),
@@ -359,7 +369,7 @@ export async function prepareRemoval(request: unknown, controls: unknown = {}): 
   const offset = program?.steps.length ?? 0;
   const steps: ReviewStep[] = [...program?.steps ?? [], ...engine.review.operations.map((operation, at) => {
     const index = offset + at;
-    const managementId = owners.get(operation.id) ?? (repairCustody !== undefined ? selectors[0]!.managementId : '');
+    const managementId = owners.get(operation.id) ?? (singleCustody !== undefined ? selectors[0]!.managementId : '');
     operations.set(operation.id, { step: index, managementId });
     const target = operation.details.target ?? '';
     const effect: ReviewStep['effect'] = ['create-file', 'replace-file', 'remove-file', 'already-satisfied'].includes(operation.effects) ?
@@ -379,8 +389,8 @@ export async function prepareRemoval(request: unknown, controls: unknown = {}): 
     return { denials, review: organizationReview(enterprise.state.bound, enterprise.target, denials, results) };
   })() : undefined;
   // A Windows repair's setx values stay: Core can't undo them, and the review says which (contract 10).
-  const kept = repairCustody !== undefined && process.platform === 'win32' ? windowsUserEnvironmentKept(Object.values(receipt.members).flatMap(owner =>
-    owner.descriptor?.kind === 'block' && (owner.managementId === repairCustody || owner.claims?.some(claim => claim.managementId === repairCustody)) ?
+  const kept = singleCustody !== undefined && process.platform === 'win32' ? windowsUserEnvironmentKept(Object.values(receipt.members).flatMap(owner =>
+    owner.descriptor?.kind === 'block' && (owner.managementId === singleCustody || owner.claims?.some(claim => claim.managementId === singleCustody)) ?
       [owner.descriptor.blockId] : [])) : [];
   const warnings = kept.length ? [`user-environment-kept: Core can't undo the Windows user environment values this repair set with setx ` +
     `(${kept.join(', ')}); removal leaves them as they are. Clear them yourself if you no longer want them.`] : [];
