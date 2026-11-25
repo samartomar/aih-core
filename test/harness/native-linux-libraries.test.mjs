@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { chmodSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, lstatSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { stageLinuxLibraryClosure } from '../../src/harness/native/linux-libraries.mjs';
@@ -44,7 +44,12 @@ test('retained library resources reject changed bytes and replacement identities
   assert.equal(staged.validate(), true);
   const path = staged.pins[0].path;
   if (process.platform === 'win32') chmodSync(path, 0o600);
-  rmSync(path); writeFileSync(path, 'synthetic-lib', { mode: 0o444 });
+  // Create the identical-byte replacement while the original still exists, then swap it in.
+  // Unlink-then-create can recycle the inode (ext4 does so immediately), and coarse timestamps
+  // then leave the replacement indistinguishable from the pinned original.
+  const original = lstatSync(path), replacement = join(directory, 'replacement');
+  writeFileSync(replacement, 'synthetic-lib', { mode: 0o444 }); renameSync(replacement, path);
+  assert.notEqual(lstatSync(path).ino, original.ino);
   assert.throws(() => staged.validate(), /runtime-changed/);
   const other = stageLinuxLibraryClosure({ directory, closure: [pin] });
   const member = other.pins[0].path; chmodSync(member, 0o600); writeFileSync(member, 'changed-bytes');

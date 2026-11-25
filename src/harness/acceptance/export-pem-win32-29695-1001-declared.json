@@ -1,0 +1,85 @@
+{
+  "schema": "aih.trust.acceptance.v1",
+  "cellId": "export-pem-win32-29695-1001-declared",
+  "subjectSha256": "f761a75169c4f78e90ce0ad5fe9adda5e6231bcd9d4b112a7f566c8b34dc6ebc",
+  "cell": {
+    "id": "export-pem-win32-29695-1001-declared",
+    "definitionId": "certificate-export",
+    "route": "export",
+    "target": null,
+    "platform": {
+      "os": "win32",
+      "release": "Windows 11 Dev build 29695.1001",
+      "architecture": "x64"
+    },
+    "network": "declared",
+    "projection": "windows-effective-server-auth-v1",
+    "client": null,
+    "configurationProfile": "pem-server-ca-v1",
+    "probeProfile": "export-pem-parse-v1",
+    "launchContext": "no-client"
+  },
+  "cases": [
+    {
+      "id": "pem-custody-recorded",
+      "kind": "persistence",
+      "outcome": "passed",
+      "summary": "Protected provenance matched the output digest and a fresh public retained-source request accepted paired ownership."
+    },
+    {
+      "id": "pem-deterministic-bytes",
+      "kind": "positive",
+      "outcome": "passed",
+      "summary": "Reversed source order reproduced the exact reviewed and persisted bytes through installed public refresh."
+    },
+    {
+      "id": "pem-independent-parse-set",
+      "kind": "positive",
+      "outcome": "passed",
+      "summary": "Strict independent parsing found the exact two CA DER identities in the certificate-only container."
+    },
+    {
+      "id": "pem-public-api-write",
+      "kind": "positive",
+      "outcome": "passed",
+      "summary": "Installed packed public Prepare/Apply wrote the reviewed path and validated the review and run 0.1.0 contracts."
+    },
+    {
+      "id": "pem-refresh-replace-reviewed",
+      "kind": "persistence",
+      "outcome": "passed",
+      "summary": "Same-ID replacement reviewed certificate removal and persisted the exact new source set."
+    },
+    {
+      "id": "pem-reject-key-material",
+      "kind": "negative",
+      "outcome": "passed",
+      "summary": "Private-key material rejected the complete source and preserved the existing output bytes."
+    },
+    {
+      "id": "pem-reject-output-extension-mismatch",
+      "kind": "negative",
+      "outcome": "passed",
+      "summary": "An output extension mismatch rejected before output effects."
+    },
+    {
+      "id": "pem-reject-unsafe-path",
+      "kind": "negative",
+      "outcome": "passed",
+      "summary": "Parent-traversal output rejected before effects and preserved the owned output."
+    },
+    {
+      "id": "pem-removal-reconciled",
+      "kind": "persistence",
+      "outcome": "passed",
+      "summary": "Public 0.1.0 removal retired the output and protected provenance with its ordinary ownership."
+    }
+  ],
+  "limitations": [
+    "no-os-fullset-claim",
+    "no-native-client-claim",
+    "supplied-only-export",
+    "windows-os-discovery-incomplete",
+    "native-node-npm-unavailable"
+  ]
+}

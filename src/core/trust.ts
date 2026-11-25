@@ -5,7 +5,7 @@ import { contractSupport as harnessSupport, selectRepairDefinition, selectTrustC
 import { discoverTrustSources, serializeTrustSet, parseTrustOutput, reviewTrustDelta, trustHelperFiles,
   detectTrustPlatform, verifyTrustAdmissionEvidence, hashTrustLibraries, getTrustFileIntegration, type TrustDiscovery } from '../harness/trust.mjs';
 import { getTrustRecipe, renderTrustFileRepair, parseJvmTrustStore, assessRepairObservations } from '../harness/runtime.mjs';
-import { detectCertificateExportPlatform, exactExportRelease } from '../harness/trust-export-platform.mjs';
+import { detectCertificateExportPlatform, exactExportReleases } from '../harness/trust-export-platform.mjs';
 import { observeRepair, captureRequiredAbsences, captureConfigFiles, resolveExecutableBindings, unavailableExecutableInvocations } from './repair.js';
 import { validateTrustRepairRequest, validateCertificateExportRequest } from './trust-contracts.js';
 import { prepare as preparePolicy, apply as applyPolicy, dataObject, validateControls } from './recipe-engine.js';
@@ -464,7 +464,7 @@ export async function prepareTrust(input: Request, controls: HostControls = {},
       try {
         if (installedHelper() !== helperSha256 || installedAdmission(cell)!==admissionSha256 || hash(input) !== requestSha256) throw new Error('review-stale');
         if(cell&&!verifyTrustAdmissionEvidence({packageRoot:dirname(distributionManifest),capabilities:trustCapabilities}).valid) throw new Error('review-stale');
-        if(cell?.platform.release===exactExportRelease&&canonicalJson(detectCertificateExportPlatform())!==canonicalJson({...cell.platform,projection:cell.projection})) throw new Error('review-stale');
+        if(cell&&exactExportReleases.includes(cell.platform.release)&&canonicalJson(detectCertificateExportPlatform())!==canonicalJson({...cell.platform,projection:cell.projection})) throw new Error('review-stale');
         const current = new Map<string,Capture>();
         for (const [sourceId,c] of captures) {
           if (!pinsMatch(c.pins)) throw new Error('review-stale');

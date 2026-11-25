@@ -15,7 +15,7 @@ function bytes64(text) {
   if (bytes.toString('base64') !== text) throw new Error('migration-bytes');
   return bytes;
 }
-function regular(root, name) {
+export function regular(root, name) {
   // All names come from the fixed shipped policy, not the caller or envelope.
   if (!/^dist\/(?:harness|core)\/[a-z0-9.-]+\.(?:mjs|js)$/.test(name)) throw new Error('migration-policy');
   let ancestor = root;
@@ -27,7 +27,9 @@ function regular(root, name) {
   if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 4000000) throw new Error('migration-input');
   return readFileSync(path);
 }
-export function checkTrustMigration({ record, cell, subject, packageRoot, checkOriginal, parseOriginal, profile, librariesSha256 }) {
+export function checkTrustMigration({ record, cell, subject, packageRoot, checkOriginal, parseOriginal, profile, librariesSha256,
+  read = name => regular(packageRoot, name) }) {
+  // read supplies the implementation this record is checked against: the installed package, or a verified predecessor.
   try {
     if (!exact(record, ['schema','kind','cellId','subjectSha256','method','proofSha256','originalRecordBytes','originalFiles','limitations']) ||
         record.schema !== 'aih.trust.acceptance-migration.v1' || record.kind !== 'equivalence-migration' ||
@@ -35,7 +37,7 @@ export function checkTrustMigration({ record, cell, subject, packageRoot, checkO
         record.proofSha256 !== policy.proofSha256) return 'migration-shape';
     const predecessor = policy.predecessors?.find(item => item.id === cell.id);
     if (!predecessor || policy.method !== migrationMethod || digest(policy.proof) !== policy.proofSha256) return 'migration-policy';
-    if (!regular(packageRoot, 'dist/harness/trust-migration-policy.mjs').equals(Buffer.from(serializeMigrationPolicy(policy)))) return 'migration-policy-changed';
+    if (!read('dist/harness/trust-migration-policy.mjs').equals(Buffer.from(serializeMigrationPolicy(policy)))) return 'migration-policy-changed';
     const originalBytes = bytes64(record.originalRecordBytes);
     if (sha(originalBytes) !== predecessor.recordSha256) return 'migration-original-digest';
     // Exact known bytes are checked before parsing: no caller-selected historical JSON has authority.
@@ -49,10 +51,10 @@ export function checkTrustMigration({ record, cell, subject, packageRoot, checkO
       if (!exact(item, ['name','bytesBase64']) || item.name !== name) return 'migration-inputs';
       const before = bytes64(item.bytesBase64);
       if (sha(before) !== policy.originalFiles[index]?.sha256 || policy.originalFiles[index]?.name !== name) return 'migration-preimage';
-      if (!projectLegacyHelper(name, before).equals(regular(packageRoot, name))) return 'migration-executable-change';
+      if (!projectLegacyHelper(name, before).equals(read(name))) return 'migration-executable-change';
       files.push({ name, sha256: sha(before) });
     }
-    for (const item of policy.currentFiles) if (sha(regular(packageRoot, item.name)) !== item.sha256) return 'migration-current-input';
+    for (const item of policy.currentFiles) if (sha(read(item.name)) !== item.sha256) return 'migration-current-input';
     const { evidence: _evidence, ...tested } = cell;
     const libraries = profile.configuration === 'pkcs7-certificate-import-v1' ? policy.originalLibrariesSha256 : null;
     if (librariesSha256 !== libraries) return 'migration-library-change';
