@@ -32,7 +32,7 @@ export function nativeProbeGuidance(probes: unknown): string | undefined {
 }
 const reasonGuidance: Record<string, string> = {
   'managed-restriction': 'Contact your IT administrator about the managed restriction.',
-  'wsl-interop-fixed-binary': 'Windows interop on this WSL host is registered in binfmt_misc with the fix-binary (F) flag, so the sandbox cannot block Windows execution. Use a distribution with Windows interop disabled.',
+  'wsl-interop-fixed-binary': 'Windows interop on this WSL host is registered in binfmt_misc with the fix-binary (F) flag, so the sandbox cannot block Windows execution. This candidate supports only a Windows interop handler registered without that flag.',
 };
 export function nativeDiagnostic(reason: string, code = 'INPUT_INVALID', path?: string): Diagnostic {
   if (!nativeReasons.has(reason)) reason = 'native-internal';
