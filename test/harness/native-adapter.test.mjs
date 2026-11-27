@@ -92,16 +92,22 @@ for(const shape of ['malformed-trailing','duplicate','missing-usage'])
     assert.equal((await handle.cleanup({deadline:performance.now()+1000,graceMs:0})).confirmed,true);
   });
 
-test('the installed Core adapter exposes the admission and refuses tampered admitted descriptors', () => {
-  const definition = installed.nativeVerificationDefinitions.find(d => d.platform.os === 'linux');
-  const create = definitions => installed.createNativeRuntime({ ...installed, nativeVerificationDefinitions: definitions },
+test('the installed Core adapter exposes the current candidates and refuses historical admission', async () => {
+  const definitions = installed.nativeVerificationDefinitions;
+  const linux = definitions.find(definition => definition.platform.os === 'linux');
+  const historical = JSON.parse(readFileSync(new URL('../fixtures/native-linux-historical-admission.json', import.meta.url), 'utf8'));
+  const promoted = { ...linux, state: 'admitted', evidenceSha256: historical.evidenceSha256 };
+  const module = { ...installed, nativeVerificationDefinitions: [...definitions, historical, promoted],
+    pinExecutable() { throw Error('no native operation expected'); } };
+  const runtime = installed.createNativeRuntime(module,
     { readPinned() { throw Error('no native operation expected'); }, Stop: Error });
-  assert.deepEqual(create([definition]).nativeDefinitions, [definition]);
-  for (const patch of [{ evidenceSha256: null }, { evidenceSha256: 'bad' },
-    { clientVersions: ['2.1.285', '2.1.286'] }, { clientVersions: ['^2.1.285'] }])
-    assert.deepEqual(create([{ ...definition, ...patch }]).nativeDefinitions, []);
-  const candidate = installed.nativeVerificationDefinitions.find(d => d.platform.os === 'win32');
-  assert.deepEqual(create([candidate]).nativeDefinitions, [candidate]);
+  assert.deepEqual(runtime.nativeDefinitions, definitions);
+  for (const definition of [historical, promoted]) {
+    const deadline = performance.now() + 5000;
+    const refusal = { outcome: 'unsupported', reason: 'cell-not-admitted' };
+    assert.deepEqual(await runtime.resolveNativeClient(definition, { deadline }), refusal);
+    assert.deepEqual(await runtime.startNativeSession({ definition, deadline }), refusal);
+  }
 });
 import { nativeParserIds } from '../../src/harness/native/contracts.mjs';
 import { sha256 } from '../../src/harness/native/digest.mjs';

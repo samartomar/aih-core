@@ -55,7 +55,9 @@ export interface NativeSessionHandle {
   cleanup(input: { deadline: number; graceMs: number }): Promise<NativeSessionCleanup>;
 }
 export type NativeHelperFailure = { outcome: 'unsupported' | 'unavailable' | 'failed' | 'restricted'; reason: string;
-  cleanup?: NativeSessionCleanup; cleanupStartedAt?: number; probeBytes?: number };
+  cleanup?: NativeSessionCleanup; cleanupStartedAt?: number; probeBytes?: number;
+  /** Diagnostic only, with `isolation-unobserved`: the helper's closed isolation probe names that proved no denial. */
+  unprovenProbes?: readonly string[] };
 export interface NativeGuardrails { files: NativeTreeFile[]; bytes: Map<string, Buffer>; sha256: string }
 export interface NativeRuntime {
   nativeDefinitions: readonly NativeDefinition[];

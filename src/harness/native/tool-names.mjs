@@ -26,8 +26,8 @@ export const nativeClientDefinitions = deepFreeze(nativeVerificationDefinitions.
 
 const nativeClient = tool => typeof tool === 'string' && Object.hasOwn(nativeClientOfTool, tool) ? nativeClientOfTool[tool] : null;
 /**
- * Reads a definition. A 0.1.0 definition is read by the retained rules as the definition it names, so an admitted
- * one must equal a registered admitted definition exactly. Retained schema ids keep their own reading.
+ * Reads a definition. Admitted documents must match an exact recognized admission, including historical records.
+ * The active definition registry governs execution. Retained schema ids keep their own reading.
  */
 export function validateNativeVerificationDefinition(value) {
   if (!isRecord(value) || value.schema !== NATIVE_DEFINITION_010) return validateRetainedDefinition(value);

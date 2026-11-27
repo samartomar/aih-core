@@ -21,44 +21,36 @@ tool and selected query; the built-in deny list and
 `enableAllProjectMcpServers=false` remain unchanged. Ambiguous or pattern-like
 identities, extra selected tools and additional project MCP servers are refused.
 The effective settings bytes, member lengths/hashes and guardrail tree digest are
-bound to staging, persistence and Linux launch protection. Selected bundle bytes
-and installed definition/admission metadata are unchanged; the bundled fixture
-retains its original settings bytes. Approvals live in the disposable user's
+bound to staging, persistence and Linux launch protection. Staging preserves the
+selected bundle bytes and the installed definition and admission records. The
+bundled fixture keeps its original settings. Approvals live in the disposable user's
 `.claude/settings.json`, so a fresh home needs no remembered project approval.
 Actual discovery and restrictions still require native observations, and managed
 restrictions retain precedence. Controlled permission tests establish neither
 native two-session acceptance nor admission.
 
-The bundled `claude-linux-x64-wsl2-srt-2.1.285` definition is admitted for
-Claude Code 2.1.285 on Linux x64 WSL2, osRelease
-`6.18.33.2-microsoft-standard-WSL2`, with `clientVersions: ["2.1.285"]`.
-Its retained reviewed batch evidence is identified by `evidenceSha256`
-`a8c226d1c56764a6c773268186a79a3643e5a5d0afc2acd9f9708faa9de50947`.
-It selects without `candidate-smoke`; the Windows definition remains a candidate
-with null evidence and still requires that mode. Passing a smoke never promotes
-a definition.
+The bundled `claude-linux-x64-wsl2-srt-2.1.285-wsl-3.0.5.0` definition is a
+candidate for Claude Code 2.1.285 on Ubuntu 26.04.1 x64 with WSL 3.0.5.0, kernel
+`6.18.58.1-microsoft-standard-WSL2`, NAT networking, Node 26.12.1 and the exact
+runtime bytes in `dist/harness/native/linux/runtime-platform.json`. This tuple
+uses the bundled Sandbox Runtime derivative `0.0.78-aihq.1`. Both Linux and
+Windows definitions have null evidence and require `candidate-smoke`. Candidate
+results cannot change admission.
 
-Admission is a registry fact. Both the portable validator and the published
-`native-verification-definition` 1.1.0 JSON Schema accept `state: "admitted"`
-only for a descriptor exactly equal to a registered admitted definition; the
-schema enumerates those descriptors, and a test keeps that list identical to the
-registry. The 1.0.0 schema has no registered admission and refuses the admitted
-state.
+The previous Linux definition `claude-linux-x64-wsl2-srt-2.1.285` was admitted for
+kernel `6.18.33.2-microsoft-standard-WSL2` and Node 24.19.0. The reviewed batch evidence with digest
+`a8c226d1c56764a6c773268186a79a3643e5a5d0afc2acd9f9708faa9de50947` belongs to
+the Core `1.0.0-dev.27` packed artifact. Core `1.0.0-dev.28` recorded that
+promotion. The portable validator and definition schemas still read that exact
+historical descriptor. Execution uses the active registry, which contains only
+candidates in this distribution.
 
-The tested packed artifact was Core `1.0.0-dev.27`; Core `1.0.0-dev.28` promotes
-only this descriptor. Promotion is not publication: no npm publish has occurred.
-Coverage is the bundled mechanism only, not Catalog's cross-client matrix.
-Acceptance covers the fixed verifier environment: auto-memory disabled,
-marketplace auto-install disabled, fast mode disabled, and MCP connections
-awaited before init within the client's bounded timeout. Authentication uses
-`provisioning-bound-session` identity, with the owner's recorded acceptance:
-it loses the runtime wrong-account/refresh cross-check and is not provider-signed
-attestation. The proxy and policy limitations below remain part of that acceptance.
-
-It selects kernel `6.18.33.2-microsoft-standard-WSL2`, Node 24.19.0 and the exact
-runtime bytes in `dist/harness/native/linux/runtime-platform.json`. Other Linux,
-Windows and macOS environments need their own definitions and evidence. An
-ordinary `verify-client` call cannot promote a candidate or select a custom policy.
+The earlier batch covered the bundled verifier mechanism with auto-memory,
+automatic marketplace installation and fast mode disabled, and MCP connections
+awaited before initialization. Its `provisioning-bound-session` identity relied
+on a dedicated login with owner-confirmed expectations. That proof lacks a runtime
+wrong-account or refresh cross-check and provider-signed attestation. This evidence
+does not cover the updated Linux candidate or Catalog's cross-client matrix.
 
 ## Fixed workload boundary
 
@@ -71,10 +63,11 @@ SHA-256 still has to match. This supports stock Ubuntu's rust-coreutils multical
 other reads remain single-link, and Windows behavior is unchanged.
 
 Harness wraps the version probe and each complete client session in a fresh
-instance of Anthropic Sandbox Runtime 0.0.78. The unmodified dependency and its
-transitive JavaScript closure are bundled and checked against `runtime-lock.json`.
-The wrapper imports the SDK entry, never the vendor CLI. The implementation uses
-the [released vendor source](https://github.com/anthropic-experimental/sandbox-runtime/tree/6f0ce155ccb136bda33a8a72201fe7f54fe47d9b).
+instance of the Core-maintained Anthropic Sandbox Runtime `0.0.78-aihq.1`.
+It is based on the [published 0.0.78 source](https://github.com/anthropics/sandbox-runtime/tree/6f0ce155ccb136bda33a8a72201fe7f54fe47d9b).
+It uses the patched Zod 4.6.7 schema API and Forge 1.4.3, preserving the original
+native executable and JAR bytes. The wrapper imports the SDK entry, and Core
+checks the complete installed dependency tree against `runtime-lock.json`.
 
 The fixed profile denies filesystem reads outside enumerated runtime files,
 selected cell roots and authenticated IPC paths. Only cell home, project and
@@ -132,9 +125,31 @@ WSL2 additionally checks mounted Windows volumes, interop entry points and a
 known executable synthetic Windows canary. A native helper calls `execve`
 directly, avoiding shell fallback. It recognizes a missing interpreter, or an
 access refusal with the executable canary intact and `/init` independently
-observed as the vendor's non-executable `/dev/null` mask. The admitted definition
+observed as the vendor's non-executable `/dev/null` mask. The current candidate
 requires independently observed NAT networking. Mirrored networking remains
 unavailable pending a separate Windows-side loopback denial proof.
+
+The `/init` mask blocks Windows execution only when the kernel opens the
+interpreter by path at each `execve`. A `binfmt_misc` handler with the
+fix-binary (`F`) flag keeps the interpreter it opened at registration, so no
+mask inside the sandbox stops it. WSL 3.0.5.0 registers `WSLInterop` with
+flags `PF`. Before any sandbox starts, the host's `binfmt_misc` entries are
+read. An enabled `F` handler for Windows images refuses the host with
+`wsl-interop-fixed-binary`. Such a handler is one with interpreter `/init`, the
+`.exe` extension or `MZ` magic at offset 0. This host observation only names
+the refusal and never proves denial: every other host still needs the helper's
+recognized refusal.
+
+The supported WSL configuration has the Windows interop handler registered
+without `F`, so the sandbox's `/init` mask applies. A host with no Windows
+handler at all is not yet supported: the kernel then refuses the canary with
+`ENOEXEC`, which the current helper does not recognize, so the proof stays
+unavailable.
+
+When the version probe's isolation proof is incomplete, the `host-presence`
+diagnostic names the probes that proved no denial in its `guidance`, for
+example `Unproven sandbox isolation probes: windowsExecDenied.`. The names come
+from the closed probe vocabulary and never change the outcome.
 
 One ten-second cleanup allowance covers the owned tree, including outer proxy
 helpers and detached descendants. An empty process group alone is insufficient.
@@ -432,7 +447,7 @@ and reason enum are the same. For the Linux client, an optional subscriber on th
 |---|---|
 | `schema`, `event` | `aih.native.diagnostics.v1`, `native-platform-drift` |
 | `recordId`, `runSha256` | random record id; digest of the run (null when invalid) |
-| `definition` | `claude-linux-x64-wsl2-srt-2.1.285` |
+| `definition` | `claude-linux-x64-wsl2-srt-2.1.285-wsl-3.0.5.0` |
 | `table` | `roles`, `libraries` or `readFiles` |
 | `key` | role name for `roles` (`bash`, `env`, `bwrap`, `socat`, `rg`, `which`); row index 0-63 for the other tables; otherwise null |
 | `remedy` | `recapture-platform-record` |
@@ -492,14 +507,13 @@ re-capture deliberately so the record changes in a reviewed version, not mid-bat
 ## Build records and development checks
 
 Build the qualified distribution with `npm run pack:distribution --
---pack-destination <existing directory>`. This developer command builds, obtains
-npm's selected archive, and normalizes only the exact regular Linux facility
-entry to mode `0755` using the pinned tar library. It verifies every entry's
-bytes and metadata against the input archive, permits only that mode change,
-checks the helper against its build-record digest, and refuses to overwrite an
-existing artifact. Its JSON output identifies the final archive's size, SHA-256
-and integrity. Raw `npm pack` is not the qualified cross-platform producer path:
-npm can preserve a Windows producer's missing executable bits on nested binaries.
+--pack-destination <existing directory>`. This developer command builds and
+obtains npm's selected archive. It checks the Linux facility and both vendor
+seccomp helpers against their byte pins, then sets each archive mode to `0755`.
+It verifies that all other bytes and metadata match the input archive and
+refuses to overwrite an existing artifact. Its JSON output identifies the final
+archive's size, SHA-256 and integrity. Use this producer command because npm can
+preserve a Windows producer's missing executable bits on nested binaries.
 
 The facility is also declared as the npm binary `aih-linux-facility`. Clean
 installs with lifecycle scripts disabled retain owner execution, including under
@@ -510,10 +524,10 @@ script compiles, copies or repairs its permissions. Its bytes remain pinned by
 the build record and observer lock.
 
 `npm exec -- node --test test/native-linux-package.test.mjs` checks the actual
-archive header from a producer fixture without executable bits, then checks
+archive headers from a producer fixture without executable bits, then checks
 clean scripts-disabled Linux x64 installs under umasks `077` and `022`. It
-verifies the supplied binary digest and direct executable startup with protocol
-EOF, without starting any client.
+verifies executable access for all three helpers, plus the Core facility's
+digest and direct startup with protocol EOF. The test starts the facility only.
 
 The package carries helper source, executable and build record. Linux CI compiles
 the helper twice with fixed hardening flags, compares both outputs, and verifies
@@ -527,6 +541,19 @@ the installed resource bytes, schema 1.1, portable contracts and public API/CLI
 failure behavior. Kernel facility tests and controlled synthetic sessions remain
 distinct from real native account/configuration acceptance. Admission requires
 the latter evidence for the exact packed distribution.
+
+The Core source includes the derived vendor archive and its provenance in
+`vendor/sandbox-runtime/`. To reproduce and compare the archive, install the
+Core development dependencies, obtain the two original archives named in
+`vendor/sandbox-runtime/provenance.json`, and run `npm run rebuild:sandbox-runtime
+-- <upstream npm archive> <upstream source archive> --check`. The command verifies
+both input digests, uses the upstream source lock for TypeScript compilation,
+and compares the complete result with the checked-in derivative. The Core
+manifest declares the exact derivative version for installed consumers. Core's
+lock resolves that version to the checked-in archive and records its integrity.
+`npm ci` does not check that integrity for a local archive; the runtime-lock
+check that `npm run build` runs verifies it.
+The provenance file records the upstream archive's independent integrity.
 
 The host-only installed-package preparation gate in
 `test/harness/native-linux-installed.test.mjs` needs a non-root Linux x64 WSL2 host

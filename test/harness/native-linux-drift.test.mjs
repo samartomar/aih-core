@@ -41,7 +41,7 @@ test('drift publisher emits one frozen closed record on the diagnostics channel'
   });
   assert.deepEqual(Object.keys(role), ['schema', 'event', 'recordId', 'runSha256', 'definition', 'table', 'key', 'remedy']);
   assert.equal(role.schema, 'aih.native.diagnostics.v1'); assert.equal(role.event, 'native-platform-drift');
-  assert.equal(role.definition, 'claude-linux-x64-wsl2-srt-2.1.285'); assert.equal(role.remedy, 'recapture-platform-record');
+  assert.equal(role.definition, 'claude-linux-x64-wsl2-srt-2.1.285-wsl-3.0.5.0'); assert.equal(role.remedy, 'recapture-platform-record');
   assert.equal(role.runSha256, 'a'.repeat(64)); assert.equal(role.table, 'roles'); assert.equal(role.key, 'bwrap');
   assert.equal(Object.isFrozen(role), true);
   assert.deepEqual([library.table, library.key, read.table, read.key], ['libraries', 7, 'readFiles', 0]);
@@ -75,7 +75,7 @@ async function platformCopy(t, { libc } = {}) {
   mkdirSync(join(directory, 'linux'));
   copyFileSync(fileURLToPath(new URL('canonical.mjs', native)), join(directory, 'canonical.mjs'));
   const source = readFileSync(fileURLToPath(new URL('linux-platform.mjs', native)), 'utf8');
-  const token = "node: '24.19.0'";
+  const token = "node: '26.12.1'";
   assert.equal(source.split(token).length, 2, "VERSIONS node token must appear exactly once");
   const patched = source.replace(token, () => `node: '${process.version.slice(1)}'`);
   writeFileSync(join(directory, 'linux-platform.mjs'), patched);
@@ -194,6 +194,12 @@ test('an ordinary runtime-changed result publishes nothing and stays isolation-u
   const { records, result } = await wire({ status: 'unavailable', reason: 'runtime-changed', drift: DRIFT });
   assert.deepEqual(records, []);
   assert.deepEqual(result, { outcome: 'unavailable', reason: 'isolation-unobserved' });
+});
+
+test('a fix-binary Windows interop refusal keeps its own reason instead of isolation-unobserved', async () => {
+  const { records, result } = await wire({ status: 'unavailable', reason: 'wsl-interop-fixed-binary' });
+  assert.deepEqual(records, []);
+  assert.deepEqual(result, { outcome: 'unavailable', reason: 'wsl-interop-fixed-binary' });
 });
 
 test('a managed-policy refusal returns before platform resolution and publishes nothing', async () => {

@@ -8,7 +8,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { list } from 'tar';
 
-test('the Linux facility remains executable in the archive and clean scripts-disabled installs', { timeout: 300_000 }, async t => {
+test('the pinned Linux helpers remain executable in the archive and clean scripts-disabled installs', { timeout: 300_000 }, async t => {
   assert.ok(process.env.npm_execpath, 'Run with npm test so the npm CLI is known.');
   const packageRoot = fileURLToPath(new URL('../', import.meta.url));
   const root = mkdtempSync(join(realpathSync.native(tmpdir()), 'aih-linux-package-'));
@@ -16,13 +16,17 @@ test('the Linux facility remains executable in the archive and clean scripts-dis
   const producer = join(root, 'producer'); mkdirSync(producer);
   copyFileSync(join(packageRoot, 'package.json'), join(producer, 'package.json'));
   for (const name of ['package-lock.json', 'tsconfig.json']) copyFileSync(join(packageRoot, name), join(producer, name));
-  for (const name of ['src', 'scripts']) cpSync(join(packageRoot, name), join(producer, name), { recursive: true });
+  for (const name of ['src', 'scripts', 'vendor']) cpSync(join(packageRoot, name), join(producer, name), { recursive: true });
   // A real copy: packing from a linked node_modules drops the bundled dependencies' own dependencies.
   cpSync(join(packageRoot, 'node_modules'), join(producer, 'node_modules'), { recursive: true, verbatimSymlinks: true });
   const member = 'dist/harness/native/linux/facility';
+  const vendor = 'node_modules/@anthropic-ai/sandbox-runtime';
+  const seccomp = ['x64', 'arm64'].map(arch => `${vendor}/vendor/seccomp/${arch}/apply-seccomp`);
+  const executables = [member, ...seccomp];
   // A Windows producer does not supply POSIX executable bits. Do not let the
   // developer checkout's executable bit hide that packaging requirement.
   chmodSync(join(producer, 'src/harness/native/linux/facility'), 0o644);
+  for (const path of seccomp) chmodSync(join(producer, path), 0o644);
   const env = { ...process.env, HOME: join(root, 'home'), USERPROFILE: join(root, 'home') };
   mkdirSync(env.HOME);
   for (const key of Object.keys(env)) if (key.toLowerCase() === 'npm_config_allow_scripts') delete env[key];
@@ -35,14 +39,15 @@ test('the Linux facility remains executable in the archive and clean scripts-dis
   const npm = (args, cwd, mask) => run([process.env.npm_execpath, ...args], cwd, mask);
   const pack = args => run([join(producer, 'scripts/pack-distribution.mjs'), ...args], producer, 0o022);
   const packed = JSON.parse(pack(['--build', '--pack-destination', root]))[0];
-  assert.equal(packed.files.find(value => value.path === member)?.mode, 0o755,
-    'the archive must declare the facility executable even when producer files have no executable bits');
+  for (const path of executables) assert.equal(packed.files.find(value => value.path === path)?.mode, 0o755,
+    `The archive must declare ${path} executable even when producer files have no executable bits`);
   // Read the actual archive header independently of the packaging summary.
-  const headers = [];
+  const headers = new Map();
   list({ file: join(root, packed.filename), sync: true, onReadEntry: entry => {
-    if (entry.path === `package/${member}`) headers.push({ mode: entry.mode, type: entry.type });
+    const path = entry.path.slice('package/'.length);
+    if (executables.includes(path)) headers.set(path, { mode: entry.mode, type: entry.type });
   } });
-  assert.deepEqual(headers, [{ mode: 0o755, type: 'File' }]);
+  assert.deepEqual(headers, new Map(executables.map(path => [path, { mode: 0o755, type: 'File' }])));
   // Packing an already-built tree must not rebuild it: other test processes
   // and consumers may be reading the same output at the same time.
   const identityFile = join(producer, 'dist/distribution.mjs');
@@ -65,6 +70,11 @@ test('the Linux facility remains executable in the archive and clean scripts-dis
     assert.equal(bytes.length, pin.byteLength);
     assert.equal(createHash('sha256').update(bytes).digest('hex'), pin.sha256);
     accessSync(facility, constants.X_OK);
+    for (const path of seccomp) {
+      const helper = join(consumer, 'node_modules/@aihq/core', path);
+      accessSync(helper, constants.X_OK);
+      assert.equal(lstatSync(helper).mode & 0o7022, 0, 'no set-id bits or group/other writes');
+    }
     // EOF terminates only the helper protocol; no client, sandbox or model runs.
     const result = spawnSync(facility, [], { input: '', timeout: 5000 });
     assert.ifError(result.error); assert.equal(result.status, 0);

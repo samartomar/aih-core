@@ -8,8 +8,8 @@
     },
     {
       "name": "contracts.mjs",
-      "byteLength": 19480,
-      "sha256": "498cdd4b80f3471eaded6ab4535763be9114e9238d6e21f02496832f8c5edf42"
+      "byteLength": 20132,
+      "sha256": "4dee6f2ffec796d0c0aea100d2a57b6c5d3a5ff74708a9574986273a3515de51"
     },
     {
       "name": "fixture-data.mjs",
@@ -43,13 +43,13 @@
     },
     {
       "name": "linux-runtime.mjs",
-      "byteLength": 23061,
-      "sha256": "6dd80185e86d2c4f3b5e30c716e7b150237b588b5bc527d15796e5b831633f19"
+      "byteLength": 23142,
+      "sha256": "a677a11ad5c7be031a40bc9c92fe92d69e45387a30509ae9d5ad45ab0666fb7b"
     },
     {
       "name": "linux/runtime-lock.json",
-      "byteLength": 157063,
-      "sha256": "c17c6768a6cc88fecf83fd6597b8969285f6eb0cbfe46b6c3fc4f4e9775a6c82"
+      "byteLength": 202009,
+      "sha256": "3404258f025fe91acaf2b736faae35085c554ee683fea939867570c140cd9648"
     },
     {
       "name": "linux/interop-canary.cs",

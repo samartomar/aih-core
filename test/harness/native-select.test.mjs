@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { observeNativePlatform, selectNativeCell, matchClientVersion, parseClaudeVersionOutput } from '../../src/harness/native/select.mjs';
 import { nativeClientIds, nativeVerificationDefinitions } from '../../src/harness/native/contracts.mjs';
@@ -25,23 +26,27 @@ test('a normal admitted call never selects a candidate', async () => {
   assert.deepEqual(await selectNativeCell({ client: 'claude', platform: win }), { outcome: 'unsupported', reason: 'cell-not-admitted' });
 });
 
-test('the WSL2 admission reaches its lifecycle gate without candidate-smoke', async () => {
+test('the WSL2 candidate requires candidate-smoke to reach its lifecycle gate', async () => {
   const definition = nativeVerificationDefinitions.find(d => d.platform.os === 'linux');
   for (const admission of [undefined, 'admitted']) {
-    const result = await selectNativeCell({ client: 'claude', admission, platform: definition.platform });
-    assert.notEqual(result.reason, 'cell-not-admitted');
-    if (result.outcome === 'selected') assert.equal(result.definition, definition);
-    else assert.ok(['platform-unsupported', 'termination-unresolved'].includes(result.reason));
+    assert.deepEqual(await selectNativeCell({ client: 'claude', admission, platform: definition.platform }),
+      { outcome: 'unsupported', reason: 'cell-not-admitted' });
   }
+  const result = await selectNativeCell({ client: 'claude', admission: 'candidate-smoke', platform: definition.platform });
+  if (result.outcome === 'selected') assert.equal(result.definition, definition);
+  else assert.ok(['platform-unsupported', 'termination-unresolved'].includes(result.reason));
 });
 
-test('tampered admission evidence or tested versions cannot select even with candidate-smoke', async () => {
+test('historical admission cannot select in this distribution', async () => {
+  const historical = JSON.parse(readFileSync(new URL('../fixtures/native-linux-historical-admission.json', import.meta.url), 'utf8'));
   const definition = nativeVerificationDefinitions.find(d => d.platform.os === 'linux');
-  for (const patch of [{ evidenceSha256: null }, { evidenceSha256: 'bad' }, { evidenceSha256: 'e'.repeat(64) },
-    { clientVersions: ['2.1.285', '2.1.286'] }, { clientVersions: ['2.1.*'] }, { clientVersions: ['^2.1.285'] }]) {
-    for (const admission of [undefined, 'admitted', 'candidate-smoke']) {
-      assert.deepEqual(await selectNativeCell({ client: 'claude', admission, platform: definition.platform,
-        definitions: [{ ...definition, ...patch }] }), { outcome: 'unsupported', reason: 'cell-not-admitted' });
+  const promoted = { ...definition, state: 'admitted', evidenceSha256: historical.evidenceSha256 };
+  for (const admission of [undefined, 'admitted', 'candidate-smoke']) {
+    assert.deepEqual(await selectNativeCell({ client: 'claude', admission, platform: historical.platform }),
+      { outcome: 'unsupported', reason: 'platform-unsupported' });
+    for (const claimed of [historical, promoted]) {
+      assert.deepEqual(await selectNativeCell({ client: 'claude', admission, platform: claimed.platform, definitions: [claimed] }),
+        { outcome: 'unsupported', reason: 'cell-not-admitted' });
     }
   }
 });

@@ -380,11 +380,10 @@ admission, security, cleanup and limits. Each format has one 0.1.0 schema in
 `/contracts` `schemas`: `native-verification-request`, `-result`, `-bundle` (a
 supplied configuration names its tool by registry id), `-definition` and
 `native-test-identity` (a dedicated test identity names `claude-code`). The
-bundled definitions are published as `nativeClientDefinitions` from
-`@aihq/core/harness`. They are the retained definitions with only `schema` and
-`client` renamed; definition ids, admission and `evidenceSha256` are unchanged.
-The `aih-linux-facility` bin is the fixed Linux x64 process observer the admitted
-Linux cell launches the client under: an observer, not a sandbox. A 0.1.0
+active definitions are published as `nativeClientDefinitions` from
+`@aihq/core/harness`. The definition schema also validates the exact historical
+admitted descriptor for readers of earlier evidence. The `aih-linux-facility`
+bin supplies Linux x64 process observation to the active WSL2 candidate. A 0.1.0
 request reads only a 0.1.0 bundle.
 
 Still pending live observation, and not claimed by any result: an unattended
@@ -393,25 +392,18 @@ loads a junctioned skill folder on Windows (Core copies for Cursor until then).
 Controlled test fixtures exercise the verification mechanism only; they are not
 native loading evidence.
 
-The bundled `claude-linux-x64-wsl2-srt-2.1.285` definition is admitted for
-Claude Code 2.1.285 on Linux x64 WSL2, osRelease
-`6.18.33.2-microsoft-standard-WSL2`, and selects without `--candidate-smoke`.
-Its retained reviewed batch evidence is identified by `evidenceSha256`
-`a8c226d1c56764a6c773268186a79a3643e5a5d0afc2acd9f9708faa9de50947`.
-The tested packed artifact was Core `1.0.0-dev.27`; Core `1.0.0-dev.28` promotes
-the descriptor. Promotion is not publication: no npm publish has occurred.
-Coverage is the bundled mechanism only, not Catalog's cross-client matrix.
-Acceptance covers the fixed verifier environment: auto-memory disabled,
-marketplace auto-install disabled, fast mode disabled, and MCP connections
-awaited before init within the client's bounded timeout. Authentication uses
-`provisioning-bound-session` identity, with the owner's recorded acceptance:
-it loses the runtime wrong-account/refresh cross-check and is not provider-signed
-attestation. The documented proxy and policy limitations still apply.
-The Windows definition remains a candidate with null evidence and requires
-`--candidate-smoke`; passing a smoke never changes admission. The portable
-validator and the 1.1.0 definition schema both accept an admitted state only as
-an exact registered admitted descriptor. Every registry tool gets an explicit,
-honest outcome; only Claude Code has definitions.
+The Linux definition `claude-linux-x64-wsl2-srt-2.1.285-wsl-3.0.5.0` is a
+candidate for Claude Code 2.1.285, Ubuntu x64 on WSL 3.0.5.0 and kernel
+`6.18.58.1-microsoft-standard-WSL2`. Both it and the Windows candidate require
+`--candidate-smoke`. Running a smoke does not change admission. This distribution
+has no admitted definition. Every registry tool receives an explicit outcome;
+only Claude Code has definitions.
+
+The earlier WSL2 admission covered Core `1.0.0-dev.27` with the earlier Sandbox
+Runtime dependency closure, WSL 2.7.14.0 and kernel
+`6.18.33.2-microsoft-standard-WSL2`. Core `1.0.0-dev.28` recorded its promotion.
+That evidence remains associated with the earlier artifact. See
+[Linux isolation, prerequisites and limitations](docs/native-linux-verification.md).
 
 The default whole-check budget is 180000 ms; `--budget-ms` accepts integers
 1000–600000. Cancellation uses `controls.signal` or CLI SIGINT. Cleanup has one
@@ -469,9 +461,9 @@ tool and selected query; the built-in deny list and
 `enableAllProjectMcpServers=false` remain unchanged. Ambiguous or pattern-like
 identities, extra selected tools and additional project MCP servers are refused.
 The effective settings bytes, member lengths/hashes and guardrail tree digest are
-bound to staging, persistence and Linux launch protection. Selected bundle bytes
-and installed definition/admission metadata are unchanged; the bundled fixture
-retains its original settings bytes. Approvals live in the disposable user's
+bound to staging, persistence and Linux launch protection. Staging preserves the
+selected bundle bytes and the installed definition and admission records. The
+bundled fixture keeps its original settings. Approvals live in the disposable user's
 `.claude/settings.json`, so a fresh home needs no remembered project approval.
 Actual discovery and restrictions still require native observations, and managed
 restrictions retain precedence. Controlled permission tests establish neither
@@ -569,11 +561,11 @@ bytes fail closed. Dedicated identity still requires operator provisioning and
 same-session authentication evidence. The candidate has no whole-client isolation
 mechanism, so useful hygiene evidence remains incomplete/unverified. See
 [Windows facilities and dedicated identity preparation](docs/native-windows-verification.md).
-The separate admitted Linux x64 WSL2 definition wraps the entire workload in pinned
-Anthropic Sandbox Runtime 0.0.78 and uses a bundled Linux kernel observer for
-process ownership, authenticated IPC and cleanup. It requires the exact client,
-kernel and runtime byte closure recorded by its definition metadata. Admission
-is limited to the exact tested version and environment described above.
+The Linux x64 WSL2 candidate wraps the entire workload with the pinned AIH Core
+build of Anthropic Sandbox Runtime `0.0.78-aihq.1`. The bundled Linux kernel
+observer checks process ownership, authenticated IPC and cleanup. The candidate
+requires the exact client version, kernel and runtime byte closure recorded for
+its environment. The earlier admitted artifact retains its own evidence record.
 See [Linux isolation, prerequisites and limitations](docs/native-linux-verification.md).
 Controlled facility and synthetic session checks do not establish native acceptance.
 
@@ -1683,11 +1675,11 @@ the complete suite.
 
 Create a qualified Core distribution with `npm run pack:distribution --
 --pack-destination <existing directory>`. The command builds and packs the root
-package, preserves every archive entry's bytes and metadata except the Linux
-facility's executable mode, refuses to overwrite an existing artifact, and
+package, verifies the pinned Linux facility and vendor seccomp helpers, and sets
+their archive modes to `0755`. It refuses to overwrite an existing artifact and
 reports the final archive's SHA-256 and integrity. Use this command on all
-producer platforms; raw `npm pack` can preserve missing executable bits from a
-Windows producer. Pack from a real `npm ci` install: npm bundles the bundled
+producer platforms because npm can preserve missing executable bits from a
+Windows producer. Pack from a real `npm ci` install because npm bundles the bundled
 dependencies' own dependencies (such as `@sigstore/core`) only from installed
 files, so the command refuses a missing or linked `node_modules` (a symlink or
 Windows junction to another checkout's). See the [Linux packaging checks](docs/native-linux-verification.md#build-records-and-development-checks).

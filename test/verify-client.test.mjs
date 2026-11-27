@@ -4,7 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { release, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -50,7 +50,7 @@ test('every native format has one 0.1.0 schema with a valid and an invalid fixtu
     assert.ok(refusalCodes.some(entry => entry.status === 'refused' && entry.code === code), code);
 });
 
-test('the bundled definitions are the retained ones under registry id claude-code, admission and evidence unchanged', () => {
+test('the bundled definitions expose the same candidates under registry id claude-code', () => {
   assert.equal(nativeClientDefinitions.length, nativeVerificationDefinitions.length);
   for (const [index, definition] of nativeClientDefinitions.entries()) {
     const retained = nativeVerificationDefinitions[index];
@@ -62,18 +62,20 @@ test('the bundled definitions are the retained ones under registry id claude-cod
     assert.deepEqual(validateFormat(definition), { status: 'ok', schema: definition.schema });
     assert.deepEqual(validateNativeVerificationDefinition(definition).diagnostics, []);
   }
-  const admitted = nativeClientDefinitions.filter(definition => definition.state === 'admitted');
-  assert.deepEqual(admitted.map(definition => [definition.id, definition.evidenceSha256]),
-    [['claude-linux-x64-wsl2-srt-2.1.285', 'a8c226d1c56764a6c773268186a79a3643e5a5d0afc2acd9f9708faa9de50947']]);
-  assert.deepEqual(nativeClientDefinitions.filter(definition => definition.state === 'candidate').map(definition => definition.id),
-    ['claude-win32-x64-2.1.285']);
-  // The schema admits exactly the registered admitted definition: changing anything else about it is invalid.
-  const widened = structuredClone(admitted[0]); widened.clientVersions = ['2.1.286'];
-  assert.equal(validateFormat(widened).status, 'invalid');
-  assert.equal(validateNativeVerificationDefinition(widened).valid, false);
-  const promoted = { ...structuredClone(nativeClientDefinitions[0]), state: 'admitted', evidenceSha256: 'e'.repeat(64) };
-  assert.equal(validateFormat(promoted).status, 'invalid');
-  assert.equal(validateNativeVerificationDefinition(promoted).valid, false);
+  assert.deepEqual(nativeClientDefinitions.map(definition => [definition.id, definition.state, definition.evidenceSha256]), [
+    ['claude-win32-x64-2.1.285', 'candidate', null],
+    ['claude-linux-x64-wsl2-srt-2.1.285-wsl-3.0.5.0', 'candidate', null]
+  ]);
+  const historical = JSON.parse(readFileSync(new URL('./fixtures/native-linux-historical-admission.json', import.meta.url), 'utf8'));
+  const old = { ...historical, schema: 'urn:aihq:core:native-verification-definition:0.1.0', client: 'claude-code' };
+  assert.deepEqual(validateFormat(old), { status: 'ok', schema: old.schema });
+  assert.equal(validateNativeVerificationDefinition(old).valid, true);
+  const promoted = { ...nativeClientDefinitions[1], state: 'admitted', evidenceSha256: historical.evidenceSha256 };
+  const altered = { ...old, evidenceSha256: 'e'.repeat(64) };
+  for (const invalid of [promoted, altered]) {
+    assert.equal(validateFormat(invalid).status, 'invalid');
+    assert.equal(validateNativeVerificationDefinition(invalid).valid, false);
+  }
 });
 
 test('a 0.1.0 test identity names claude-code', () => {

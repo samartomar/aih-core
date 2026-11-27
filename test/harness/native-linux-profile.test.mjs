@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { SandboxRuntimeConfigSchema } from '@anthropic-ai/sandbox-runtime';
 import { createLinuxBaseProfile, deriveLinuxSessionProfile, verifyLinuxSessionProfile,
   fixedLinuxCommand, initializeLinuxProfile } from '../../src/harness/native/linux-profile.mjs';
 
@@ -16,6 +17,23 @@ const input = () => ({
 const slots = () => ({ collector: 'http://127.0.0.1:43210/v1/logs', evidence: `${root}/observations/e1`,
   probe: `${root}/observations/e2`, http: `${root}/observations/s1/claude-http-0123456789abcdef.sock`,
   socks: `${root}/observations/s1/claude-socks-0123456789abcdef.sock` });
+
+test('the Zod 4 vendor schema preserves Core profiles and refuses invalid entries', () => {
+  const base = createLinuxBaseProfile(input());
+  const initial = initializeLinuxProfile(base, slots().collector);
+  const session = deriveLinuxSessionProfile(base, slots());
+  for (const profile of [base, initial, session]) assert.deepEqual(SandboxRuntimeConfigSchema.parse(profile), profile);
+
+  const invalid = structuredClone(session);
+  invalid.network.allowedDomains.push('https://example.com/');
+  invalid.filesystem.allowWrite.push(42);
+  const result = SandboxRuntimeConfigSchema.safeParse(invalid);
+  assert.equal(result.success, false);
+  assert.deepEqual(result.error.issues.map(issue => issue.path), [
+    ['network', 'allowedDomains', invalid.network.allowedDomains.length - 1],
+    ['filesystem', 'allowWrite', invalid.filesystem.allowWrite.length - 1]
+  ]);
+});
 
 test('fixed profile denies the host root and permits only owned writable roots and pinned runtime reads', () => {
   const base = createLinuxBaseProfile(input());

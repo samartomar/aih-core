@@ -1,0 +1,26 @@
+{
+  "name": "@anthropic-ai/sandbox-runtime",
+  "version": "0.0.78-aihq.1",
+  "upstreamVersion": "0.0.78",
+  "upstreamReleaseCommit": "6f0ce155ccb136bda33a8a72201fe7f54fe47d9b",
+  "upstreamNpmArchive": "https://registry.npmjs.org/@anthropic-ai/sandbox-runtime/-/sandbox-runtime-0.0.78.tgz",
+  "upstreamNpmIntegrity": "sha512-YAIcybXTp7MZkBjasnkR1E3yxnf7u6kUkyW0vZrtsAZ9tyJGMaugWETmquPZs0YvW0sR0VnZeMfS0gsN/wQiVQ==",
+  "upstreamSourceArchive": "https://codeload.github.com/anthropics/sandbox-runtime/tar.gz/6f0ce155ccb136bda33a8a72201fe7f54fe47d9b",
+  "upstreamSourceSha256": "44fd5ba9fb81cd89cbb4dafae13797788bd60982b822ede21f4acc28a6b0e625",
+  "schemaMigrationReference": "https://github.com/anthropics/sandbox-runtime/pull/832",
+  "patchedDependencies": {
+    "node-forge": {
+      "version": "1.4.3",
+      "resolved": "https://registry.npmjs.org/node-forge/-/node-forge-1.4.3.tgz",
+      "integrity": "sha512-P6wzfh6t70avmV8FrVEAd/36sOPJQ+hkaJVX1Laap9J/77m7M0eyozDvc8SwnDf4P7MP94gwbAAo0rg3YVXT+g==",
+      "license": "(BSD-3-Clause OR GPL-2.0)",
+      "engines": { "node": ">= 6.13.0" }
+    },
+    "zod": {
+      "version": "4.6.7",
+      "resolved": "https://registry.npmjs.org/zod/-/zod-4.6.7.tgz",
+      "integrity": "sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg==",
+      "license": "MIT"
+    }
+  }
+}

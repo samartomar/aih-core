@@ -8,7 +8,7 @@ import type { NativeVerificationRequest, NativeVerificationResult } from './nati
 import { installedDistribution } from './internal/installed-distribution.js';
 import { canonicalJson } from './internal/canonical.js';
 import { sha256 } from './internal/host-files.js';
-import { NativeStop, nativeSnapshot, nativeDiagnostic, validateNativeControls } from './internal/native-input.js';
+import { NativeStop, nativeProbeGuidance, nativeSnapshot, nativeDiagnostic, validateNativeControls } from './internal/native-input.js';
 import { emptyNativeResult, invalidNativeResult, appendNativeStage, finishNativeResult, addNativeDiagnostic, type NativeStage } from './internal/native-result.js';
 import { acquireNativeSupplied, captureNativeInstalledMembers, captureNativeHelpers, revalidateNativeHelpers, nativeReadPinned, nativeReadPinnedRuntime, validateMaterialTrees, type NativeMaterial } from './internal/native-material.js';
 import { createNativeCell, stageNativeCell, checkNativePersistence, nativeStatePlan, removeNativeCell, type NativeCell } from './internal/native-cell.js';
@@ -168,7 +168,7 @@ export async function verifyNative(request: unknown, controls: NativeVerificatio
     if ('outcome' in pin) {
       if (pin.cleanup) { helperProcessesCreated = true; processesConfirmed = processesConfirmed && pin.cleanup.confirmed; result.survivingProcesses = [...result.survivingProcesses, ...pin.cleanup.survivors].slice(0, 32); }
       if (pin.cleanupStartedAt !== undefined) cleanupDeadline = Math.min(cleanupDeadline ?? Infinity, pin.cleanupStartedAt + 10000);
-      throw new NativeStop(pin.reason, pin.outcome);
+      throw new NativeStop(pin.reason, pin.outcome, pin.reason === 'isolation-unobserved' ? nativeProbeGuidance(pin.unprovenProbes) : undefined);
     }
     helperProcessesCreated = pin.probeCreated === true;
     check();
@@ -315,7 +315,11 @@ export async function verifyNative(request: unknown, controls: NativeVerificatio
   } catch (error) {
     const failure = error instanceof NativeStop ? error : new NativeStop('native-internal'); stopped = failure.reason;
     if (failure.reason === 'cancelled' || failure.reason === 'budget-exhausted') row('stop', 'unavailable', failure.reason);
-    else row(activeStage, failure.outcome, failure.reason, activeStage === 'session-start' || activeStage === 'configuration-unchanged' ? result.sessions.length >= 1 ? 2 : 1 : null);
+    else {
+      const diagnostics = result.diagnostics.length;
+      row(activeStage, failure.outcome, failure.reason, activeStage === 'session-start' || activeStage === 'configuration-unchanged' ? result.sessions.length >= 1 ? 2 : 1 : null);
+      if (failure.guidance && result.diagnostics.length > diagnostics) result.diagnostics[diagnostics]!.guidance = failure.guidance;
+    }
   } finally {
     if (handle) await cleanupHandle(handle);
     const removed = cell ? processesConfirmed && removeNativeCell(cell, cleanupCheck) : false;

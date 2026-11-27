@@ -1,4 +1,4 @@
-// Developer-only packaging: normalize the supplied executable's archive mode.
+// Developer-only packaging: normalize pinned executable archive modes.
 // Installed consumers never execute this script or repair package permissions.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -23,7 +23,8 @@ const modules = (() => { try { return lstatSync(join(root, 'node_modules')); } c
 assert.ok(modules?.isDirectory(),
   'Pack from a real `npm ci` install: node_modules is missing or linked, so bundled dependencies would be incomplete.');
 const destination = resolve(args[1] ?? root);
-const member = 'package/dist/harness/native/linux/facility';
+const facility = 'package/dist/harness/native/linux/facility';
+const sandboxVendor = '@anthropic-ai/sandbox-runtime';
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 assert.equal(manifest.name, '@aihq/core');
@@ -56,21 +57,29 @@ try {
   assert.equal(packed.filename, filename);
   const input = join(scratch, filename), output = join(scratch, 'distribution.tgz');
   const before = await inventory(input);
-  const helpers = before.filter(entry => entry.path === member);
-  assert.equal(helpers.length, 1, 'Expected exactly one Linux facility archive entry');
-  const helper = helpers[0];
-  assert.equal(helper.type, 'File');
   const record = JSON.parse(readFileSync(join(root, 'dist/harness/native/linux/build-record.json'), 'utf8'));
-  const pin = record.resources.find(value => value.name === 'facility');
-  assert.equal(helper.size, pin.byteLength);
-  assert.equal(helper.sha256, pin.sha256);
+  const runtime = JSON.parse(readFileSync(join(root, 'dist/harness/native/linux/runtime-lock.json'), 'utf8'));
+  const vendor = runtime.packages.find(value => value.name === sandboxVendor);
+  const executables = new Map([[facility, record.resources.find(value => value.name === 'facility')]]);
+  for (const arch of ['x64', 'arm64']) {
+    const path = `vendor/seccomp/${arch}/apply-seccomp`;
+    executables.set(`package/node_modules/${sandboxVendor}/${path}`, vendor.files.find(value => value.path === path));
+  }
+  for (const [path, pin] of executables) {
+    const members = before.filter(entry => entry.path === path);
+    assert.equal(members.length, 1, `Expected exactly one archive entry at ${path}`);
+    const [entry] = members;
+    assert.equal(entry.type, 'File');
+    assert.equal(entry.size, pin.byteLength);
+    assert.equal(entry.sha256, pin.sha256);
+  }
   create({ file: output, sync: true, gzip: { level: 9 }, filter(path, entry) {
-    if (path === member) entry.mode = 0o755;
+    if (executables.has(path)) entry.mode = 0o755;
     return true;
   } }, [`@${input}`]);
   const after = await inventory(output);
-  const expected = before.map(entry => entry.path === member ? { ...entry, mode: 0o755 } : entry);
-  assert.deepEqual(after, expected, 'Packaging may change only the Linux facility archive mode');
+  const expected = before.map(entry => executables.has(entry.path) ? { ...entry, mode: 0o755 } : entry);
+  assert.deepEqual(after, expected, 'Packaging may change only the three pinned executable archive modes');
   const bytes = readFileSync(output);
   // Exclusive copy preserves any previously qualified artifact at this name.
   const target = join(destination, filename);

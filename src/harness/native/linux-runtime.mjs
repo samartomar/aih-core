@@ -30,7 +30,7 @@ import { nativeBounds } from './contracts.mjs';
 const LOCK_URL = new URL('./linux/runtime-lock.json', import.meta.url);
 // Closed validation bounds. `materialFileBytes` is the existing 8 MiB material-file bound.
 const MAX_LOCK_BYTES = 512 * 1024;
-const MAX_FILES = 1024;
+const MAX_FILES = 1152; // The pinned Zod 4 closure includes multiple published entrypoints and locales.
 const MAX_FILE_BYTES = nativeBounds.materialFileBytes;
 const MAX_TOTAL_BYTES = 32 * 1024 * 1024;
 const MAX_DEPTH = nativeBounds.jsonDepth;

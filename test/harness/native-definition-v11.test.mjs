@@ -5,6 +5,8 @@ import { Ajv2020 } from 'ajv/dist/2020.js';
 import { nativeLifecycleIds, nativeVerificationDefinitions, validateNativeVerificationDefinition }
   from '../../src/harness/native/contracts.mjs';
 
+const historicalAdmission = JSON.parse(readFileSync(new URL('../fixtures/native-linux-historical-admission.json', import.meta.url), 'utf8'));
+
 const V10 = 'urn:aihq:harness:native-verification-definition:1.0.0';
 const V11 = 'urn:aihq:harness:native-verification-definition:1.1.0';
 const schemaUrl = name => new URL(`../../src/harness/schemas/native-verification-definition/${name}.json`, import.meta.url);
@@ -32,71 +34,38 @@ const agree = (name, definition, expected, schemaValidator = definition.schema =
   assert.equal(schemaValidator(definition), expected, `schema: ${name} ${JSON.stringify(schemaValidator.errors)}`);
 };
 
-test('the registered WSL2 sandbox admission binds its exact tested version and reviewed evidence', () => {
+test('the registered WSL2 candidate binds the exact current platform and has no admission evidence', () => {
   const definition = nativeVerificationDefinitions.find(value => value.lifecycleId === 'linux-srt.v1');
   assert.ok(definition);
-  agree('registered admission', definition, true);
-  assert.deepEqual(definition.platform, { os: 'linux', arch: 'x64', execution: 'wsl2', osRelease: '6.18.33.2-microsoft-standard-WSL2' });
-  assert.equal(definition.state, 'admitted');
+  agree('registered candidate', definition, true);
+  assert.deepEqual(definition.platform, { os: 'linux', arch: 'x64', execution: 'wsl2', osRelease: '6.18.58.1-microsoft-standard-WSL2' });
+  assert.equal(definition.id, 'claude-linux-x64-wsl2-srt-2.1.285-wsl-3.0.5.0');
+  assert.equal(definition.state, 'candidate');
   assert.deepEqual(definition.clientVersions, ['2.1.285']);
-  assert.equal(definition.evidenceSha256, 'a8c226d1c56764a6c773268186a79a3643e5a5d0afc2acd9f9708faa9de50947');
+  assert.equal(definition.evidenceSha256, null);
   assert.deepEqual(definition.sessionArgv, [...SESSION, '--tools', '']);
-  const cases = {
-    'null evidence': d => { d.evidenceSha256 = null; },
-    'malformed evidence': d => { d.evidenceSha256 = 'not-a-sha256'; },
-    'unreviewed evidence': d => { d.evidenceSha256 = 'e'.repeat(64); },
-    'extra exact version': d => { d.clientVersions.push('2.1.286'); },
-    'different exact version': d => { d.clientVersions = ['2.1.286']; },
-    'wildcard version': d => { d.clientVersions = ['2.1.*']; },
-    'version range': d => { d.clientVersions = ['^2.1.285']; }
-  };
-  for (const [name, mutate] of Object.entries(cases)) {
-    const copy = clone(definition); mutate(copy); agree(name, copy, false);
-  }
+  for (const clientVersions of [['2.1.*'], ['^2.1.285']])
+    agree('nonexact version', { ...definition, clientVersions }, false);
 });
 
-test('the published 1.1.0 admission rule is exactly the registered admitted definitions', () => {
+test('1.1.0 accepts the exact historical admission independently of the active registry', () => {
+  assert.deepEqual(nativeVerificationDefinitions.filter(definition => definition.state === 'admitted'), []);
   const published = JSON.parse(readFileSync(schemaUrl('1.1.0'), 'utf8'));
-  const rules = published.allOf.filter(rule => rule.if?.properties?.state?.const === 'admitted');
-  assert.equal(rules.length, 1);
-  assert.deepEqual(rules[0].if, { properties: { state: { const: 'admitted' } }, required: ['state'] });
-  assert.deepEqual(Object.keys(rules[0].then), ['enum']);
-  assert.deepEqual(rules[0].then.enum, clone(nativeVerificationDefinitions.filter(d => d.state === 'admitted')));
-  const legacyRules = JSON.parse(readFileSync(schemaUrl('1.0.0'), 'utf8')).allOf
-    .filter(rule => rule.if?.properties?.state?.const === 'admitted');
-  assert.deepEqual(legacyRules.map(rule => rule.then), [false]);
-  assert.ok(nativeVerificationDefinitions.filter(d => d.state === 'admitted').every(d => d.schema === V11));
-});
-
-test('schema and validator agree that admission is only an exact registered descriptor', () => {
-  const registered = () => clone(nativeVerificationDefinitions.find(d => d.state === 'admitted'));
-  const candidate = () => clone(nativeVerificationDefinitions.find(d => d.state === 'candidate'));
-  agree('registered admission', registered(), true);
-  const cases = {
-    'unregistered id with reviewed evidence': d => { d.id = 'claude-linux-x64-wsl2-srt-2.1.286'; },
-    'unregistered id with other evidence': d => { d.id = 'claude-linux-x64-srt-2.1.285'; d.evidenceSha256 = 'b'.repeat(64); },
-    'osRelease': d => { d.platform.osRelease = '6.6.0-microsoft-standard-WSL2'; },
-    'native execution': d => { d.platform.execution = 'native'; },
-    'runtime pin': d => { d.runtimeMembers[0].sha256 = '0'.repeat(64); },
-    'runtime length': d => { d.runtimeMembers[0].byteLength += 1; },
-    'extra argv': d => { d.sessionArgv = [...d.sessionArgv, '--verbose']; },
-    'version argv': d => { d.versionArgv = ['-v']; },
-    'executable': d => { d.executableNames = ['claude', 'claude-code']; },
-    'credential destination': d => { d.credentialDestination.path = '.claude/other.json'; },
-    'isolation documentation': d => { d.isolation.documentation = ['https://code.claude.com/docs/en/sandbox-environments']; },
-    'widened versions': d => { d.clientVersions = ['2.1.285', '2.1.286']; },
-    'other evidence': d => { d.evidenceSha256 = 'b'.repeat(64); },
-    'legacy schema': d => { d.schema = V10; }
-  };
-  for (const [name, mutate] of Object.entries(cases)) { const d = registered(); mutate(d); agree(name, d, false); }
-  const promoted = candidate(); promoted.state = 'admitted'; promoted.evidenceSha256 = 'c'.repeat(64);
-  agree('1.0.0 candidate claiming admission', promoted, false);
-  const promotedV11 = { ...promoted, schema: V11 };
-  agree('1.1.0 candidate claiming admission', promotedV11, false);
-  const vendorAdmitted = vendor(); vendorAdmitted.state = 'admitted'; vendorAdmitted.evidenceSha256 = 'd'.repeat(64);
-  agree('unregistered vendor profile claiming admission', vendorAdmitted, false);
-  const demoted = registered(); demoted.state = 'candidate'; demoted.evidenceSha256 = null;
-  agree('registered profile as an unadmitted candidate', demoted, true);
+  const legacy = JSON.parse(readFileSync(schemaUrl('1.0.0'), 'utf8'));
+  const admissionRules = schema => schema.allOf.filter(rule => rule.if?.properties?.state?.const === 'admitted');
+  assert.deepEqual(admissionRules(published).map(rule => rule.then), [{ enum: [historicalAdmission] }]);
+  assert.deepEqual(admissionRules(legacy).map(rule => rule.then), [false]);
+  agree('historical admission with its exact reviewed evidence', historicalAdmission, true);
+  agree('historical admission with changed runtime bytes',
+    { ...historicalAdmission, runtimeMembers: [{ ...historicalAdmission.runtimeMembers[0], sha256: '0'.repeat(64) }] }, false);
+  agree('historical admission with new kernel',
+    { ...historicalAdmission, platform: nativeVerificationDefinitions.find(d => d.platform.os === 'linux').platform }, false);
+  for (const candidate of nativeVerificationDefinitions) {
+    agree('candidate claiming historical admission evidence',
+      { ...candidate, state: 'admitted', evidenceSha256: historicalAdmission.evidenceSha256 }, false);
+    agree('candidate claiming unreviewed admission evidence',
+      { ...candidate, state: 'admitted', evidenceSha256: 'e'.repeat(64) }, false);
+  }
 });
 
 test('definition 1.1.0 accepts the fixed Linux vendor-runtime profile in native and wsl2 execution', () => {

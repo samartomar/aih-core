@@ -1,7 +1,7 @@
 // Cell selection: the descriptor, platform, admission and lifecycle gates. Every refusal is explicit
 // and happens before any native launch.
 import { arch as osArch, release as osRelease } from 'node:os';
-import { nativeVerificationDefinitions, validateNativeVerificationDefinition } from './contracts.mjs';
+import { isActiveNativeAdmission, nativeVerificationDefinitions } from './contracts.mjs';
 import { definitionIdentity } from './digest.mjs';
 import { lifecycleAvailability } from './lifecycle.mjs';
 
@@ -19,7 +19,7 @@ export async function selectNativeCell({ client, admission, platform, definition
     definition.platform.osRelease === platform.osRelease);
   if (!onPlatform.length) return { outcome: 'unsupported', reason: 'platform-unsupported' };
   const eligible = onPlatform.filter(definition => definition.state === 'admitted'
-    ? validateNativeVerificationDefinition(definition).valid : admission === 'candidate-smoke');
+    ? isActiveNativeAdmission(definition) : admission === 'candidate-smoke');
   if (!eligible.length) return { outcome: 'unsupported', reason: 'cell-not-admitted' };
   const definition = eligible[0];
   const lifecycle = await lifecycleAvailability(definition.lifecycleId, platform.os, { deadline, signal });

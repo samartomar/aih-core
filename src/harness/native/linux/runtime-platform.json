@@ -33,9 +33,9 @@
       "byteLength": 1080
     },
     "node": {
-      "version": "24.19.0",
-      "sha256": "bc17c508ffeed0ec622934f9b7fa72f8e78da65350e63c3eceb56fa688aa5e12",
-      "byteLength": 125989464
+      "version": "26.12.1",
+      "sha256": "08f12d42fb304468e8ee86247fe686aae5b225836ea65e9d6566c11ae6ba2e8e",
+      "byteLength": 150319168
     },
     "client": {
       "version": "2.1.285",
@@ -43,9 +43,9 @@
       "byteLength": 240327864
     },
     "wslinfo": {
-      "version": "2.7.14.0",
-      "sha256": "421768dd3357a95f4967481f61ef055612db534af02ddca7fbb3e35b4a8ac55c",
-      "byteLength": 2837280
+      "version": "3.0.5.0",
+      "sha256": "06106f90c6c4e9a83b8e83dbac848b8a48fb092f00f998dc48398342755c869a",
+      "byteLength": 3491856
     }
   },
   "libraries": [
@@ -97,6 +97,14 @@
       "byteLength": 187120
     },
     {
+      "path": "/usr/lib/x86_64-linux-gnu/libatomic.so.1.2.0",
+      "sha256": "eac440708f874c4d446671efb5353cebeaa829bd1f18cd8d5065cd6efefa387b",
+      "byteLength": 35120,
+      "aliases": [
+        "/usr/lib/x86_64-linux-gnu/libatomic.so.1"
+      ]
+    },
+    {
       "path": "/usr/lib/x86_64-linux-gnu/libtinfo.so.6.6",
       "sha256": "085dbbe5dc38619276bdd0af37ae588969b1308baded09a2990ce8824a602912",
       "byteLength": 212504,
@@ -137,7 +145,7 @@
     },
     {
       "path": "/usr/lib/x86_64-linux-gnu/libz.so.1.3.1",
-      "sha256": "47b61967895b30e8c0c6818dd633ffeb87711cf637c688f981896f0dd84ce23b",
+      "sha256": "27fa6c6cb94fb5b099ead61758a300dbc392d1dbf307fff6c16a9b8e57fdc9de",
       "byteLength": 121272,
       "aliases": [
         "/usr/lib/x86_64-linux-gnu/libz.so.1"

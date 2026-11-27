@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- **WSL fix-binary interop is refused by name.** A WSL2 host whose enabled `binfmt_misc` Windows handler has the
+  fix-binary (`F`) flag, as WSL 3.0.5.0 registers `WSLInterop`, now stops at `host-presence` with the new reason
+  `wsl-interop-fixed-binary` (both native result schemas) and fixed guidance, instead of `isolation-unobserved`.
+  The kernel then runs the interpreter it opened at registration, so the sandbox's `/init` mask cannot block
+  Windows execution (samartomar/aih-core#196). A `host-presence` stop for `isolation-unobserved` names the
+  unproven sandbox probes in the diagnostic's `guidance`. No probe accepts anything new.
+- **The Linux WSL2 cell is a new candidate; this distribution admits no definition.** The Linux definition is now
+  `claude-linux-x64-wsl2-srt-2.1.285-wsl-3.0.5.0`, a candidate for Claude Code 2.1.285 on WSL 3.0.5.0 with kernel
+  `6.18.58.1-microsoft-standard-WSL2` and Node 26.12.1 (was 24.19.0). It requires `--candidate-smoke`, like the Windows
+  candidate; without it `verify-client` stops with `cell-not-admitted`. Diagnostics and admission events name the new
+  definition id. The earlier admitted descriptor `claude-linux-x64-wsl2-srt-2.1.285` (kernel
+  `6.18.33.2-microsoft-standard-WSL2`, Core `1.0.0-dev.27` evidence) still validates against both definition schemas
+  for readers of earlier evidence, but no longer selects or runs: execution recognizes only this distribution's
+  active registry.
+- **Core bundles its own Sandbox Runtime build.** `@anthropic-ai/sandbox-runtime` is now `0.0.78-aihq.1`, a Core
+  backport of Anthropic Sandbox Runtime 0.0.78 that uses the Zod 4 schema API and pins Zod 4.6.7 (was 3.25.76) and
+  node-forge 1.4.3 (was 1.4.0). The archive and its provenance are in `vendor/sandbox-runtime/`;
+  `npm run rebuild:sandbox-runtime` reproduces it from the two upstream archives. `runtime-lock.json` pins the new
+  closure, and `npm run pack:distribution` also pins and marks executable both vendor seccomp helpers.
+
 The 0.1.0 cutover (samartomar/aih-core#181): one public surface, one version of each format.
 
 - **An AI setup admits its companion item (C81, samartomar/aih-core#200).** In a plan that acquires an AI setup, the steps

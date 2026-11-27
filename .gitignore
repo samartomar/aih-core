@@ -1,6 +1,7 @@
 node_modules/
 dist/
 *.tgz
+!/vendor/sandbox-runtime/anthropic-ai-sandbox-runtime-0.0.78-aihq.1.tgz
 coverage/
 native-trust-results/
 /.code-review-graph/

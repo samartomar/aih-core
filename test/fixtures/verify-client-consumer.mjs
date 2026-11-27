@@ -48,18 +48,17 @@ await check('each native format ships one 0.1.0 schema whose fixtures read ok an
   assert.equal(validateNativeTestIdentity(schemas['urn:aihq:core:native-test-identity:0.1.0'].fixtures.valid).valid, true);
 });
 
-await check('the packaged definitions are the two Claude Code 2.1.285 cells, one admitted with its recorded evidence', () => {
+await check('the packaged definitions are two Claude Code 2.1.285 candidates without admission evidence', () => {
   assert.deepEqual(nativeClientDefinitions.map(definition => [definition.id, definition.client, definition.state, definition.clientVersions, definition.evidenceSha256]), [
     ['claude-win32-x64-2.1.285', 'claude-code', 'candidate', ['2.1.285'], null],
-    ['claude-linux-x64-wsl2-srt-2.1.285', 'claude-code', 'admitted', ['2.1.285'], 'a8c226d1c56764a6c773268186a79a3643e5a5d0afc2acd9f9708faa9de50947']]);
+    ['claude-linux-x64-wsl2-srt-2.1.285-wsl-3.0.5.0', 'claude-code', 'candidate', ['2.1.285'], null]]);
   for (const definition of nativeClientDefinitions) {
     assert.deepEqual(validateFormat(JSON.parse(JSON.stringify(definition))), { status: 'ok', schema: definition.schema });
     assert.equal(validateNativeVerificationDefinition(definition).valid, true);
   }
-  // Admission is not widened by a document: another version of the admitted cell is invalid.
-  const widened = { ...JSON.parse(JSON.stringify(nativeClientDefinitions[1])), clientVersions: ['2.1.286'] };
-  assert.equal(validateFormat(widened).status, 'invalid');
-  assert.equal(validateNativeVerificationDefinition(widened).valid, false);
+  const promoted = { ...nativeClientDefinitions[1], state: 'admitted', evidenceSha256: 'e'.repeat(64) };
+  assert.equal(validateFormat(promoted).status, 'invalid');
+  assert.equal(validateNativeVerificationDefinition(promoted).valid, false);
 });
 
 await check('the Linux x64 observer bin ships as the fixed facility, an observer and not a sandbox', () => {
@@ -68,8 +67,8 @@ await check('the Linux x64 observer bin ships as the fixed facility, an observer
   assert.ok(lstatSync(join(installed, manifest.bin['aih-linux-facility'])).isFile());
   const record = JSON.parse(readFileSync(join(installed, 'dist/harness/native/linux/build-record.json'), 'utf8'));
   assert.equal(JSON.stringify(record).includes('sandbox'), false, 'the facility record never names itself a sandbox');
-  const admitted = nativeClientDefinitions.find(definition => definition.state === 'admitted');
-  assert.deepEqual([admitted.isolation.mechanism, admitted.isolation.observerId], ['vendor-runtime', 'anthropic-srt-linux.v1']);
+  const linux = nativeClientDefinitions.find(definition => definition.platform.os === 'linux');
+  assert.deepEqual([linux.isolation.mechanism, linux.isolation.observerId], ['vendor-runtime', 'anthropic-srt-linux.v1']);
 });
 
 await check('verifyClient refuses unknown tools, tools without a definition and this host cell, launching nothing', async () => {

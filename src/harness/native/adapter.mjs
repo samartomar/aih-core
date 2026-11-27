@@ -1,7 +1,7 @@
 import { lstatSync, realpathSync } from "node:fs";
 import { dirname, join, posix, sep, win32 } from "node:path";
 import { canonicalJson } from "./canonical.mjs";
-import { validateNativeVerificationDefinition } from './contracts.mjs';
+import { isActiveNativeAdmission } from './contracts.mjs';
 import { claudeConfigDirectory, claudeSessionArgv } from "./claude.mjs";
 import { claudeGlobalStatePath, claudeStatePaths, inspectClaudeGlobalState } from "./claude-state.mjs";
 import { sha256 } from "./digest.mjs";
@@ -38,7 +38,7 @@ function createNativeRuntime(module, dependencies) {
     return result;
   };
   const definitions = module.nativeVerificationDefinitions.filter(definition =>
-    definition.state !== 'admitted' || validateNativeVerificationDefinition(definition).valid);
+    definition.state !== 'admitted' || isActiveNativeAdmission(definition));
   const adapters = new Set(["claude-stream-json.v1"]);
   const identitiesSupported = new Set(["claude-oauth-otel.v1"]);
   const identities = new WeakMap();
@@ -222,6 +222,8 @@ function createNativeRuntime(module, dependencies) {
     },
     async resolveNativeClient(definition, input) {
       checkTime(input);
+      if (definition.state === 'admitted' && !isActiveNativeAdmission(definition))
+        return { outcome: 'unsupported', reason: 'cell-not-admitted' };
       if (!adapters.has(definition.parserId) || !identitiesSupported.has(definition.identityAdapterId) || definition.client !== "claude") return { outcome: "unsupported", reason: "client-unsupported" };
       const client = await module.pinExecutable({ names: definition.executableNames, pathEnv: process.env.PATH ?? "", platform: definition.platform.os });
       checkTime(input);
@@ -378,6 +380,8 @@ function createNativeRuntime(module, dependencies) {
     },
     async startNativeSession(input) {
       checkTime(input);
+      if (input.definition.state === 'admitted' && !isActiveNativeAdmission(input.definition))
+        return { outcome: 'unsupported', reason: 'cell-not-admitted' };
       let sessionArgv;
       try { sessionArgv = claudeSessionArgv(input.definition.sessionArgv, input.limits); }
       catch { return { outcome: 'unavailable', reason: 'finite-limits-required' }; }

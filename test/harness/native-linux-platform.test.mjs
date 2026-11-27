@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { validateLinuxPlatformRecord, validateLinuxLibraryAliasInventory, windowsPolicyDirectoryFromMounts, observedWslNetworkingMode, resolveLinuxPlatform } from '../../src/harness/native/linux-platform.mjs';
+import { validateLinuxPlatformRecord, validateLinuxLibraryAliasInventory, windowsPolicyDirectoryFromMounts, observedWslNetworkingMode, observedWslFixedBinaryInterop, resolveLinuxPlatform } from '../../src/harness/native/linux-platform.mjs';
 
 const hash = 'a'.repeat(64);
 const artifact = version => ({ version, sha256: hash, byteLength: 123 });
 const record = () => ({ schemaVersion: '1.0.0', platform: 'linux-x64', roles: {
-  node: artifact('24.19.0'), client: artifact('2.1.285'), bash: artifact('5.3-2ubuntu1'),
+  node: artifact('26.12.1'), client: artifact('2.1.285'), bash: artifact('5.3-2ubuntu1'),
   env: artifact('0.8.0-0ubuntu3'), bwrap: artifact('0.11.1-1ubuntu0.3'),
   socat: artifact('1.8.1.1-1ubuntu0.1'), rg: artifact('15.1.0-1ubuntu1'), which: artifact('5.23.2build1'), wslinfo: null
 }, libraries: [{ path: '/usr/lib/x86_64-linux-gnu/libc.so.6', sha256: hash, byteLength: 123 },
@@ -15,7 +15,7 @@ readFiles: [{ path: '/usr/bin/dash', aliases: ['/bin/sh', '/usr/bin/sh'], sha256
 
 test('fixed platform source record accepts only exact version and byte references', () => {
   assert.equal(validateLinuxPlatformRecord(record()), true);
-  for (const change of [r => { r.roles.node.version = '24.19.1'; }, r => { r.roles.bwrap.version = '0.11.1-1ubuntu0.1'; },
+  for (const change of [r => { r.roles.node.version = '24.19.0'; }, r => { r.roles.bwrap.version = '0.11.1-1ubuntu0.1'; },
     r => { r.roles.env.path = '/caller/program'; }, r => { r.roles.client.sha256 = 'A'.repeat(64); },
     r => { r.roles.client.byteLength = 268435457; }, r => { r.roles.client.sha256 = hash + '\n'; }, r => { r.roles.shell = artifact('1'); },
     r => { r.wsl.networkingMode = 'mirrored'; }, r => { r.libraries[0].path = '/home/owner/.ssh/id_rsa'; },
@@ -89,4 +89,25 @@ test('platform resolution propagates the trusted deadline check before filesyste
 test('platform resolver has no invented ready result without an independent record', async () => {
   const result = await resolveLinuxPlatform({ check() {} });
   assert.equal(result.status, 'unavailable');
+});
+
+// Recorded WSL 3.0.5.0 registration: WSL itself sets fix-binary, so the kernel keeps its own open /init.
+const wslInterop = 'enabled\ninterpreter /init\nflags: PF\noffset 0\nmagic 4d5a\n';
+test('an enabled fix-binary Windows interop handler is observed from the host binfmt_misc entries', () => {
+  assert.equal(observedWslFixedBinaryInterop('enabled\n', [wslInterop]), true);
+  assert.equal(observedWslFixedBinaryInterop('enabled\n', ['enabled\ninterpreter /usr/bin/python3.12\nflags: \noffset 0\nmagic cb0d0d0a\n', wslInterop]), true);
+  // Any fix-binary handler for Windows images: by WSL's interpreter, by MZ magic at offset 0 (also masked or longer), or by .exe extension.
+  for (const entry of ['enabled\ninterpreter /usr/bin/other\nflags: F\noffset 0\nmagic 4d5a9000\n',
+    'enabled\ninterpreter /usr/bin/other\nflags: OCF\noffset 0\nmagic 4d\n',
+    'enabled\ninterpreter /usr/bin/other\nflags: F\noffset 0\nmagic 4d5a\nmask ffff\n',
+    'enabled\ninterpreter /usr/bin/other\nflags: F\nextension .exe\n',
+    'enabled\ninterpreter /usr/bin/other\nflags: F\nextension .EXE\n',
+    'enabled\ninterpreter /init\nflags: F\noffset 0\nmagic 7f454c46\n']) assert.equal(observedWslFixedBinaryInterop('enabled\n', [entry]), true, entry);
+  // Not fix-binary, disabled, globally disabled, or not a Windows image handler: the in-sandbox probe still decides.
+  for (const [status, entries] of [['enabled\n', []], ['enabled\n', [wslInterop.replace('PF', 'P')]],
+    ['enabled\n', [wslInterop.replace('enabled', 'disabled')]], ['disabled\n', [wslInterop]],
+    ['enabled\n', ['enabled\ninterpreter /usr/bin/python3.12\nflags: F\noffset 0\nmagic cb0d0d0a\n']],
+    ['enabled\n', ['enabled\ninterpreter /usr/bin/other\nflags: F\noffset 2\nmagic 4d5a\n']],
+    ['enabled\n', ['enabled\ninterpreter /usr/bin/other\nflags: F\nextension .exe2\n']],
+    ['enabled\n', ['garbage']], ['enabled\n', ['']]]) assert.equal(observedWslFixedBinaryInterop(status, entries), false, JSON.stringify(entries));
 });

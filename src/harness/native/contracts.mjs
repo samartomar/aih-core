@@ -48,7 +48,7 @@ export const nativeStageReasons = Object.freeze([
   'observed', 'before-session-2', 'after-session-2', 'cancelled', 'budget-exhausted', 'limit-exceeded',
   'native-internal', 'not-run-after-failure', 'not-run-after-restriction', 'not-run-after-unavailable',
   'termination-unresolved', 'cleanup-unresolved', 'finite-limits-required', 'turn-limit-exhausted',
-  'estimated-cost-limit-exhausted', 'usage-unavailable'
+  'estimated-cost-limit-exhausted', 'usage-unavailable', 'wsl-interop-fixed-binary'
 ]);
 
 // Fixed registry IDs. Definitions can only name these; there are no dynamic imports.
@@ -106,17 +106,32 @@ function buildClaudeCandidate() {
   };
 }
 
-function buildLinuxClaudeDefinition() {
+function buildLinuxClaudeCandidate() {
   return { ...buildClaudeCandidate(), schema: 'urn:aihq:harness:native-verification-definition:1.1.0',
-    id: 'claude-linux-x64-wsl2-srt-2.1.285', state: 'admitted', clientVersions: ['2.1.285'],
-    evidenceSha256: 'a8c226d1c56764a6c773268186a79a3643e5a5d0afc2acd9f9708faa9de50947',
-    platform: { os: 'linux', arch: 'x64', execution: 'wsl2', osRelease: '6.18.33.2-microsoft-standard-WSL2' },
+    id: 'claude-linux-x64-wsl2-srt-2.1.285-wsl-3.0.5.0',
+    platform: { os: 'linux', arch: 'x64', execution: 'wsl2', osRelease: '6.18.58.1-microsoft-standard-WSL2' },
     executableNames: ['claude'], sessionArgv: ['-p', '--verbose', '--output-format', 'stream-json', '--tools', ''],
     lifecycleId: 'linux-srt.v1', isolation: { mechanism: 'vendor-runtime', observerId: 'anthropic-srt-linux.v1',
       documentation: ['https://github.com/anthropic-experimental/sandbox-runtime/blob/6f0ce155ccb136bda33a8a72201fe7f54fe47d9b/README.md'] } };
 }
 
-export const nativeVerificationDefinitions = deepFreeze([buildClaudeCandidate(), buildLinuxClaudeDefinition()]);
+export const nativeVerificationDefinitions = deepFreeze([buildClaudeCandidate(), buildLinuxClaudeCandidate()]);
+
+// Older distributions emitted this exact descriptor. Keep document validation compatible without
+// adding the prior artifact's admission to the active registry.
+const historicalLinuxAdmission = deepFreeze({
+  ...buildLinuxClaudeCandidate(), id: 'claude-linux-x64-wsl2-srt-2.1.285', state: 'admitted',
+  platform: { os: 'linux', arch: 'x64', execution: 'wsl2', osRelease: '6.18.33.2-microsoft-standard-WSL2' },
+  evidenceSha256: 'a8c226d1c56764a6c773268186a79a3643e5a5d0afc2acd9f9708faa9de50947'
+});
+
+// The executable route recognizes only exact admitted definitions in this distribution's active registry.
+export function isActiveNativeAdmission(value) {
+  try {
+    return nativeVerificationDefinitions.some(active => active.state === 'admitted' &&
+      canonicalJson(active) === canonicalJson(snapshotNativeData(value)));
+  } catch { return false; }
+}
 
 const diagnostic = (reason, path) => ({ code: 'INPUT_INVALID', reason, message: 'Invalid native verification field.', path });
 const SEMVER_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]{1,64})?$/;
@@ -173,9 +188,8 @@ function validateDefinition(value) {
       (platform.execution === 'wsl2' && platform.os !== 'linux')) bad('platform', unknownFieldPath(platform, ['os', 'arch', 'execution', 'osRelease'], '/platform'));
   if (!boundedStrings(value.clientVersions, 1, 32, 128) || value.clientVersions.some(v => !SEMVER_RE.test(v)) ||
       new Set(value.clientVersions).size !== value.clientVersions.length) bad('client-versions', '/clientVersions');
-  // Admission is a registry fact: an admitted descriptor must be a registered admitted definition, byte-for-byte.
-  // It cannot inherit an untested version, replace its reviewed evidence or alter any other reviewed field.
-  const admission = nativeVerificationDefinitions.find(d => d.id === value.id && d.state === 'admitted');
+  // Document validation recognizes exact current and historical admission records.
+  const admission = [historicalLinuxAdmission, ...nativeVerificationDefinitions].find(d => d.id === value.id && d.state === 'admitted');
   if (value.state === 'admitted') {
     if (!admission) bad('state', '/state');
     else {
