@@ -551,6 +551,8 @@ both input digests, uses the upstream source lock for TypeScript compilation,
 and compares the complete result with the checked-in derivative. The Core
 manifest declares the exact derivative version for installed consumers. Core's
 lock resolves that version to the checked-in archive and records its integrity.
+`npm ci` does not check that integrity for a local archive; the runtime-lock
+check that `npm run build` runs verifies it.
 The provenance file records the upstream archive's independent integrity.
 
 The host-only installed-package preparation gate in

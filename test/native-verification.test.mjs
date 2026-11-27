@@ -7,6 +7,7 @@ import { pathToFileURL, fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { channel } from 'node:diagnostics_channel';
 import { verifyNative } from '../dist/core/native-verification.js';
+import { nativeProbeGuidance } from '../dist/core/internal/native-input.js';
 // The retained 1.0.0 request path behind verifyClient, reached through the internal verifier.
 const verifyNativeClient = (request, controls) => verifyNative(request, controls, { bundleSchema: 'urn:aihq:core:native-verification-bundle:1.0.0' });
 import { validateNativeVerificationBundle, validateNativeVerificationResult } from '../dist/core/engine-contracts.js';
@@ -710,6 +711,17 @@ test('host presence names the isolation probes the sandbox left unproven', async
     const other = await installedFixture(t, definition.id, undefined, { outcome: 'unavailable', reason: 'isolation-unobserved', unprovenProbes });
     assert.equal(other.diagnostics.find(value => value.reason === 'isolation-unobserved').guidance, undefined, JSON.stringify(unprovenProbes));
   }
+});
+test('probe guidance never exceeds the result schemas\' guidance bound', () => {
+  const bounds = ['0.1.0', '1.0.0'].map(version => JSON.parse(readFileSync(new URL(`../src/core/schemas/native-verification-result/${version}.json`, import.meta.url), 'utf8'))
+    .$defs.diagnostic.properties.guidance.maxLength);
+  assert.deepEqual(bounds, [512, 512]);
+  const names = count => Array.from({ length: count }, (_, index) => `probe${String.fromCharCode(65 + index)}${'x'.repeat(42)}`);
+  // Ten valid 48-character names build 534 characters; nine build 484.
+  assert.equal(nativeProbeGuidance(names(10)), undefined);
+  const fitting = nativeProbeGuidance(names(9));
+  assert.ok(fitting && fitting.length <= 512, String(fitting?.length));
+  assert.equal(nativeProbeGuidance(names(24)), undefined);
 });
 test('a host whose Windows interop handler has the fix-binary flag is refused with its own reason', async t => {
   const definition = nativeVerificationDefinitions[0];

@@ -24,11 +24,17 @@ export class NativeStop extends Error {
     if (!nativeReasons.has(reason)) { this.reason = 'native-internal'; this.outcome = 'unavailable'; this.guidance = undefined; }
   }
 }
-/** Names the helper's unproven isolation probes. Anything but a short list of distinct identifier tokens yields nothing. */
+/** Upper bound of a diagnostic's `guidance` in both native result schemas. */
+const GUIDANCE_MAX = 512;
+/**
+ * Names the helper's unproven isolation probes. Anything but a short list of distinct identifier tokens, or a list
+ * whose text would exceed the schema's guidance bound, yields nothing.
+ */
 export function nativeProbeGuidance(probes: unknown): string | undefined {
   if (!Array.isArray(probes) || probes.length < 1 || probes.length > 24 || new Set(probes).size !== probes.length ||
     !probes.every(name => typeof name === 'string' && /^[a-z][A-Za-z]{0,47}$/.test(name))) return undefined;
-  return `Unproven sandbox isolation probes: ${probes.join(', ')}.`;
+  const guidance = `Unproven sandbox isolation probes: ${probes.join(', ')}.`;
+  return guidance.length > GUIDANCE_MAX ? undefined : guidance;
 }
 const reasonGuidance: Record<string, string> = {
   'managed-restriction': 'Contact your IT administrator about the managed restriction.',
