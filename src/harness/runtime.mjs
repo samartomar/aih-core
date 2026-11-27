@@ -541,7 +541,9 @@ const aiToolTargets = new Set(['claude', 'codex', 'cursor', 'gemini', 'copilot',
 const guidancePlatform = ['win32', 'darwin', 'linux'].includes(process.platform) ? process.platform : 'unknown';
 
 const realKey = path => {
-  let real = path; try { real = realpathSync(path); } catch { /* Keep the joined path. */ }
+  // The native realpath also expands Windows 8.3 short names (`C:\PROGRA~1\nodejs`), which the JS one keeps.
+  let real = path;
+  try { real = realpathSync.native(path); } catch { try { real = realpathSync(path); } catch { /* Keep the joined path. */ } }
   return process.platform === 'win32' ? real.toLowerCase() : real;
 };
 // 1-based index of the first PATH entry that holds the resolved executable: the entry is its directory, or holds a link

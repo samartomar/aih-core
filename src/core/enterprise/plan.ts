@@ -1,7 +1,7 @@
 // Enterprise admission of plan requests (contract 11, D108): the facts admission compares, from the checked plan, the
 // content documents it was made from and the claims it makes. Nothing is inferred: a step names its item, items or
 // framework, and an item's kind and framework come from the content documents, or stay unknown.
-import { admitPlan, itemFacts, obligations, planSubjects, type ClaimFacts, type DeclaredTarget, type Denial, type ItemFacts, type Obligations,
+import { admitPlan, itemFacts, obligations, judgePlanSteps, type ClaimFacts, type DeclaredTarget, type Denial, type ItemFacts, type Obligations,
   type StepFacts } from './admission.js';
 import { declaredTarget, enterpriseMode, organizationReview, placeClaims, projected, readOrganization, type EnterpriseControls,
   type EnterpriseState, type OrganizationReview } from './host.js';
@@ -40,12 +40,12 @@ export async function enterpriseContext(mode: unknown, scope: 'project' | 'user'
 export function admitPlanRequest(enterprise: Enterprise, request: PlanRequest, steps: CheckedStep[], origin: Origin, claims: PlanClaim[],
     released: string[], root: string, project: string | null): { denials: Denial[]; review: OrganizationReview; results: Obligations } {
   const facts = contentFacts(request);
-  // The same subjects a preview judges (C81 included), by plan step.
-  const subjects = planSubjects(request.contents, request.plan.plan);
+  // The same judgement a preview makes (C81, C81a), by plan step.
+  const judged = judgePlanSteps(request.contents, request.plan.plan, request.scope);
   const stepFacts: StepFacts[] = steps.filter(step => !step.skipped).flatMap(step => step.lowered.managementIds.map(managementId => ({
-    step: step.index, managementId, scope: step.lowered.root === 'project' ? 'project' as const : 'user' as const,
+    step: step.index, managementId, scope: judged[step.index]!.scope ?? (step.lowered.root === 'project' ? 'project' as const : 'user' as const),
     clis: step.lowered.kind === 'plugin' ? [step.lowered.cli] : step.lowered.review.clis?.length ? [...step.lowered.review.clis] : [null],
-    subjects: subjects[step.index]! })));
+    subjects: judged[step.index]!.subjects })));
   const recipe = request.plan.recipe ? { id: request.plan.recipe.id, sha256: request.plan.recipe.sha256, commit: request.plan.recipe.commit } : null;
   const organization = enterprise.state.bound.organization;
   const denials = admitPlan(organization, enterprise.target, { steps: stepFacts, data: request.plan.data, origin, recipe });

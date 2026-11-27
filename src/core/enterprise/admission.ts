@@ -73,31 +73,46 @@ export function itemFacts(contents: unknown): ItemFacts {
   return facts;
 }
 
+/** The steps of one AI setup (C81a): they install its shared tooling and name the setup by `aiSetup`. */
+const SETUP_STEPS = new Set(['acquire', 'tool-command', 'upstream-installer']);
+/** The AI setup a step of one AI setup belongs to, as its lowering names it (`managementIds: [aiSetup]`); else `null`. */
+const setupOf = (raw: Record_): string | null => typeof raw.op === 'string' && SETUP_STEPS.has(raw.op) && typeof raw.aiSetup === 'string' ? raw.aiSetup : null;
+
 /**
- * The items a plan step names: its `item` and `items`, or, for a step of one AI setup that names no item (`acquire`,
- * `tool-command`, `upstream-installer`), that AI setup.
+ * The items a plan step names: for a step of one AI setup (`acquire`, `tool-command`, `upstream-installer`), that AI
+ * setup alone, whatever `item` or `items` it also carries, as its lowering owns it; otherwise its `item` and `items`.
  */
 export function namedItems(raw: Record_): string[] {
-  const ids = [...(typeof raw.item === 'string' ? [raw.item] : []), ...idList(raw.items)];
-  if (!ids.length && typeof raw.aiSetup === 'string') ids.push(raw.aiSetup);
-  return [...new Set(ids)];
+  const setup = setupOf(raw);
+  if (setup !== null) return [setup];
+  return [...new Set([...(typeof raw.item === 'string' ? [raw.item] : []), ...idList(raw.items)])];
+}
+
+/**
+ * The root a step's claim is made at, as Prepare lowers it: an AI setup's acquisition and tool commands at the user root,
+ * an upstream installer and a native plugin at the request's scope, anything else at its own `root`.
+ */
+export function loweredRoot(raw: Record_, scope: 'project' | 'user'): 'project' | 'user' {
+  if (raw.op === 'acquire' || raw.op === 'tool-command') return 'user';
+  if (raw.op === 'upstream-installer' || raw.op === 'plugin') return scope;
+  return raw.root === 'project' ? 'project' : 'user';
 }
 
 /**
  * C81: the companion items a plan admits through its AI setups. A plan acquires AI setup X when it has an `acquire` step
  * whose `aiSetup` is X; X's content record (`kind: 'ai-setup'`) names its companion M as `aiSetup.mcpItem`, and M is an
- * item of the same content document. Each companion maps to the setups of this plan that name it.
+ * MCP item (`kind: 'mcp'`) of the same content document. Each companion maps to the setups of this plan that name it.
  */
 function companions(contents: unknown, plan: readonly unknown[]): Map<string, string[]> {
   const acquired = new Set(plan.filter(plainRecord).filter(raw => raw.op === 'acquire' && typeof raw.aiSetup === 'string').map(raw => raw.aiSetup as string));
   const found = new Map<string, string[]>();
   for (const content of documents(contents)) {
     const items = itemsOf(content);
-    const listed = new Set(items.map(item => item.id).filter((id): id is string => typeof id === 'string'));
+    const mcp = new Set(items.filter(item => item.kind === 'mcp').map(item => item.id).filter((id): id is string => typeof id === 'string'));
     for (const item of items) {
       if (item.kind !== 'ai-setup' || typeof item.id !== 'string' || !acquired.has(item.id) || !plainRecord(item.aiSetup)) continue;
       const mcpItem = item.aiSetup.mcpItem;
-      if (typeof mcpItem !== 'string' || mcpItem === item.id || !listed.has(mcpItem)) continue;
+      if (typeof mcpItem !== 'string' || mcpItem === item.id || !mcp.has(mcpItem)) continue;
       const setups = found.get(mcpItem) ?? [];
       if (!setups.includes(item.id)) setups.push(item.id);
       found.set(mcpItem, setups);
@@ -106,29 +121,32 @@ function companions(contents: unknown, plan: readonly unknown[]): Map<string, st
   return found;
 }
 
+/** How admission judges one plan step: what it names, and the scope it is judged at (`null`: its own root). */
+export interface StepJudgement { subjects: Subject[]; scope: 'project' | 'user' | null }
+
 /**
  * What each plan step names (D108), as admission judges it: its items (see `namedItems`), or its framework and the items
- * it says it contains. Kinds and frameworks come from the content documents, or stay unknown. In a plan that acquires an
- * AI setup X, a subject that is X's companion item M is judged as X (C81): X's entries and X's kind and framework decide
- * it, never M's own. Preview and Prepare both judge plans through this one function.
+ * it says it contains. Kinds and frameworks come from the content documents, or stay unknown.
+ * - C81: in a plan that acquires an AI setup X, a named item that is X's companion M is judged as X: X's entries and X's
+ *   kind and framework decide it, never M's own. A framework step's `contains` keeps its own subjects and framework.
+ * - C81a: a step of one AI setup installs shared tooling at the user root but is judged at the request's `scope`, so an
+ *   entry narrowed to the user scope does not reach a project plan's AI setup. Claims and receipts keep the user root.
+ * Preview and Prepare both judge plans through this one function.
  */
-export function planSubjects(contents: unknown, plan: readonly unknown[]): Subject[][] {
+export function judgePlanSteps(contents: unknown, plan: readonly unknown[], scope: 'project' | 'user'): StepJudgement[] {
   const facts = itemFacts(contents);
   const through = companions(contents, plan);
   const subject = (item: string): Subject => ({ item, framework: facts.get(item)?.framework ?? null, kind: facts.get(item)?.kind ?? null });
-  const judged = (named: Subject): Subject[] => {
-    const setups = named.item === null ? undefined : through.get(named.item);
-    return setups ? setups.map(setup => ({ ...subject(setup), companion: named.item! })) : [named];
-  };
+  const judged = (item: string): Subject[] => through.get(item)?.map(setup => ({ ...subject(setup), companion: item })) ?? [subject(item)];
   return plan.map(raw => {
     const step = plainRecord(raw) ? raw : {};
     const framework = typeof step.framework === 'string' ? step.framework : null;
     const ids = namedItems(step);
     const contained = idList(step.contains);
-    const named: Subject[] = ids.length ? ids.map(subject) :
+    const subjects: Subject[] = ids.length ? ids.flatMap(judged) :
       contained.length ? contained.map(item => ({ ...subject(item), framework: framework ?? facts.get(item)?.framework ?? null })) :
         [{ item: null, framework, kind: null }];
-    return named.flatMap(judged);
+    return { subjects, scope: setupOf(step) !== null ? scope : null };
   });
 }
 

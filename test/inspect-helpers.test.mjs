@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, chmodSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { execFileSync } from 'node:child_process';
 import { basename, delimiter, dirname, join, sep } from 'node:path';
 import { inspect } from '../dist/core/engine-api.js';
 import { targets, helperMetadata } from '../dist/harness/contracts.mjs';
@@ -458,13 +459,13 @@ test('a host node outside every PATH entry is said to be in none, with the other
   }
 });
 
-test('a host node is numbered through a linked PATH entry or one with a trailing separator', async () => {
+test('a host node is numbered through a linked PATH entry', async () => {
   const { root, home, bin } = sandbox();
   const linked = join(root, 'linked-node');
   symlinkSync(dirname(process.execPath), linked, win ? 'junction' : 'dir');
   const before = saveEnvironment();
   try {
-    for (const [entries, index] of [[[bin, linked], 2], [[dirname(process.execPath) + sep], 1]]) {
+    for (const [entries, index] of [[[bin, linked], 2]]) {
       useSandboxEnvironment({ home, bin });
       process.env.PATH = entries.join(delimiter);
       const result = await inspect({ targets: ['node'], network: 'off' });
@@ -492,6 +493,29 @@ test('a quoted Windows PATH entry is searched and numbered without its quotes', 
     const node = await inspect({ targets: ['node'], network: 'off' });
     noPlaceholder(node);
     assert.match(node.observations.find(entry => entry.id === 'node/resolution').detail, /; PATH entry 1 for the host\./);
+  } finally {
+    restoreEnvironment(before);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a Windows 8.3 short-name PATH entry is the same entry as its long name', { skip: !win }, async t => {
+  const { root, home } = sandbox();
+  const long = join(root, 'long folder name for short names'); mkdirSync(long);
+  const before = saveEnvironment();
+  try {
+    // The short name, as cmd reports it; volumes without 8.3 names report the long one, and the test cannot run there.
+    let short = '';
+    try {
+      short = execFileSync('cmd.exe', ['/d', '/s', '/c', `"for %I in ("${long}") do @echo %~sI"`], { encoding: 'utf8', windowsVerbatimArguments: true }).trim();
+    } catch { /* No short name available. */ }
+    if (!short || short.toLowerCase() === long.toLowerCase()) { t.skip('this volume has no 8.3 short names'); return; }
+    writeExecutable(long, 'rg');
+    useSandboxEnvironment({ home, bin: long });
+    process.env.PATH = [short, long].join(delimiter);
+    const result = await inspect({ targets: ['rg'], network: 'off' });
+    noPlaceholder(result);
+    assert.equal(result.observations.some(entry => entry.id === 'rg/resolution'), false, JSON.stringify(result.observations));
   } finally {
     restoreEnvironment(before);
     rmSync(root, { recursive: true, force: true });

@@ -317,7 +317,8 @@ async function aiSetups(...names) {
     artifacts = await artifactServer();
     tls.setDefaultCACertificates([...tls.getCACertificates('default'), artifacts.caPem]);
   }
-  return names.map(name => toolSetup(artifacts, { name, settings: [] }));
+  // A name, or `[name, options]` for `toolSetup` (default: no settings, so no `tool-command` step).
+  return names.map(name => Array.isArray(name) ? toolSetup(artifacts, { settings: [], ...name[1], name: name[0] }) : toolSetup(artifacts, { name, settings: [] }));
 }
 async function setupRequest(setups, change = request => request) {
   const { programRequest } = await import('./fixtures/program-fixture.mjs');
@@ -417,4 +418,79 @@ test('C81: in a plan acquiring two AI setups each companion follows its own setu
   const { prepared, denials } = await judged(await setupRequest([a, b]), document);
   assert.equal(prepared.status, 'blocked');
   assert.deepEqual(denialRows(denials), [['prohibited', 'no-setup-b', b.id], ['prohibited', 'no-setup-b', b.mcpItem]]);
+});
+
+test('C81: an AI setup’s tool-command and upstream-installer steps are judged as that AI setup', async () => {
+  const [setup] = await aiSetups(['graph-cmd', { settings: [['auto_index', 'false']] }]);
+  const installerId = 'fixture.ai-setup.installer-only';
+  // A Core-side installer FIXTURE; Prepare runs nothing.
+  const installer = { item: { id: installerId, kind: 'ai-setup', name: 'installer-only', files: [], aiSetup: { version: '1.0.0', settings: { commands: [], files: [] } } },
+    step: { op: 'upstream-installer', aiSetup: installerId, argv: ['node', '-e', 'process.exit(0)'], managed: false, scanned: false, approval: 'required' } };
+  const { programRequest } = await import('./fixtures/program-fixture.mjs');
+  const request = enterprise(structuredClone(programRequest(project(), { setups: [setup], installers: [installer] })), CLAUDE);
+  const document = orgDocument([{ id: 'no-setup', obligation: 'prohibited', content: { item: setup.id } },
+    { id: 'no-installer', obligation: 'prohibited', content: { item: installerId } }]);
+  const { prepared, denials } = await judged(request, document);
+  assert.equal(prepared.status, 'blocked');
+  const ops = request.plan.plan.map(step => step.op);
+  assert.deepEqual(denials.map(item => [ops[item.step], ...denialRows([item])[0]]), [
+    ['acquire', 'prohibited', 'no-setup', setup.id], ['merge', 'prohibited', 'no-setup', setup.mcpItem],
+    ['upstream-installer', 'prohibited', 'no-installer', installerId]]);
+  // Denials are one per entry and management id, so the setup's tool command is judged on its own in a preview.
+  const commands = { ...request, plan: { ...request.plan, plan: request.plan.plan.filter(step => step.op === 'tool-command') } };
+  const alone = await judged(commands, document, { execution: false });
+  assert.deepEqual(alone.denials.map(item => [ops[request.plan.plan.indexOf(commands.plan.plan[item.step])], ...denialRows([item])[0]]),
+    [['tool-command', 'prohibited', 'no-setup', setup.id]]);
+});
+
+test('C81: an AI setup’s step is judged as its setup whatever item it also carries', async () => {
+  const [setup] = await aiSetups('serena-decoy');
+  const request = await setupRequest([setup], plan => {
+    plan.plan.plan.find(step => step.op === 'acquire').item = 'fixture.decoy';
+    return plan;
+  });
+  const { prepared, denials } = await judged(request, orgDocument([{ id: 'no-setup', obligation: 'prohibited', content: { item: setup.id } }]));
+  assert.equal(prepared.status, 'blocked');
+  assert.deepEqual(denialRows(denials), [['prohibited', 'no-setup', setup.id], ['prohibited', 'no-setup', setup.mcpItem]]);
+});
+
+test('C81: a framework step that contains the companion keeps its own framework', async () => {
+  const [setup] = await aiSetups('serena-fw');
+  const document = orgDocument([{ id: 'no-fw', obligation: 'prohibited', content: { framework: 'other-fw' } }]);
+  const plugin = { op: 'plugin', framework: 'other-fw', contains: [setup.mcpItem], cli: 'claude-code' };
+  for (const acquired of [false, true]) {
+    const { denials } = await judged(await setupRequest([setup], plan => {
+      plan.plan.plan = [...plan.plan.plan.filter(step => acquired || step.op !== 'acquire'), plugin];
+      return plan;
+    }), document, { execution: false });
+    assert.deepEqual(denialRows(denials), [['prohibited', 'no-fw', 'other-fw']], `acquired: ${acquired}`);
+  }
+});
+
+test('C81: only an MCP item the setup’s record names is its companion', async () => {
+  const [setup] = await aiSetups('serena-kind');
+  const { programRequest } = await import('./fixtures/program-fixture.mjs');
+  const request = enterprise(structuredClone(programRequest(project(), { setups: [setup],
+    skills: [{ name: 'notes', text: '---\nname: notes\ndescription: Take notes\n---\nTake notes.\n' }] })), CLAUDE);
+  const skill = 'local-my-skills.skill.notes';
+  request.contents[0].items.find(item => item.id === setup.id).aiSetup.mcpItem = skill;
+  const { denials } = await judged(request, orgDocument([{ id: 'no-skills', obligation: 'prohibited', content: { kind: 'skill' } }]), { execution: false });
+  assert.deepEqual(denialRows(denials), [['prohibited', 'no-skills', skill]]);
+});
+
+test('C81a: an AI setup’s own steps are judged at the plan request’s scope, not at the user root they install to', async () => {
+  const [setup] = await aiSetups('serena-scope');
+  const permitProject = { id: 'permit-project', obligation: 'permitted', scopes: ['project'], clients: ['claude-code'], content: { item: setup.id } };
+  const noUser = { id: 'no-user-setup', obligation: 'prohibited', scopes: ['user'], content: { item: setup.id } };
+  const project = await judged(await setupRequest([setup]), orgDocument([permitProject, noUser]));
+  assert.equal(project.prepared.status, 'ready', JSON.stringify(project.denials));
+  // The claims keep the user root the acquisition installs to.
+  assert.ok(project.prepared.review.steps.some(step => step.op === 'acquire' && step.managementId === setup.id), JSON.stringify(project.prepared.review.steps.map(step => step.op)));
+  // The policy shape that also permits the companion on its own is admitted too.
+  const older = await judged(await setupRequest([setup]), orgDocument([permitProject, noUser,
+    { id: 'permit-mcp', obligation: 'permitted', scopes: ['project'], clients: ['claude-code'], content: { item: setup.mcpItem } }]));
+  assert.equal(older.prepared.status, 'ready', JSON.stringify(older.denials));
+  // A user-scope plan for the setup is denied by the user-scope prohibition.
+  const user = await judged(await setupRequest([setup], plan => ({ ...plan, scope: 'user' })), orgDocument([permitProject, noUser]), { execution: false });
+  assert.deepEqual(denialRows(user.denials), [['prohibited', 'no-user-setup', setup.id]]);
 });
