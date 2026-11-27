@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, chmodSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { delimiter, join } from 'node:path';
+import { basename, delimiter, dirname, join, sep } from 'node:path';
 import { inspect } from '../dist/core/engine-api.js';
 import { targets, helperMetadata } from '../dist/harness/contracts.mjs';
 
@@ -431,6 +431,67 @@ test('resolution names the executable that runs, not an earlier alias of it', { 
     const result = await inspect({ targets: ['fd'], network: 'off' });
     assert.equal(result.observations.find(entry => entry.id === 'fd/resolution').detail,
       'Used fd from PATH entry 2. 1 other candidate resolves on PATH.');
+  } finally {
+    restoreEnvironment(before);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// samartomar/aih-core#201: a resolved executable in no PATH entry is said so; no observation carries a `PATH entry ?` placeholder.
+const noPlaceholder = result => assert.ok(result.observations.every(entry => !entry.detail.includes('PATH entry ?')), JSON.stringify(result.observations));
+const hostNode = new RegExp(`^Selected host ${basename(process.execPath).replace('.', '\\.')}, `);
+
+test('a host node outside every PATH entry is said to be in none, with the other candidates counted', async () => {
+  const { root, home, bin } = sandbox();
+  const before = saveEnvironment();
+  try {
+    writeExecutable(bin, 'node');
+    useSandboxEnvironment({ home, bin });
+    const result = await inspect({ targets: ['node'], network: 'off' });
+    noPlaceholder(result);
+    const detail = result.observations.find(entry => entry.id === 'node/resolution').detail;
+    assert.match(detail, hostNode);
+    assert.match(detail, /, which is not in any PATH entry\. 1 other candidate resolves on PATH\.$/);
+  } finally {
+    restoreEnvironment(before);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a host node is numbered through a linked PATH entry or one with a trailing separator', async () => {
+  const { root, home, bin } = sandbox();
+  const linked = join(root, 'linked-node');
+  symlinkSync(dirname(process.execPath), linked, win ? 'junction' : 'dir');
+  const before = saveEnvironment();
+  try {
+    for (const [entries, index] of [[[bin, linked], 2], [[dirname(process.execPath) + sep], 1]]) {
+      useSandboxEnvironment({ home, bin });
+      process.env.PATH = entries.join(delimiter);
+      const result = await inspect({ targets: ['node'], network: 'off' });
+      noPlaceholder(result);
+      assert.match(result.observations.find(entry => entry.id === 'node/resolution').detail, new RegExp(`; PATH entry ${index} for the host\\.`));
+    }
+  } finally {
+    restoreEnvironment(before);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a quoted Windows PATH entry is searched and numbered without its quotes', { skip: !win }, async () => {
+  const { root, home, bin } = sandbox();
+  const second = join(root, 'bin second'); mkdirSync(second);
+  const before = saveEnvironment();
+  try {
+    writeExecutable(bin, 'rg'); writeExecutable(second, 'rg');
+    useSandboxEnvironment({ home, bin });
+    process.env.PATH = [`"${bin}${sep}"`, `"${second}"`].join(delimiter);
+    const rg = await inspect({ targets: ['rg'], network: 'off' });
+    noPlaceholder(rg);
+    assert.equal(rg.observations.find(entry => entry.id === 'rg/resolution').detail, 'Used rg.cmd from PATH entry 1. 1 other candidate resolves on PATH.');
+    process.env.PATH = `"${dirname(process.execPath)}"`;
+    const node = await inspect({ targets: ['node'], network: 'off' });
+    noPlaceholder(node);
+    assert.match(node.observations.find(entry => entry.id === 'node/resolution').detail, /; PATH entry 1 for the host\./);
   } finally {
     restoreEnvironment(before);
     rmSync(root, { recursive: true, force: true });

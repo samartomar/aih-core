@@ -11,6 +11,11 @@ The 0.1.0 cutover (samartomar/aih-core#181): one public surface, one version of 
   of as unknown content. `previewAdmission` and Prepare share one subject derivation, and the preview now also counts the
   plan's claims at the other root (such as a project plan's user-root acquisition) for fulfilment, as Prepare does. The
   organization format and receipts are unchanged.
+- **No `PATH entry ?` in inspection (samartomar/aih-core#201).** A resolution observation whose executable is in no PATH
+  entry says so (`Selected host node.exe, which is not in any PATH entry.`, `Used fd, which is not in any PATH entry.`).
+  The PATH entry is numbered by real path, so a symlinked or junctioned entry, a trailing separator or a different case
+  still numbers it, and on Windows a quoted entry is read without its quotes for the search and the count. The
+  observation's fields are unchanged (its schema allows no other field); only the text differs.
 
 - **Exactly four package entries.** `package.json` `exports` lists `@aihq/core`, `@aihq/core/contracts`,
   `@aihq/core/harness` and `@aihq/core/harness/runtime`; bins are `aih` and `aih-linux-facility`. `/support` and
