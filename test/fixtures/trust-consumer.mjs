@@ -72,7 +72,8 @@ for (const format of ['pem', 'pkcs7-der']) {
   }
   assert.equal(preview.status, 'ready', JSON.stringify(preview));
   assert.equal(result.status, 0, result.stdout + result.stderr);
-  ok(value, RUN); assert.equal(value.completion, 'complete');
+  ok(value.review, REVIEW); ok(value.run, RUN);
+  assert.equal(value.run.completion, 'complete');
   const target = join(process.env.HOME, ...output.split('/'));
   assert.equal(parseTrustOutput(readFileSync(target), format).status, 'parsed');
   const managementId = preview.review.steps[0].managementId;

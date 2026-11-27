@@ -296,7 +296,7 @@ test('one Core artifact publishes exactly four entries, one schema per format, a
     const verifierRequire = createRequire(coreRequire.resolve('@sigstore/verify'));
     const bundleRequire = createRequire(verifierRequire.resolve('@sigstore/bundle'));
     const installedVersion = (resolveFrom, name) => JSON.parse(readFileSync(join(dirname(resolveFrom.resolve(name)), '../package.json'), 'utf8')).version;
-    for (const [name, expected] of Object.entries({ '@sigstore/verify': '4.1.3', '@sigstore/core': '4.0.1', '@sigstore/bundle': '5.0.1', '@sigstore/protobuf-specs': '0.5.2' })) {
+    for (const [name, expected] of Object.entries({ '@sigstore/verify': '4.1.4', '@sigstore/core': '4.0.2', '@sigstore/bundle': '5.0.1', '@sigstore/protobuf-specs': '0.5.2' })) {
       const resolveFrom = name === '@sigstore/verify' ? coreRequire : verifierRequire;
       assert.ok(resolveFrom.resolve(name).startsWith(join(installed, 'node_modules') + sep), `Bundled resolution of ${name}`);
       assert.equal(installedVersion(resolveFrom, name), expected, `Actual verifier resolution of ${name}`);

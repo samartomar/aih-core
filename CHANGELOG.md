@@ -11,6 +11,22 @@
 
 The 0.1.0 cutover (samartomar/aih-core#181): one public surface, one version of each format.
 
+- **An AI setup admits its companion item (C81, samartomar/aih-core#200).** In a plan that acquires an AI setup, the steps
+  that name the companion MCP item its content record names (`aiSetup.mcpItem`, a `kind: 'mcp'` item of the same content
+  document) are admitted under the AI setup's entries and facts, not the companion's own. The companion alone is still
+  judged by its own entries, and a framework step that contains it by its own framework. Steps of one AI setup
+  (`acquire`, `tool-command`, `upstream-installer`) are now judged as that AI setup, whatever `item` they also carry,
+  instead of as unknown content, and at the plan request's scope rather than the user root they install to (C81a), so a
+  user-scope prohibition does not deny a project plan's AI setup. `previewAdmission` and Prepare share one step
+  judgement, and the preview now counts the plan's claims at the root Prepare gives them, at either root, for
+  fulfilment. The organization format, claims and receipts are unchanged.
+- **No `PATH entry ?` in inspection (samartomar/aih-core#201).** A resolution observation whose executable is in no PATH
+  entry says so (`Selected host node.exe, which is not in any PATH entry.`, `Used fd, which is not in any PATH entry.`).
+  The PATH entry is numbered by real path, so a symlinked or junctioned entry, a trailing separator or a different case
+  still numbers it; on Windows the native real path also matches an 8.3 short name. For inspection's own PATH search
+  and count only, a quoted Windows entry is read without its quotes; other PATH lookups are unchanged. The
+  observation's fields are unchanged (its schema allows no other field); only the text differs.
+
 - **Exactly four package entries.** `package.json` `exports` lists `@aihq/core`, `@aihq/core/contracts`,
   `@aihq/core/harness` and `@aihq/core/harness/runtime`; bins are `aih` and `aih-linux-facility`. `/support` and
   `/report` fold into `/contracts`; every `./schemas/*`, `./fixtures/*`, `./harness/schemas/*` and
