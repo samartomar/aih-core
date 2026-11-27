@@ -11,8 +11,11 @@ import type { Origin } from '../plan/types.js';
 
 /** What the caller declared for this request (contract 11 "Targets"): Core never infers the client or repository. */
 export interface DeclaredTarget { scope: 'project' | 'user'; client: { id: string; surface: 'cli' | 'ide' } | null; repository: string | null }
-/** One piece of content a step names (D108): an item, or a framework, with its kind when the content documents give one. */
-export interface Subject { item: string | null; framework: string | null; kind: string | null }
+/**
+ * One piece of content a step names (D108): an item, or a framework, with its kind when the content documents give one.
+ * `companion` is set when the subject stands in for an AI setup's companion item in that setup's plan (C81).
+ */
+export interface Subject { item: string | null; framework: string | null; kind: string | null; companion?: string }
 /** One plan step as admission sees it: where it lands, the CLIs it serves (`null`: none recorded) and what it names. */
 export interface StepFacts { step: number; managementId: string; scope: 'project' | 'user'; clis: (string | null)[]; subjects: Subject[] }
 export interface PlanFacts {
@@ -51,6 +54,104 @@ export type Fact = 'client' | 'repository' | 'content' | 'origin';
 export interface AdvisoryResult { entry: string; status: 'taken' | 'not-taken'; applicability: Applicability; unknown: Fact[]; managementIds: string[] }
 export interface FulfilmentResult { entry: string; status: 'fulfilled' | 'not-fulfilled' | 'not-applicable' | 'unknown'; unknown: Fact[]; managementIds: string[] }
 export interface Obligations { advisory: AdvisoryResult[]; fulfilment: FulfilmentResult[] }
+
+/** Each content item's kind and framework, by item id, as the request's content documents state them. */
+export type ItemFacts = Map<string, { kind: string | null; framework: string | null }>;
+type Record_ = Record<string, unknown>;
+const plainRecord = (value: unknown): value is Record_ => !!value && typeof value === 'object' && !Array.isArray(value);
+const documents = (contents: unknown): Record_[] => Array.isArray(contents) ? contents.filter(plainRecord) : [];
+const itemsOf = (content: Record_): Record_[] => Array.isArray(content.items) ? content.items.filter(plainRecord) : [];
+const idList = (value: unknown): string[] => Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : [];
+
+export function itemFacts(contents: unknown): ItemFacts {
+  const facts: ItemFacts = new Map();
+  for (const content of documents(contents)) {
+    const framework = plainRecord(content.framework) && typeof content.framework.id === 'string' ? content.framework.id : null;
+    for (const item of itemsOf(content))
+      if (typeof item.id === 'string') facts.set(item.id, { kind: typeof item.kind === 'string' ? item.kind : null, framework });
+  }
+  return facts;
+}
+
+/** The steps of one AI setup (C81a): they install its shared tooling and name the setup by `aiSetup`. */
+const SETUP_STEPS = new Set(['acquire', 'tool-command', 'upstream-installer']);
+/** The AI setup a step of one AI setup belongs to, as its lowering names it (`managementIds: [aiSetup]`); else `null`. */
+const setupOf = (raw: Record_): string | null => typeof raw.op === 'string' && SETUP_STEPS.has(raw.op) && typeof raw.aiSetup === 'string' ? raw.aiSetup : null;
+
+/**
+ * The items a plan step names: for a step of one AI setup (`acquire`, `tool-command`, `upstream-installer`), that AI
+ * setup alone, whatever `item` or `items` it also carries, as its lowering owns it; otherwise its `item` and `items`.
+ */
+export function namedItems(raw: Record_): string[] {
+  const setup = setupOf(raw);
+  if (setup !== null) return [setup];
+  return [...new Set([...(typeof raw.item === 'string' ? [raw.item] : []), ...idList(raw.items)])];
+}
+
+/**
+ * The root a step's claim is made at, as Prepare lowers it: an AI setup's acquisition and tool commands at the user root,
+ * an upstream installer and a native plugin at the request's scope, anything else at its own `root`.
+ */
+export function loweredRoot(raw: Record_, scope: 'project' | 'user'): 'project' | 'user' {
+  if (raw.op === 'acquire' || raw.op === 'tool-command') return 'user';
+  if (raw.op === 'upstream-installer' || raw.op === 'plugin') return scope;
+  return raw.root === 'project' ? 'project' : 'user';
+}
+
+/**
+ * C81: the companion items a plan admits through its AI setups. A plan acquires AI setup X when it has an `acquire` step
+ * whose `aiSetup` is X; X's content record (`kind: 'ai-setup'`) names its companion M as `aiSetup.mcpItem`, and M is an
+ * MCP item (`kind: 'mcp'`) of the same content document. Each companion maps to the setups of this plan that name it.
+ */
+function companions(contents: unknown, plan: readonly unknown[]): Map<string, string[]> {
+  const acquired = new Set(plan.filter(plainRecord).filter(raw => raw.op === 'acquire' && typeof raw.aiSetup === 'string').map(raw => raw.aiSetup as string));
+  const found = new Map<string, string[]>();
+  for (const content of documents(contents)) {
+    const items = itemsOf(content);
+    const mcp = new Set(items.filter(item => item.kind === 'mcp').map(item => item.id).filter((id): id is string => typeof id === 'string'));
+    for (const item of items) {
+      if (item.kind !== 'ai-setup' || typeof item.id !== 'string' || !acquired.has(item.id) || !plainRecord(item.aiSetup)) continue;
+      const mcpItem = item.aiSetup.mcpItem;
+      if (typeof mcpItem !== 'string' || mcpItem === item.id || !mcp.has(mcpItem)) continue;
+      const setups = found.get(mcpItem) ?? [];
+      if (!setups.includes(item.id)) setups.push(item.id);
+      found.set(mcpItem, setups);
+    }
+  }
+  return found;
+}
+
+/** How admission judges one plan step: what it names, and the scope it is judged at (`null`: its own root). */
+export interface StepJudgement { subjects: Subject[]; scope: 'project' | 'user' | null }
+
+/**
+ * What each plan step names (D108), as admission judges it: its items (see `namedItems`), or its framework and the items
+ * it says it contains. Kinds and frameworks come from the content documents, or stay unknown.
+ * - C81: in a plan that acquires an AI setup X, a named item that is X's companion M is judged as X: X's entries and X's
+ *   kind and framework decide it, never M's own. A framework step's `contains` keeps its own subjects and framework.
+ * - C81a: a step of one AI setup installs shared tooling at the user root but is judged at the request's `scope`, so an
+ *   entry narrowed to the user scope does not reach a project plan's AI setup. Claims and receipts keep the user root.
+ * Preview and Prepare both judge plans through this one function.
+ */
+export function judgePlanSteps(contents: unknown, plan: readonly unknown[], scope: 'project' | 'user'): StepJudgement[] {
+  const facts = itemFacts(contents);
+  const through = companions(contents, plan);
+  const subject = (item: string): Subject => ({ item, framework: facts.get(item)?.framework ?? null, kind: facts.get(item)?.kind ?? null });
+  const judged = (item: string): Subject[] => through.get(item)?.map(setup => ({ ...subject(setup), companion: item })) ?? [subject(item)];
+  return plan.map(raw => {
+    const step = plainRecord(raw) ? raw : {};
+    const framework = typeof step.framework === 'string' ? step.framework : null;
+    const ids = namedItems(step);
+    const contained = idList(step.contains);
+    const subjects: Subject[] = ids.length ? ids.flatMap(judged) :
+      contained.length ? contained.map(item => ({ ...subject(item), framework: framework ?? facts.get(item)?.framework ?? null })) :
+        [{ item: null, framework, kind: null }];
+    return { subjects, scope: setupOf(step) !== null ? scope : null };
+  });
+}
+
+/** How a denial names a subject: the item or framework, and the companion item it stands for (C81). */
+const named = (subject: Subject) => `\`${subject.item ?? subject.framework}\`` + (subject.companion ? `, the AI setup that configures \`${subject.companion}\`` : '');
 
 type Match = 'matches' | 'mismatch' | 'unknown';
 const worst = (states: Match[]): Match => states.includes('mismatch') ? 'mismatch' : states.includes('unknown') ? 'unknown' : 'matches';
@@ -104,16 +205,16 @@ export function admitPlan(organization: Organization, target: DeclaredTarget, pl
       add({ reason: subject.framework === null ? 'target-unknown' : 'framework-unlisted', rule: 'sources.frameworks',
         managementId: step.managementId, step: step.step, message: subject.framework === null ?
           'The framework is unknown. The organization requires a listed framework.' :
-          'The framework ' + subject.framework + ' is outside the organization’s allowed frameworks.' });
+          `The framework ${subject.framework} of ${named(subject)} is outside the organization’s allowed frameworks.` });
     }
   }
   if (plan.data === null && sources?.own?.kinds) {
     const kinds = sources.own.kinds;
     for (const step of plan.steps) for (const subject of step.subjects) {
       if (subject.kind === null) add({ reason: 'target-unknown', rule: 'sources.own', managementId: step.managementId, step: step.step,
-        message: `The organization allows own content only of kinds ${kinds.map(kind => `\`${kind}\``).join(', ') || '(none)'}, and the kind of \`${subject.item ?? subject.framework}\` is not known.` });
+        message: `The organization allows own content only of kinds ${kinds.map(kind => `\`${kind}\``).join(', ') || '(none)'}, and the kind of ${named(subject)} is not known.` });
       else if (!kinds.includes(subject.kind)) add({ reason: 'own-content', rule: 'sources.own', managementId: step.managementId, step: step.step,
-        message: `The organization's \`sources.own\` rule does not allow own content of kind \`${subject.kind}\` (\`${subject.item ?? subject.framework}\`).` });
+        message: `The organization's \`sources.own\` rule does not allow own content of kind \`${subject.kind}\`: ${named(subject)}.` });
     }
   }
   if (plan.data !== null && sources?.published) {
@@ -132,9 +233,9 @@ export function admitPlan(organization: Organization, target: DeclaredTarget, pl
       const match = contentMatch(entry.content, subject, plan.origin, plan.recipe);
       if (match === 'mismatch') continue;
       if (narrowed.state === 'applies' && match === 'matches') add({ reason: 'prohibited', entry: entry.id, managementId: step.managementId, step: step.step,
-        message: `The organization entry \`${entry.id}\` prohibits \`${subject.item ?? subject.framework}\`.` });
+        message: `The organization entry \`${entry.id}\` prohibits ${named(subject)}.` });
       else add({ reason: 'target-unknown', entry: entry.id, managementId: step.managementId, step: step.step,
-        message: `The organization entry \`${entry.id}\` may prohibit \`${subject.item ?? subject.framework}\`, and a fact it needs ` +
+        message: `The organization entry \`${entry.id}\` may prohibit ${named(subject)}, and a fact it needs ` +
           `(${[...narrowed.unknown, ...(match === 'unknown' ? [plan.recipe && entry.content.recipe ? 'a proven recipe origin' : 'content'] : [])].join(', ')}) is not declared.` });
     }
   }

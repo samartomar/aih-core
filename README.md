@@ -1271,6 +1271,21 @@ The organization document `urn:aihq:core:organization:0.1.0` holds `entries`, `s
 - A `required` and a `prohibited` entry that provably select the same content on overlapping targets make the document
   `invalid` (`obligation-contradiction`); so do duplicate entry ids and client ids that are not registry ids.
 
+**AI setups and their companion item** (C81). A step of one AI setup (`acquire`, `tool-command`,
+`upstream-installer`) names that AI setup, whatever `item` it also carries, with its kind and framework from its content
+record. These steps install shared tooling at the user root, but they are judged at the plan request's scope (C81a), so
+an entry narrowed to `scopes: ['user']` does not reach a project plan's AI setup; claims and receipts keep the user root.
+When a plan acquires an AI setup X (it has an `acquire` step whose `aiSetup` is X) and X's content record
+(`kind: 'ai-setup'`) names an MCP item M (`kind: 'mcp'`) of the same content document as `aiSetup.mcpItem`, that plan's
+steps that name M as their item are judged as X: X's entries, and X's kind and framework for the `sources` rules, decide
+them, never M's own entries. A framework step that lists M in `contains` is still judged by its own framework. So an
+organization can permit X, prohibit M, and admit X's plan; a plan that installs M without acquiring X is still judged
+by M's own entries and denied. If X is prohibited, or a `sources` rule doesn't allow it, the whole plan is denied, each
+denial naming X's entry or rule (a denial for one of M's steps says which AI setup it was judged as). In a plan
+acquiring several AI setups each companion follows only the setups that name it. The organization format is unchanged;
+receipts, fulfilment and `list` still name M as the item its own steps install, and fulfilment counts every claim the
+plan makes, at the root Prepare gives it, in the preview as at Prepare.
+
 **Targets.** The caller declares `target.client` (`{ id, surface }`, a registry tool) and optionally `target.repository`;
 Core never infers them. A plan step's client is the CLI the plan records for it, and the declared client otherwise.
 

@@ -504,11 +504,21 @@ export function validDiagnosticTargets(value) {
   return new Set(ids).size === ids.length;
 }
 
+// PATH entries in order, without empty ones. On Windows an entry may be quoted (`"C:\Program Files\nodejs"`); the
+// quotes are not part of the directory, as Windows' own search reads it.
+function pathEntries() {
+  const entries = [];
+  for (const raw of (process.env.PATH || '').split(delimiter)) {
+    const path = process.platform === 'win32' && /^".*"$/.test(raw) ? raw.slice(1, -1) : raw;
+    if (path) entries.push(path);
+  }
+  return entries;
+}
+
 function executable(name) {
   if (name === 'node') return process.execPath;
   const extensions = process.platform === 'win32' ? (process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';') : [''];
-  for (const path of (process.env.PATH || '').split(delimiter)) {
-    if (!path) continue;
+  for (const path of pathEntries()) {
     for (const extension of extensions) {
       const candidate = join(path, process.platform === 'win32' && !name.toLowerCase().endsWith(extension.toLowerCase()) ? name + extension : name);
       try {
@@ -531,17 +541,20 @@ const aiToolTargets = new Set(['claude', 'codex', 'cursor', 'gemini', 'copilot',
 const guidancePlatform = ['win32', 'darwin', 'linux'].includes(process.platform) ? process.platform : 'unknown';
 
 const realKey = path => {
-  let real = path; try { real = realpathSync(path); } catch { /* Keep the joined path. */ }
+  // The native realpath also expands Windows 8.3 short names (`C:\PROGRA~1\nodejs`), which the JS one keeps.
+  let real = path;
+  try { real = realpathSync.native(path); } catch { try { real = realpathSync(path); } catch { /* Keep the joined path. */ } }
   return process.platform === 'win32' ? real.toLowerCase() : real;
 };
-// 1-based index of the PATH entry that contains the resolved executable.
+// 1-based index of the first PATH entry that holds the resolved executable: the entry is its directory, or holds a link
+// to it by the same name. Real paths (as `pathCandidates` keys them) let case, trailing separators and symlinked or
+// junctioned entries match; `undefined` when no entry holds it (such as a host `node` started from outside PATH).
 function pathIndex(file) {
-  const win = process.platform === 'win32'; const same = (a, b) => win ? a.toLowerCase() === b.toLowerCase() : a === b;
-  let index = 0;
-  for (const path of (process.env.PATH || '').split(delimiter)) {
-    if (!path) continue;
-    index++;
-    if (same(join(path, basename(file)), file)) return index;
+  const real = realKey(file); const directory = realKey(dirname(file));
+  const entries = pathEntries();
+  for (let index = 0; index < entries.length; index++) {
+    const entry = resolve(entries[index]);
+    if (realKey(entry) === directory || realKey(join(entry, basename(file))) === real) return index + 1;
   }
 }
 // Distinct PATH candidates for a target's binary names, as 1-based PATH-entry index and file name only.
@@ -551,8 +564,7 @@ function pathCandidates(target) {
   const extensions = win ? (process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';') : [''];
   const found = []; const seen = new Set();
   let index = 0;
-  for (const path of (process.env.PATH || '').split(delimiter)) {
-    if (!path) continue;
+  for (const path of pathEntries()) {
     index++;
     for (const name of target.binaries) for (const extension of extensions) {
       const candidate = join(path, win && !name.toLowerCase().endsWith(extension.toLowerCase()) ? name + extension : name);
@@ -1019,13 +1031,15 @@ export async function diagnose(request, controls = {}) {
     if (binary && resolutionTargets.has(target.id)) {
       // Report the executable that actually runs; de-duplication only counts the alternatives.
       const usedReal = realKey(binary);
-      const others = pathCandidates(target).filter(item => item.real !== usedReal).length;
+      const candidates = pathCandidates(target);
+      const others = candidates.filter(item => item.real !== usedReal).length;
+      const entry = pathIndex(binary);
       const launcher = /[\\/](?:system32|windowsapps)[\\/]bash(?:\.exe)?$/i;
       wsl = process.platform === 'win32' && target.id === 'bash' && (launcher.test(binary) || launcher.test(usedReal));
       if (wsl || others > 0 || ['node', 'npm'].includes(target.id)) observations.push({ id: `${target.id}/resolution`, target: target.id,
-        detail: clean((target.id === 'node' ? `Selected host ${basename(binary)}; ` +
-          (pathCandidates(target).length ? `PATH entry ${pathIndex(binary) ?? '?'} for the host.` : 'node not found on PATH.') :
-          `Used ${basename(binary)} from PATH entry ${pathIndex(binary) ?? '?'}.`) +
+        detail: clean((target.id === 'node' ? `Selected host ${basename(binary)}` +
+          (entry !== undefined ? `; PATH entry ${entry} for the host.` : candidates.length ? ', which is not in any PATH entry.' : '; node not found on PATH.') :
+          `Used ${basename(binary)}${entry !== undefined ? ` from PATH entry ${entry}` : ', which is not in any PATH entry'}.`) +
           (others > 0 ? ` ${others} other candidate${others === 1 ? ' resolves' : 's resolve'} on PATH.` : '') +
           (wsl ? ' This bash is a WSL launcher (System32 or WindowsApps), not Git Bash; the resolution is ambiguous.' : '')) });
     }
