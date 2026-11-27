@@ -4,6 +4,14 @@
 
 The 0.1.0 cutover (samartomar/aih-core#181): one public surface, one version of each format.
 
+- **An AI setup admits its companion item (C81, samartomar/aih-core#200).** In a plan that acquires an AI setup, the steps
+  for the companion MCP item its content record names (`aiSetup.mcpItem`, same content document) are admitted under the
+  AI setup's entries and facts, not the companion's own. The companion alone is still judged by its own entries. Steps of
+  one AI setup that name no item (`acquire`, `tool-command`, `upstream-installer`) are now judged as that AI setup instead
+  of as unknown content. `previewAdmission` and Prepare share one subject derivation, and the preview now also counts the
+  plan's claims at the other root (such as a project plan's user-root acquisition) for fulfilment, as Prepare does. The
+  organization format and receipts are unchanged.
+
 - **Exactly four package entries.** `package.json` `exports` lists `@aihq/core`, `@aihq/core/contracts`,
   `@aihq/core/harness` and `@aihq/core/harness/runtime`; bins are `aih` and `aih-linux-facility`. `/support` and
   `/report` fold into `/contracts`; every `./schemas/*`, `./fixtures/*`, `./harness/schemas/*` and

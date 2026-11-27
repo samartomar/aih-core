@@ -1271,6 +1271,18 @@ The organization document `urn:aihq:core:organization:0.1.0` holds `entries`, `s
 - A `required` and a `prohibited` entry that provably select the same content on overlapping targets make the document
   `invalid` (`obligation-contradiction`); so do duplicate entry ids and client ids that are not registry ids.
 
+**AI setups and their companion item** (C81). A step of one AI setup that names no item (`acquire`, `tool-command`,
+`upstream-installer`) names that AI setup, with its kind and framework from its content record. When a plan acquires an AI
+setup X (it has an `acquire` step whose `aiSetup` is X) and X's content record (`kind: 'ai-setup'`) names an item M of the
+same content document as `aiSetup.mcpItem`, that plan's steps for M are judged as X: X's entries, and X's kind and
+framework for the `sources` rules, decide them, never M's own entries. So an organization can permit X, prohibit M, and
+admit X's plan; a plan that installs M without acquiring X is still judged by M's own entries and denied. If X is
+prohibited, or a `sources` rule doesn't allow it, the whole plan is denied, each denial naming X's entry or rule (a denial
+for one of M's steps says which AI setup it was judged as). In a plan acquiring several AI setups each companion follows
+only the setups that name it. The organization format is unchanged; receipts, fulfilment and `list` still name M as the
+item its own steps install, and fulfilment counts every claim the plan makes, at either root, in the preview as at
+Prepare.
+
 **Targets.** The caller declares `target.client` (`{ id, surface }`, a registry tool) and optionally `target.repository`;
 Core never infers them. A plan step's client is the CLI the plan records for it, and the declared client otherwise.
 

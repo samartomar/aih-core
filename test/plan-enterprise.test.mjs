@@ -2,6 +2,7 @@
 // documents are local fixture files (no GitHub reads); producer documents are Core-side fixtures, not Catalog output.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import tls from 'node:tls';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -302,4 +303,118 @@ test('actual fulfilment after a failed step differs from the projection: a requi
   assert.notEqual(run.completion, 'complete', JSON.stringify(run));
   assert.equal(run.steps[0].application, 'failed', JSON.stringify(run));
   assert.deepEqual(run.organization.fulfilment.map(item => item.status), ['not-fulfilled'], JSON.stringify(run.organization));
+});
+
+// C81: a plan that acquires an AI setup admits the setup's companion MCP item under the setup's entries. The setups are
+// Core-side FIXTURES (program-fixture.mjs) served by a local HTTPS fixture server; nothing runs a real tool.
+const CLAUDE = { id: 'claude-code', surface: 'cli' };
+let artifacts;
+after(async () => { await artifacts?.close(); });
+async function aiSetups(...names) {
+  const { artifactServer } = await import('./fixtures/acquire-fixture.mjs');
+  const { toolSetup } = await import('./fixtures/program-fixture.mjs');
+  if (!artifacts) {
+    artifacts = await artifactServer();
+    tls.setDefaultCACertificates([...tls.getCACertificates('default'), artifacts.caPem]);
+  }
+  return names.map(name => toolSetup(artifacts, { name, settings: [] }));
+}
+async function setupRequest(setups, change = request => request) {
+  const { programRequest } = await import('./fixtures/program-fixture.mjs');
+  return enterprise(change(structuredClone(programRequest(project(), { setups }))), CLAUDE);
+}
+const orgDocument = (entries, extra = {}) => ({ schema: ORGANIZATION, id: 'acme', entries, ...extra });
+/** Prepare (execution admission) and previewAdmission over the same request and document: they must agree. */
+async function judged(request, document, { execution = true } = {}) {
+  const { previewAdmission } = await import('../dist/core/contracts.js');
+  const preview = await previewAdmission({ organization: document, request: { ...request, files: request.files.map(({ bytes: _bytes, ...entry }) => entry) },
+    target: { client: CLAUDE } });
+  assert.equal(preview.status, 'ok', JSON.stringify(preview));
+  if (!execution) return { preview: preview.value, denials: preview.value.denials };
+  const { entries, ...extra } = document;
+  const prepared = await prepare(request, { organization: organization(entries, extra) });
+  assert.ok(['ready', 'blocked'].includes(prepared.status), JSON.stringify(prepared));
+  conforms(prepared.review);
+  assert.deepEqual(preview.value.denials, prepared.review.organization.denials, 'preview and execution admission agree');
+  assert.equal(preview.value.admitted, prepared.status === 'ready');
+  assert.deepEqual(preview.value.fulfilment, prepared.review.organization.fulfilment);
+  return { prepared, preview: preview.value, denials: prepared.review.organization.denials };
+}
+const denialRows = denials => denials.map(item => [item.reason, item.entry ?? item.rule, item.managementId]);
+
+test('C81: a plan acquiring an AI setup admits its companion MCP item under the setup’s entries, and the companion alone stays denied', async () => {
+  const [setup] = await aiSetups('serena');
+  const permitX = { id: 'permit-setup', obligation: 'permitted', content: { item: setup.id } };
+  // The setup permitted, its companion not mentioned: own content is limited to AI setups, which the companion is judged as.
+  const onlySetups = orgDocument([permitX,
+    { id: 'need-setup', obligation: 'required', content: { item: setup.id } },
+    { id: 'need-mcp', obligation: 'required', content: { item: setup.mcpItem } }], { sources: { own: { kinds: ['ai-setup'] } } });
+  const admitted = await judged(await setupRequest([setup]), onlySetups);
+  assert.equal(admitted.prepared.status, 'ready', JSON.stringify(admitted.denials));
+  // Fulfilment still counts the companion's own claim: it names the MCP item, not the setup.
+  assert.deepEqual(admitted.prepared.review.organization.fulfilment.map(item => [item.entry, item.status, item.managementIds]),
+    [['need-setup', 'fulfilled', [setup.id]], ['need-mcp', 'fulfilled', [setup.mcpItem]]]);
+  // The setup permitted and its companion prohibited: the setup's plan is still admitted (C81).
+  const prohibitM = { id: 'no-mcp', obligation: 'prohibited', content: { item: setup.mcpItem } };
+  const both = orgDocument([permitX, prohibitM]);
+  const request = await setupRequest([setup]);
+  const withSetup = await judged(request, both);
+  assert.equal(withSetup.prepared.status, 'ready', JSON.stringify(withSetup.denials));
+  const run = conforms(await apply(withSetup.prepared.handle, approve(withSetup.prepared.review), { organization: organization(both.entries) }));
+  assert.equal(run.completion, 'complete', JSON.stringify(run));
+  const inventory = await list({ target: { project: request.target.project }, scope: 'project' });
+  assert.deepEqual(inventory.entries.map(entry => [entry.managementId, entry.items, entry.kind]), [[setup.mcpItem, [setup.mcpItem], 'mcp']]);
+  // A plan that installs only the companion is judged by the companion's own entries.
+  const alone = await judged(await setupRequest([setup], plan => ({ ...plan, plan: { ...plan.plan, plan: plan.plan.plan.filter(step => step.op !== 'acquire') } })),
+    both, { execution: false });
+  assert.deepEqual(denialRows(alone.denials), [['prohibited', 'no-mcp', setup.mcpItem]]);
+  assert.match(alone.denials[0].message, new RegExp(`prohibits \`${setup.mcpItem}\`\\.$`));
+});
+
+test('C81: a prohibited or unlisted AI setup denies its whole plan, naming the setup’s rule', async () => {
+  const [setup] = await aiSetups('serena-x');
+  const prohibited = await judged(await setupRequest([setup]), orgDocument([{ id: 'no-setup', obligation: 'prohibited', content: { item: setup.id } }]));
+  assert.equal(prohibited.prepared.status, 'blocked');
+  assert.equal(prohibited.prepared.code, 'AUTHORITY_DENIED');
+  assert.deepEqual(denialRows(prohibited.denials), [['prohibited', 'no-setup', setup.id], ['prohibited', 'no-setup', setup.mcpItem]]);
+  assert.match(prohibited.denials[1].message, new RegExp(`prohibits \`${setup.id}\`, the AI setup that configures \`${setup.mcpItem}\`\\.$`));
+  // Not permitted: own content is limited to kinds that leave AI setups out, so the setup and its companion are denied as the setup.
+  const unlisted = await judged(await setupRequest([setup]), orgDocument([], { sources: { own: { kinds: ['skill', 'mcp'] } } }));
+  assert.equal(unlisted.prepared.status, 'blocked');
+  assert.deepEqual(denialRows(unlisted.denials), [['own-content', 'sources.own', setup.id], ['own-content', 'sources.own', setup.mcpItem]]);
+  assert.ok(unlisted.denials.every(item => item.message.includes('kind `ai-setup`')), JSON.stringify(unlisted.denials));
+});
+
+test('C81: a companion the acquired setup’s record does not name is judged by its own entries', async () => {
+  const [setup] = await aiSetups('serena-own');
+  const document = orgDocument([{ id: 'no-mcp', obligation: 'prohibited', content: { item: setup.mcpItem } }], { sources: { own: { kinds: ['ai-setup', 'mcp'] } } });
+  const record = request => request.contents[0].items.find(item => item.id === setup.id);
+  const variants = {
+    'no mcpItem': request => { delete record(request).aiSetup.mcpItem; return request; },
+    'another item': request => { record(request).aiSetup.mcpItem = 'fixture.mcp.other'; return request; },
+    // The companion's record in another content document than the setup's: not the setup's companion.
+    'another document': request => {
+      const [content] = request.contents;
+      const mcp = content.items.find(item => item.id === setup.mcpItem);
+      content.items = content.items.filter(item => item !== mcp);
+      request.contents.push({ ...structuredClone(content), items: [mcp] });
+      return request;
+    },
+  };
+  for (const [name, change] of Object.entries(variants)) {
+    const { denials } = await judged(await setupRequest([setup], change), document, { execution: false });
+    assert.deepEqual(denialRows(denials), [['prohibited', 'no-mcp', setup.mcpItem]], name);
+  }
+  // With the record naming it, the same document admits the plan, and the setup's acquire step is judged as the setup.
+  const named = await judged(await setupRequest([setup]), document);
+  assert.equal(named.prepared.status, 'ready', JSON.stringify(named.denials));
+});
+
+test('C81: in a plan acquiring two AI setups each companion follows its own setup', async () => {
+  const [a, b] = await aiSetups('graph-one', 'graph-two');
+  const document = orgDocument([{ id: 'no-setup-b', obligation: 'prohibited', content: { item: b.id } },
+    { id: 'no-mcp-a', obligation: 'prohibited', content: { item: a.mcpItem } }]);
+  const { prepared, denials } = await judged(await setupRequest([a, b]), document);
+  assert.equal(prepared.status, 'blocked');
+  assert.deepEqual(denialRows(denials), [['prohibited', 'no-setup-b', b.id], ['prohibited', 'no-setup-b', b.mcpItem]]);
 });

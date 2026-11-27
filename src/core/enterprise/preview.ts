@@ -8,8 +8,8 @@ import { sha256 } from '../internal/sha256.js';
 import { cloneJsonValueStructureV1 } from '../internal/strict-json.js';
 import { findTool } from '../../harness/tool-registry.mjs';
 import { validateFormat } from '../plan/formats.js';
-import { admitChanges, admitPlan, obligations, type ChangeFacts, type ClaimFacts, type DeclaredTarget, type Denial, type Obligations,
-  type StepFacts, type Subject } from './admission.js';
+import { admitChanges, admitPlan, itemFacts, namedItems, obligations, planSubjects, type ChangeFacts, type ClaimFacts, type DeclaredTarget,
+  type Denial, type Obligations, type StepFacts } from './admission.js';
 import { validateOrganization, type Organization } from './organization.js';
 import type { Json } from '../types.js';
 import type { Problem } from '../plan/types.js';
@@ -99,32 +99,24 @@ function changeIdentity(entry: Doc): string {
 }
 
 function previewPlan(organization: Organization, target: DeclaredTarget, request: Doc): { denials: Denial[]; added: ClaimFacts[] } {
-  const facts = new Map<string, { kind: string | null; framework: string | null }>();
-  for (const content of (request.contents as Doc[] | undefined) ?? []) {
-    const framework = typeof (content.framework as Doc | undefined)?.id === 'string' ? (content.framework as Doc).id as string : null;
-    for (const item of (Array.isArray(content.items) ? content.items : []) as Doc[])
-      if (typeof item.id === 'string') facts.set(item.id, { kind: typeof item.kind === 'string' ? item.kind : null, framework });
-  }
+  const facts = itemFacts(request.contents);
   const plan = request.plan as Doc & { plan: Doc[]; data: { repository: string; commit: string } | null; recipe?: { id: string; sha256: string; commit: string } };
+  const subjects = planSubjects(request.contents, plan.plan);
   const profiles = strings(((request.profiles as Doc[] | undefined) ?? []).map(profile => profile.id));
   const steps: StepFacts[] = [];
   const claims = new Map<string, ClaimFacts>();
   plan.plan.forEach((raw, index) => {
-    const ids = [...(typeof raw.item === 'string' ? [raw.item] : []), ...strings(raw.items)];
-    const owners = ids.length ? [...new Set(ids)] : typeof raw.framework === 'string' ? [raw.framework] : [];
-    const subject = (item: string): Subject => ({ item, framework: facts.get(item)?.framework ?? null, kind: facts.get(item)?.kind ?? null });
-    const contained = strings(raw.contains);
-    const subjects: Subject[] = ids.length ? [...new Set(ids)].map(subject) : contained.length ? contained.map(item => ({ ...subject(item),
-      framework: typeof raw.framework === 'string' ? raw.framework : facts.get(item)?.framework ?? null })) :
-      [{ item: null, framework: typeof raw.framework === 'string' ? raw.framework : null, kind: null }];
+    const ids = namedItems(raw);
+    const owners = ids.length ? ids : typeof raw.framework === 'string' ? [raw.framework] : [];
     const scope = raw.root === 'project' ? 'project' as const : 'user' as const;
     const clis: (string | null)[] = typeof raw.cli === 'string' ? [raw.cli] : strings(raw.clis).length ? strings(raw.clis) : [null];
+    // Every claim the plan makes, at either root, as Prepare counts them.
     for (const managementId of owners) {
-      steps.push({ step: index, managementId, scope, clis, subjects });
+      steps.push({ step: index, managementId, scope, clis, subjects: subjects[index]! });
       for (const cli of clis) {
         const key = `${managementId}\0${cli ?? ''}`;
         const known = facts.get(managementId);
-        if (scope === target.scope && !claims.has(key)) claims.set(key, { key, managementId, scope, clis: cli ? [cli] : profiles, origin: 'chosen',
+        if (!claims.has(key)) claims.set(key, { key, managementId, scope, clis: cli ? [cli] : profiles, origin: 'chosen',
           items: known ? [managementId] : [], kind: known?.kind ?? null, framework: known?.framework ?? (known ? null : managementId), change: null });
       }
     }
